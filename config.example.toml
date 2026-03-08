@@ -1,0 +1,28 @@
+# voiceio configuration
+# Copy to ~/.config/voiceio/config.toml and edit as needed.
+# All values shown are defaults — only override what you want to change.
+
+[hotkey]
+key = "Super_r"          # Key to hold for recording. Examples: Super_r, Super_l, f9, pause
+
+[model]
+name = "base"            # Whisper model: tiny, base, small, medium, large-v3
+language = "en"          # ISO 639-1 code, or "auto" for auto-detection
+device = "auto"          # "cpu", "cuda", or "auto"
+compute_type = "int8"    # int8 (fastest), float16 (GPU), float32 (most accurate)
+
+[audio]
+sample_rate = 16000      # 16kHz is what Whisper expects
+device = "default"       # Audio input device name or index
+
+[output]
+method = "xdotool"       # "xdotool" (type chars) or "xclip" (clipboard paste, better for unicode)
+
+[feedback]
+sound_enabled = true     # Play sounds on start/stop recording
+
+[tray]
+enabled = false          # Show system tray icon (requires: pip install voiceio[tray])
+
+[daemon]
+log_level = "INFO"       # DEBUG, INFO, WARNING, ERROR
