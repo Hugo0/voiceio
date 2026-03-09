@@ -407,7 +407,7 @@ class TestWorkerLoop:
     def test_fires_on_event(self):
         transcriber = MagicMock()
         transcriber.transcribe.return_value = "Hello"
-        typer = MagicMock()
+        typer = MagicMock(spec=TyperBackend)
         recorder = MagicMock()
         recorder.sample_rate = 16000
         recorder.get_audio_so_far.return_value = np.zeros(32000, dtype=np.float32)
@@ -431,7 +431,7 @@ class TestWorkerLoop:
     def test_stop_does_final_transcription(self):
         transcriber = MagicMock()
         transcriber.transcribe.return_value = "Final text"
-        typer = MagicMock()
+        typer = MagicMock(spec=TyperBackend)
         recorder = MagicMock()
         recorder.sample_rate = 16000
         recorder.get_audio_so_far.return_value = np.zeros(16000, dtype=np.float32)
@@ -457,7 +457,7 @@ class TestWorkerLoop:
             return f"text {call_count}"
 
         transcriber.transcribe.side_effect = slow_transcribe
-        typer = MagicMock()
+        typer = MagicMock(spec=TyperBackend)
         recorder = MagicMock()
         recorder.sample_rate = 16000
         recorder.get_audio_so_far.return_value = np.zeros(32000, dtype=np.float32)
