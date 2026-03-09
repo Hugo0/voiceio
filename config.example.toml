@@ -3,7 +3,8 @@
 # All values shown are defaults — only override what you want to change.
 
 [hotkey]
-key = "Super_r"          # Key to hold for recording. Examples: Super_r, Super_l, f9, pause
+key = "ctrl+alt+v"       # Combo to toggle recording. Examples: alt+v, ctrl+shift+r, ctrl+alt+v
+backend = "auto"         # "auto", "evdev", "pynput", "socket"
 
 [model]
 name = "base"            # Whisper model: tiny, base, small, medium, large-v3
@@ -14,9 +15,15 @@ compute_type = "int8"    # int8 (fastest), float16 (GPU), float32 (most accurate
 [audio]
 sample_rate = 16000      # 16kHz is what Whisper expects
 device = "default"       # Audio input device name or index
+prebuffer_secs = 1.0     # Seconds of pre-buffer to capture (prevents clipping first syllable)
+silence_threshold = 0.01 # RMS threshold for silence detection (lower = more sensitive)
+silence_duration = 0.6   # Seconds of silence before triggering a streaming transcription pass
 
 [output]
-method = "xdotool"       # "xdotool" (type chars) or "xclip" (clipboard paste, better for unicode)
+method = "auto"          # "auto", "xdotool", "ydotool", "wtype", "clipboard", "pynput"
+streaming = true         # Stream text as you speak
+min_recording_secs = 1.5 # Minimum recording duration before stop is accepted
+cancel_window_secs = 0.5 # Double-press within this window cancels recording
 
 [feedback]
 sound_enabled = true     # Play sounds on start/stop recording
@@ -26,3 +33,6 @@ enabled = false          # Show system tray icon (requires: pip install voiceio[
 
 [daemon]
 log_level = "INFO"       # DEBUG, INFO, WARNING, ERROR
+
+[health]
+auto_fallback = true     # Automatically switch to fallback backend on failure

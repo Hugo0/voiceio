@@ -1,42 +1,25 @@
+"""Configuration schema, loading, and v1 migration."""
 from __future__ import annotations
 
+import dataclasses
+import logging
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+log = logging.getLogger(__name__)
+
 CONFIG_DIR = Path.home() / ".config" / "voiceio"
 CONFIG_PATH = CONFIG_DIR / "config.toml"
-
-DEFAULTS = {
-    "hotkey": {"key": "Super_r"},
-    "model": {
-        "name": "base",
-        "language": "en",
-        "device": "auto",
-        "compute_type": "int8",
-    },
-    "audio": {
-        "sample_rate": 16000,
-        "device": "default",
-    },
-    "output": {
-        "method": "xdotool",
-    },
-    "feedback": {
-        "sound_enabled": True,
-    },
-    "tray": {
-        "enabled": False,
-    },
-    "daemon": {
-        "log_level": "INFO",
-    },
-}
+LOG_DIR = Path.home() / ".local" / "state" / "voiceio"
+LOG_PATH = LOG_DIR / "voiceio.log"
+PID_PATH = LOG_DIR / "voiceio.pid"
 
 
 @dataclass
 class HotkeyConfig:
-    key: str = "Super_r"
+    key: str = "ctrl+alt+v"
+    backend: str = "auto"
 
 
 @dataclass
@@ -51,16 +34,23 @@ class ModelConfig:
 class AudioConfig:
     sample_rate: int = 16000
     device: str = "default"
+    prebuffer_secs: float = 1.0
+    silence_threshold: float = 0.01
+    silence_duration: float = 0.6
 
 
 @dataclass
 class OutputConfig:
-    method: str = "xdotool"  # "xdotool" or "xclip"
+    method: str = "auto"
+    streaming: bool = True
+    min_recording_secs: float = 1.5
+    cancel_window_secs: float = 0.5
 
 
 @dataclass
 class FeedbackConfig:
     sound_enabled: bool = True
+    notify_clipboard: bool = False
 
 
 @dataclass
@@ -74,6 +64,11 @@ class DaemonConfig:
 
 
 @dataclass
+class HealthConfig:
+    auto_fallback: bool = True
+
+
+@dataclass
 class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -82,33 +77,60 @@ class Config:
     feedback: FeedbackConfig = field(default_factory=FeedbackConfig)
     tray: TrayConfig = field(default_factory=TrayConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
+    health: HealthConfig = field(default_factory=HealthConfig)
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
-    result = base.copy()
-    for k, v in override.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = _deep_merge(result[k], v)
-        else:
-            result[k] = v
-    return result
+def _migrate_v1(raw: dict) -> dict:
+    """Migrate v1 config values to v2."""
+    # Remove deprecated cpu_threads
+    if "model" in raw and "cpu_threads" in raw["model"]:
+        del raw["model"]["cpu_threads"]
+        log.info("Config migration: removed deprecated model.cpu_threads")
+
+    # Migrate old output methods
+    if "output" in raw and "method" in raw["output"]:
+        method = raw["output"]["method"]
+        if method in ("xclip", "wl-copy"):
+            raw["output"]["method"] = "clipboard"
+            log.info("Config migration: output.method '%s' → 'clipboard'", method)
+
+    # Migrate old hotkey backend names
+    if "hotkey" in raw and "backend" in raw["hotkey"]:
+        if raw["hotkey"]["backend"] == "x11":
+            raw["hotkey"]["backend"] = "pynput"
+            log.info("Config migration: hotkey.backend 'x11' → 'pynput'")
+
+    return raw
+
+
+def _build(cls, section: dict):
+    """Build a dataclass from a dict, ignoring unknown keys."""
+    valid = {f.name for f in dataclasses.fields(cls)}
+    filtered = {k: v for k, v in section.items() if k in valid}
+    unknown = set(section) - valid
+    if unknown:
+        log.warning("Ignoring unknown config keys in [%s]: %s", cls.__name__, ", ".join(unknown))
+    return cls(**filtered)
 
 
 def load(path: Path | None = None) -> Config:
     path = path or CONFIG_PATH
-    raw = DEFAULTS.copy()
+    raw: dict = {}
 
-    if path.exists():
+    try:
         with open(path, "rb") as f:
-            user = tomllib.load(f)
-        raw = _deep_merge(raw, user)
+            raw = tomllib.load(f)
+        raw = _migrate_v1(raw)
+    except FileNotFoundError:
+        pass
 
     return Config(
-        hotkey=HotkeyConfig(**raw.get("hotkey", {})),
-        model=ModelConfig(**raw.get("model", {})),
-        audio=AudioConfig(**raw.get("audio", {})),
-        output=OutputConfig(**raw.get("output", {})),
-        feedback=FeedbackConfig(**raw.get("feedback", {})),
-        tray=TrayConfig(**raw.get("tray", {})),
-        daemon=DaemonConfig(**raw.get("daemon", {})),
+        hotkey=_build(HotkeyConfig, raw.get("hotkey", {})),
+        model=_build(ModelConfig, raw.get("model", {})),
+        audio=_build(AudioConfig, raw.get("audio", {})),
+        output=_build(OutputConfig, raw.get("output", {})),
+        feedback=_build(FeedbackConfig, raw.get("feedback", {})),
+        tray=_build(TrayConfig, raw.get("tray", {})),
+        daemon=_build(DaemonConfig, raw.get("daemon", {})),
+        health=_build(HealthConfig, raw.get("health", {})),
     )

@@ -1,0 +1,57 @@
+{
+  "name": "repetitive",
+  "duration": 10.0,
+  "sample_rate": 16000,
+  "windows": [
+    {
+      "audio_seconds": 1.0,
+      "text": "Test.",
+      "transcribe_seconds": 0.5
+    },
+    {
+      "audio_seconds": 2.0,
+      "text": "Testing, testing, testing, testing.",
+      "transcribe_seconds": 0.37
+    },
+    {
+      "audio_seconds": 3.0,
+      "text": "Testing testing testing hello hello hello",
+      "transcribe_seconds": 0.4
+    },
+    {
+      "audio_seconds": 4.0,
+      "text": "Testing testing testing hello hello hello testing testing",
+      "transcribe_seconds": 0.39
+    },
+    {
+      "audio_seconds": 5.0,
+      "text": "Testing, testing, testing Hello Hello Hello. Testing, testing, testing Hello.",
+      "transcribe_seconds": 0.73
+    },
+    {
+      "audio_seconds": 6.0,
+      "text": "Testing testing testing hello hello hello testing testing hello hello hello hello hello",
+      "transcribe_seconds": 0.72
+    },
+    {
+      "audio_seconds": 7.0,
+      "text": "Testing, testing, testing, hello hello hello, testing, testing, testing, hello, hello hello, testing, testing, testing...",
+      "transcribe_seconds": 0.78
+    },
+    {
+      "audio_seconds": 8.0,
+      "text": "Testing! testing!Hallow!Halloooo! testing testing testing!",
+      "transcribe_seconds": 0.86
+    },
+    {
+      "audio_seconds": 9.0,
+      "text": "Testing, testing, testing hello hello hello.",
+      "transcribe_seconds": 0.81
+    },
+    {
+      "audio_seconds": 10.0,
+      "text": "Testing testing testing hello hello hello testing testing",
+      "transcribe_seconds": 2.32
+    }
+  ]
+}

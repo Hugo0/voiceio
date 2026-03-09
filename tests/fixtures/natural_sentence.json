@@ -1,0 +1,47 @@
+{
+  "name": "natural_sentence",
+  "duration": 8.0,
+  "sample_rate": 16000,
+  "windows": [
+    {
+      "audio_seconds": 1.0,
+      "text": "Test.",
+      "transcribe_seconds": 0.35
+    },
+    {
+      "audio_seconds": 2.0,
+      "text": "Testing, testing once.",
+      "transcribe_seconds": 0.37
+    },
+    {
+      "audio_seconds": 3.0,
+      "text": "Testing, testing, one, two, three, four.",
+      "transcribe_seconds": 0.42
+    },
+    {
+      "audio_seconds": 4.0,
+      "text": "Testing, testing, one, two, three, four, five, the...",
+      "transcribe_seconds": 0.43
+    },
+    {
+      "audio_seconds": 5.0,
+      "text": "Testing, testing, one, two, three, four, five, the world is round.",
+      "transcribe_seconds": 0.46
+    },
+    {
+      "audio_seconds": 6.0,
+      "text": "Testing testing 1 2 3 4 5 the world is round and I am a",
+      "transcribe_seconds": 0.41
+    },
+    {
+      "audio_seconds": 7.0,
+      "text": "Testing testing 1 2 3 4 5 the world is round and I'm a globe.",
+      "transcribe_seconds": 0.43
+    },
+    {
+      "audio_seconds": 8.0,
+      "text": "Testing testing 12345 the world is round and I'm a globe 567.",
+      "transcribe_seconds": 0.43
+    }
+  ]
+}

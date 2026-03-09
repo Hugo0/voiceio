@@ -1,37 +1,54 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "voiceio"
 version = "0.1.0"
-description = "Push-to-talk voice-to-text for Linux. Hold a hotkey, speak, release — text appears at your cursor."
+description = "Push-to-talk voice-to-text for Linux. Press a hotkey, speak, press again — text appears at your cursor."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "Hugo Montenegro" }]
-keywords = ["voice", "speech-to-text", "whisper", "linux", "dictation"]
+keywords = ["voice", "speech-to-text", "whisper", "linux", "dictation", "wayland", "ibus"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: X11 Applications",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [
     "faster-whisper>=1.0.0",
-    "pynput>=1.7.6",
     "sounddevice>=0.4.6",
     "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
+linux = ["evdev>=1.6.0"]
+x11 = ["pynput>=1.7.6"]
+mac = ["pynput>=1.7.6"]
 tray = ["pystray>=0.19", "Pillow>=10.0"]
+dev = ["pytest>=7.0", "pytest-mock"]
+
+[project.urls]
+Homepage = "https://github.com/hugomontenegro/voiceio"
+Issues = "https://github.com/hugomontenegro/voiceio/issues"
 
 [project.scripts]
-voiceio = "voiceio.app:main"
+voiceio = "voiceio.cli:main"
+# Legacy aliases (prefer: voiceio toggle/doctor/setup/test)
+voiceio-toggle = "voiceio.cli:_cmd_toggle"
+voiceio-doctor = "voiceio.cli:_cmd_doctor_legacy"
+voiceio-setup = "voiceio.cli:_cmd_setup"
+voiceio-test = "voiceio.cli:_cmd_test"
+
+[tool.ruff]
+lint.per-file-ignores."voiceio/ibus/engine.py" = ["E402"]
 
 [tool.setuptools.packages.find]
 include = ["voiceio*"]
+
+[tool.setuptools.package-data]
+"voiceio.sounds" = ["*.wav"]

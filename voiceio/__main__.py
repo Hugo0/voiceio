@@ -1,3 +1,3 @@
-from voiceio.app import main
+from voiceio.cli import main
 
 main()
