@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "voiceio"
+name = "python-voiceio"
 version = "0.2.0"
 description = "Push-to-talk voice-to-text for Linux. Press a hotkey, speak, press again - text appears at your cursor."
 readme = "README.md"

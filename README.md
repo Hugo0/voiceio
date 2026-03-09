@@ -1,8 +1,8 @@
 # voiceio
 
 [![CI](https://github.com/Hugo0/voiceio/actions/workflows/ci.yml/badge.svg)](https://github.com/Hugo0/voiceio/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/voiceio)](https://pypi.org/project/voiceio/)
-[![Python](https://img.shields.io/pypi/pyversions/voiceio)](https://pypi.org/project/voiceio/)
+[![PyPI](https://img.shields.io/pypi/v/python-voiceio)](https://pypi.org/project/python-voiceio/)
+[![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Push-to-talk voice-to-text for Linux and macOS, on any app. Press a hotkey, speak, press again - text appears at your cursor.
@@ -25,7 +25,7 @@ Push-to-talk voice-to-text for Linux and macOS, on any app. Press a hotkey, spea
 sudo apt install pipx ibus gir1.2-ibus-1.0 python3-gi portaudio19-dev
 
 # 2. Install voiceio
-pipx install voiceio
+pipx install python-voiceio
 
 # 3. Run the setup wizard
 voiceio setup
@@ -38,7 +38,7 @@ That's it. Press **Ctrl+Alt+V** (or your chosen hotkey) to start dictating.
 
 ```bash
 sudo dnf install pipx ibus python3-gobject portaudio-devel
-pipx install voiceio
+pipx install python-voiceio
 voiceio setup
 ```
 </details>
@@ -48,7 +48,7 @@ voiceio setup
 
 ```bash
 sudo pacman -S python-pipx ibus python-gobject portaudio
-pipx install voiceio
+pipx install python-voiceio
 voiceio setup
 ```
 </details>
@@ -159,7 +159,7 @@ voiceio auto-detects your platform and picks the best available backends. Run `v
 
 ```bash
 voiceio uninstall        # removes service, IBus, shortcuts, symlinks
-pipx uninstall voiceio   # removes the package
+pipx uninstall python-voiceio   # removes the package
 ```
 
 ## TODO
