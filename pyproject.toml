@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-voiceio"
-version = "0.2.0"
+version = "0.2.1"
 description = "Push-to-talk voice-to-text for Linux. Press a hotkey, speak, press again - text appears at your cursor."
 readme = "README.md"
 license = "MIT"
@@ -23,10 +23,10 @@ dependencies = [
     "faster-whisper>=1.0.0",
     "sounddevice>=0.4.6",
     "numpy>=1.24.0",
+    "evdev>=1.6.0; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]
-linux = ["evdev>=1.6.0"]
 x11 = ["pynput>=1.7.6"]
 mac = ["pynput>=1.7.6"]
 tray = ["pystray>=0.19", "Pillow>=10.0"]
