@@ -34,7 +34,9 @@ dev = ["pytest>=7.0", "pytest-mock"]
 
 [project.urls]
 Homepage = "https://github.com/Hugo0/voiceio"
+Repository = "https://github.com/Hugo0/voiceio"
 Issues = "https://github.com/Hugo0/voiceio/issues"
+Changelog = "https://github.com/Hugo0/voiceio/releases"
 
 [project.scripts]
 voiceio = "voiceio.cli:main"
