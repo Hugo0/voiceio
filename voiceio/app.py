@@ -33,7 +33,7 @@ class VoiceIO:
         self._typer = typer_chain.select(self.platform, cfg.output.method)
         self._auto_fallback = cfg.health.auto_fallback
 
-        # Always start socket backend alongside native hotkey
+        # Socket backend runs alongside native hotkey for extra robustness
         self._socket: SocketHotkey | None = None
         if self._hotkey.name != "socket":
             self._socket = SocketHotkey()
@@ -47,6 +47,8 @@ class VoiceIO:
         self._session: StreamingSession | None = None
         self._processing = False
         self._record_start: float = 0
+        self._hotkey_lock = threading.Lock()
+        self._last_hotkey: float = 0
         self._prev_ibus_engine: str | None = None
         self._engine_proc: subprocess.Popen | None = None
         self._shutdown = threading.Event()
@@ -56,23 +58,21 @@ class VoiceIO:
         self._shutdown.set()
 
     def on_hotkey(self) -> None:
+        with self._hotkey_lock:
+            now = time.monotonic()
+            # Deduplicate: multiple backends (evdev + socket) may fire
+            # for the same physical keypress
+            if now - self._last_hotkey < 0.3:
+                return
+            self._last_hotkey = now
+            self._on_hotkey_inner()
+            # Update timestamp after completion so threads that waited
+            # behind the lock see a fresh timestamp and get debounced
+            self._last_hotkey = time.monotonic()
+
+    def _on_hotkey_inner(self) -> None:
         if self.recorder.is_recording:
             elapsed = time.monotonic() - self._record_start
-            if elapsed < self.cfg.output.cancel_window_secs:
-                # Quick double-press = cancel recording without typing
-                if self._streaming and self._session is not None:
-                    self._session.stop()
-                    self._session = None
-                self.recorder.stop()
-                if isinstance(self._typer, StreamingTyper):
-                    self._typer.clear_preedit()
-                self._deactivate_ibus()
-                log.info("Recording cancelled (double-press)")
-                return
-            if elapsed < self.cfg.output.min_recording_secs:
-                log.debug("Ignoring stop, only %.1fs into recording (min %.1fs)", elapsed, self.cfg.output.min_recording_secs)
-                return
-
             self._play_record_cue(start=False)
             if self._streaming and self._session is not None:
                 final_text = self._session.stop()
@@ -82,11 +82,11 @@ class VoiceIO:
                     self._play_feedback(final_text)
                 log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
             else:
+                self._play_record_cue(start=False)
                 audio = self.recorder.stop()
                 log.info("Stopped recording (%.1fs)", elapsed)
                 if audio is not None and not self._processing:
                     threading.Thread(target=self._process, args=(audio,), daemon=True).start()
-            # Deactivate IBus engine, return keyboard to normal
             self._deactivate_ibus()
         elif not self._processing:
             # Activate IBus engine so preedit/commit can reach the focused app

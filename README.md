@@ -5,9 +5,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Push-to-talk voice-to-text for Linux and macOS, on any app. Press a hotkey, speak, press again - text appears at your cursor.
-
-100% local and open source. No API keys, no cloud, no telemetry. Use and modify at your will.
+Speak → text, locally, instantly.
 
 <!-- demo video -->
 <p align="center">

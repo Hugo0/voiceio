@@ -844,22 +844,23 @@ def run_wizard() -> None:
         _streaming_test(model=_get_or_load_model())
 
     # ── Done ────────────────────────────────────────────────────────────
-    # Restart service if it was already running (setup may have killed the
-    # IBus engine via `ibus restart`)
-    from voiceio.service import is_running
-    if is_running():
-        subprocess.run(
-            ["systemctl", "--user", "restart", "voiceio.service"],
-            capture_output=True, timeout=5,
-        )
-        print(f"  {GREEN}✓{RESET} {DIM}Restarted voiceio service{RESET}")
+    # Start (or restart) the service so it's immediately usable
+    if autostart_idx == 0:
+        from voiceio.service import is_running
+        action = "restart" if is_running() else "start"
+        try:
+            subprocess.run(
+                ["systemctl", "--user", action, "voiceio.service"],
+                capture_output=True, timeout=5,
+            )
+            print(f"  {GREEN}✓{RESET} {DIM}voiceio service started{RESET}")
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
 
     from voiceio.config import LOG_PATH
     log_path = LOG_PATH
     start_hint = (
-        f"  It will start automatically on next login.\n"
-        f"  Or start now:\n"
-        f"    {CYAN}systemctl --user start voiceio{RESET}"
+        f"  voiceio is running and will start automatically on login."
         if autostart_idx == 0
         else f"  Start voiceio:\n    {CYAN}voiceio{RESET}"
     )

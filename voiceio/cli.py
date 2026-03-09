@@ -429,14 +429,15 @@ def _cmd_uninstall() -> None:
         print("\nNothing to remove. voiceio was not installed on this system.")
 
     # Offer to uninstall the Python package itself
+    from voiceio.config import PYPI_NAME
     is_pipx = "pipx" in sys.prefix
     if is_pipx:
         answer = input("\nAlso uninstall the voiceio Python package (pipx uninstall)? [Y/n] ").strip().lower()
         if answer in ("y", "yes", ""):
             try:
-                subprocess.run(["pipx", "uninstall", "voiceio"], timeout=30)
+                subprocess.run(["pipx", "uninstall", PYPI_NAME], timeout=30)
             except (FileNotFoundError, subprocess.TimeoutExpired):
-                print("Failed. Run manually: pipx uninstall python-voiceio")
+                print(f"Failed. Run manually: pipx uninstall {PYPI_NAME}")
     else:
         # Dev install or pip install: check if voiceio is still reachable
         voiceio_bin = shutil.which("voiceio")
@@ -444,10 +445,10 @@ def _cmd_uninstall() -> None:
             print(f"\nNote: 'voiceio' is still available at {voiceio_bin}")
             if ".venv" in str(voiceio_bin) or "site-packages" in str(voiceio_bin):
                 print("This is a development install. To fully remove:")
-                print("  pip uninstall python-voiceio")
+                print(f"  pip uninstall {PYPI_NAME}")
             else:
                 print("To fully remove the package:")
-                print("  pip uninstall python-voiceio")
+                print(f"  pip uninstall {PYPI_NAME}")
         else:
             print("\nvoiceio fully removed.")
 

@@ -9,6 +9,8 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+PYPI_NAME = "python-voiceio"
+
 CONFIG_DIR = Path.home() / ".config" / "voiceio"
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 LOG_DIR = Path.home() / ".local" / "state" / "voiceio"

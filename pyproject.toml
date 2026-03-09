@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-voiceio"
-version = "0.2.1"
-description = "Push-to-talk voice-to-text for Linux. Press a hotkey, speak, press again - text appears at your cursor."
+version = "0.2.3"
+description = "Speak → text, locally, instantly."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"

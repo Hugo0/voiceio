@@ -108,16 +108,20 @@ class EvdevHotkey:
                     if event.type != ecodes.EV_KEY:
                         continue
                     key_event = evdev.categorize(event)
+                    should_trigger = False
                     with pressed_lock:
                         if key_event.keystate == evdev.KeyEvent.key_down:
                             pressed.add(event.code)
                             if event.code == key_code and check_mods():
                                 now = time.monotonic()
-                                if now - last_trigger[0] >= DEBOUNCE_SECS:
+                                since = now - last_trigger[0]
+                                if since >= DEBOUNCE_SECS:
                                     last_trigger[0] = now
-                                    on_trigger()
+                                    should_trigger = True
                         elif key_event.keystate == evdev.KeyEvent.key_up:
                             pressed.discard(event.code)
+                    if should_trigger:
+                        on_trigger()
             except OSError:
                 pass
 
