@@ -114,10 +114,20 @@ pytest tests/test_streaming.py -x -q  # run specific file
 
 ## Releasing
 
-Releases are automated via GitHub Actions + PyPI Trusted Publishing:
+Releases are automated via GitHub Actions + PyPI Trusted Publishing. Push a version tag and everything happens automatically:
 
-1. Bump version in `pyproject.toml` and `voiceio/__init__.py`
-2. Commit: `chore: bump version to X.Y.Z`
-3. Push to main
-4. Create a GitHub Release with tag `vX.Y.Z`
-5. The `publish.yml` workflow builds and publishes to PyPI automatically
+```bash
+# 1. Bump version in both files
+#    - pyproject.toml: version = "X.Y.Z"
+#    - voiceio/__init__.py: __version__ = "X.Y.Z"
+
+# 2. Commit, tag, push
+git commit -am "chore: bump version to X.Y.Z"
+git tag vX.Y.Z
+git push && git push --tags
+```
+
+The `publish.yml` workflow will automatically:
+- Build the package
+- Publish to PyPI (with verified publisher attestation)
+- Create a GitHub Release with auto-generated notes
