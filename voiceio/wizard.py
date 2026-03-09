@@ -860,7 +860,7 @@ def run_wizard() -> None:
     from voiceio.config import LOG_PATH
     log_path = LOG_PATH
     start_hint = (
-        f"  voiceio is running and will start automatically on login."
+        "  voiceio is running and will start automatically on login."
         if autostart_idx == 0
         else f"  Start voiceio:\n    {CYAN}voiceio{RESET}"
     )

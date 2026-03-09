@@ -59,6 +59,9 @@ def main() -> None:
                            choices=["install", "uninstall", "start", "stop", "status"],
                            help="Action to perform (default: status)")
 
+    # ── voiceio update ──────────────────────────────────────────────────
+    sub.add_parser("update", help="Update voiceio to the latest version")
+
     # ── voiceio uninstall ──────────────────────────────────────────────
     sub.add_parser("uninstall", help="Remove all voiceio system integrations")
 
@@ -77,6 +80,8 @@ def main() -> None:
         _cmd_test()
     elif args.command == "service":
         _cmd_service(args)
+    elif args.command == "update":
+        _cmd_update()
     elif args.command == "uninstall":
         _cmd_uninstall()
     elif args.command == "logs":
@@ -281,6 +286,37 @@ def _cmd_service(args: argparse.Namespace) -> None:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             print("Failed to stop service.", file=sys.stderr)
             sys.exit(1)
+
+
+def _cmd_update() -> None:
+    """Update voiceio to the latest PyPI version."""
+    import subprocess
+    from voiceio import __version__
+    from voiceio.config import PYPI_NAME
+
+    is_pipx = "pipx" in sys.prefix
+    if is_pipx:
+        print(f"Current version: {__version__}")
+        print("Checking for updates...")
+        try:
+            result = subprocess.run(
+                ["pipx", "upgrade", PYPI_NAME],
+                capture_output=True, text=True, timeout=60,
+            )
+            print(result.stdout.strip())
+            if result.returncode != 0 and result.stderr.strip():
+                print(result.stderr.strip(), file=sys.stderr)
+                sys.exit(1)
+        except FileNotFoundError:
+            print("pipx not found. Update manually: pipx upgrade " + PYPI_NAME, file=sys.stderr)
+            sys.exit(1)
+        except subprocess.TimeoutExpired:
+            print("Update timed out.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("Not a pipx install. Update manually:")
+        print(f"  pip install --upgrade {PYPI_NAME}")
+        sys.exit(1)
 
 
 def _cmd_uninstall() -> None:
