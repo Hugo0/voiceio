@@ -79,7 +79,7 @@ class TestAudioRecorderPrebuffer:
     """Test that AudioRecorder correctly mixes 1D ring buffer output with 2D sounddevice chunks."""
 
     def test_prebuffer_concat_with_2d_chunks(self):
-        """Ring buffer returns 1D, sounddevice gives 2D (frames, 1) — must not crash on concatenate."""
+        """Ring buffer returns 1D, sounddevice gives 2D (frames, 1) - must not crash on concatenate."""
         cfg = AudioConfig(sample_rate=16000, prebuffer_secs=0.5)
         rec = AudioRecorder(cfg)
 
@@ -88,7 +88,7 @@ class TestAudioRecorderPrebuffer:
             fake_input = np.ones((1600, 1), dtype=np.float32)
             rec._ring.append(fake_input)
 
-        # Start recording — grabs ring buffer into _chunks
+        # Start recording - grabs ring buffer into _chunks
         rec._recording = False
         rec._stream = MagicMock()  # pretend stream is open
         rec.start()

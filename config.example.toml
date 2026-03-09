@@ -1,6 +1,6 @@
 # voiceio configuration
 # Copy to ~/.config/voiceio/config.toml and edit as needed.
-# All values shown are defaults — only override what you want to change.
+# All values shown are defaults. Only override what you want to change.
 
 [hotkey]
 key = "ctrl+alt+v"       # Combo to toggle recording. Examples: alt+v, ctrl+shift+r, ctrl+alt+v

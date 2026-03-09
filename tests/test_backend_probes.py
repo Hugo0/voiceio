@@ -1,4 +1,4 @@
-"""Smoke tests — call every backend's probe() on the real system.
+"""Smoke tests: call every backend's probe() on the real system.
 
 These don't assert OK/FAIL (that depends on installed tools),
 they just verify probe() doesn't crash or raise.

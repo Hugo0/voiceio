@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from voiceio.typers.base import TyperBackend
+
 import numpy as np
 import pytest
 
@@ -75,7 +77,7 @@ class TestApplyCorrection:
     def _make_session(self):
         return StreamingSession(
             transcriber=MagicMock(),
-            typer=MagicMock(),
+            typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
 
@@ -97,7 +99,7 @@ class TestApplyCorrection:
         assert s._typed_text == "Hello world foo how are you"
 
     def test_punct_change_still_appends(self):
-        """Whisper changes commas — word match ignores this, appends new."""
+        """Whisper changes commas - word match ignores this, appends new."""
         s = self._make_session()
         s._typed_text = "Testing, testing, testing"  # >2 words
         s._apply_correction("Testing testing testing hello")
@@ -109,7 +111,7 @@ class TestApplyCorrection:
         s = self._make_session()
         s._typed_text = "Hello world foo"
         s._apply_correction("Hello world bar baz")
-        # "foo" vs "bar" — mismatch at word 3 (matched 2 < 3 typed)
+        # "foo" vs "bar" - mismatch at word 3 (matched 2 < 3 typed)
         s._typer.type_text.assert_not_called()
         s._typer.delete_chars.assert_not_called()
         assert s._typed_text == "Hello world foo"
@@ -172,7 +174,7 @@ class TestWhisperSequence:
     def _simulate(self, transcriptions: list[str]) -> tuple[list, str]:
         s = StreamingSession(
             transcriber=MagicMock(),
-            typer=MagicMock(),
+            typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
         for text in transcriptions[:-1]:
@@ -241,7 +243,7 @@ def test_fixture_no_large_streaming_deletions(fixture_name):
 
     s = StreamingSession(
         transcriber=MagicMock(),
-        typer=MagicMock(),
+        typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
     for text in transcriptions[:-1]:
@@ -269,7 +271,7 @@ def test_fixture_final_text_correct(fixture_name):
 
     s = StreamingSession(
         transcriber=MagicMock(),
-        typer=MagicMock(),
+        typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
     for text in transcriptions[:-1]:
@@ -292,7 +294,7 @@ def test_fixture_text_grows(fixture_name):
 
     s = StreamingSession(
         transcriber=MagicMock(),
-        typer=MagicMock(),
+        typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
     lengths = []
@@ -384,7 +386,7 @@ class TestPreeditPath:
         assert s._typer.update_preedit.call_count == 1
 
     def test_whisper_flipflop_trivial(self):
-        """Preedit handles Whisper instability trivially — just replace text."""
+        """Preedit handles Whisper instability trivially - just replace text."""
         s = self._make_session()
         sequence = [
             "Testing, testing.",

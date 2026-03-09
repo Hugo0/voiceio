@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/voiceio)](https://pypi.org/project/voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Push-to-talk voice-to-text for Linux and macOS, on any app. Press a hotkey, speak, press again — text appears at your cursor.
+Push-to-talk voice-to-text for Linux and macOS, on any app. Press a hotkey, speak, press again - text appears at your cursor.
 
 100% local and open source. No API keys, no cloud, no telemetry. Use and modify at your will.
 
@@ -54,7 +54,9 @@ voiceio setup
 </details>
 
 <details>
-<summary><strong>From source (contributors)</strong></summary>
+<summary><strong>Build from source</strong></summary>
+
+If you want the source code locally to hack on or customize for personal use. PRs are welcome!
 
 ```bash
 git clone https://github.com/Hugo0/voiceio
@@ -73,21 +75,21 @@ hotkey → mic capture → whisper (local) → text at cursor
           pre-buffered   streaming        IBus / clipboard
 ```
 
-1. Press your hotkey — voiceio starts recording (with a 1-second pre-buffer, so it catches the beginning even if you start speaking before pressing)
-2. Speak naturally — text streams into the focused app in real-time as an underlined preview
-3. Press the hotkey again — the final transcription replaces the preview and is committed
+1. Press your hotkey: voiceio starts recording (with a 1-second pre-buffer, so it catches the beginning even if you start speaking before pressing)
+2. Speak naturally: text streams into the focused app in real-time as an underlined preview
+3. Press the hotkey again: the final transcription replaces the preview and is committed
 
-Transcription runs locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Text is injected through IBus (works in any GTK/Qt app — browsers, Telegram, editors) with an automatic clipboard fallback for terminals.
+Transcription runs locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Text is injected through IBus (works in any GTK/Qt app: browsers, Telegram, editors) with an automatic clipboard fallback for terminals.
 
 ## Features
 
-- **Streaming** — text appears as you speak, not after you stop
-- **Works everywhere** — IBus input method for GUI apps, clipboard for terminals
-- **Wayland + X11** — evdev hotkeys work on both, no root required
-- **Pre-buffer** — never miss the first syllable
-- **Auto-healing** — falls back to the next working backend if one fails
-- **Autostart** — optional systemd service, restarts on crash
-- **Self-diagnosing** — `voiceio doctor` checks everything, `--fix` repairs it
+- **Streaming**: text appears as you speak, not after you stop
+- **Works everywhere**: IBus input method for GUI apps, clipboard for terminals
+- **Wayland + X11**: evdev hotkeys work on both, no root required
+- **Pre-buffer**: never miss the first syllable
+- **Auto-healing**: falls back to the next working backend if one fails
+- **Autostart**: optional systemd service, restarts on crash
+- **Self-diagnosing**: `voiceio doctor` checks everything, `--fix` repairs it
 
 ## Models
 
@@ -134,7 +136,7 @@ voiceio logs             # check debug output
 
 | Problem | Fix |
 |---------|-----|
-| No text appears | `voiceio doctor --fix` — usually a missing IBus component or GNOME input source |
+| No text appears | `voiceio doctor --fix` - usually a missing IBus component or GNOME input source |
 | Hotkey doesn't work on Wayland | `sudo usermod -aG input $USER` then log out and back in |
 | Transcription too slow | Use a smaller model: `voiceio --model tiny` |
 | Want to start fresh | `voiceio uninstall` then `voiceio setup` |
@@ -170,7 +172,7 @@ pipx uninstall voiceio   # removes the package
 - [ ] Bump version to 0.2.0
 
 **Code quality**
-- [ ] IBus activation on non-GNOME desktops (KDE, Sway, Hyprland) — currently GNOME-only via gsettings
+- [ ] IBus activation on non-GNOME desktops (KDE, Sway, Hyprland), currently GNOME-only via gsettings
 - [ ] `voiceio doctor --json` for machine-readable output
 - [ ] Shell completions (`voiceio completion bash/zsh/fish`)
 - [ ] Refactor wizard.py (882 lines) into smaller, testable modules
@@ -182,41 +184,41 @@ pipx uninstall voiceio   # removes the package
 Contributions welcome! Open an issue to discuss before starting.
 
 **High impact**
-- [ ] **Text-to-speech (voice output)** — select text, press a hotkey, hear it spoken aloud. Completes the "io" in voiceio. Use a local TTS engine (Piper, Coqui, espeak-ng) — same philosophy: no cloud, no API keys
-- [ ] **Wake word** — "Hey voiceio" hands-free activation (no hotkey needed). Use a small always-on keyword model (e.g. openWakeWord, Porcupine)
-- [ ] **Custom vocabulary / hot words** — user-defined word list for names, jargon, technical terms that Whisper gets wrong. Boost via `initial_prompt` or fine-tuned logit bias
-- [ ] **Per-app profiles** — different language/model/output settings per application (e.g. formal writing in docs, casual in chat)
-- [ ] **Voice commands** — "select all", "new line", "undo that", "delete last sentence". Parse transcribed text for command patterns before injecting
-- [ ] **Punctuation & formatting commands** — "period", "comma", "new paragraph", "capitalize that"
-- [ ] **Auto-punctuation model** — post-process Whisper output with a small punctuation/capitalization model for cleaner text
+- [ ] **Text-to-speech (voice output)**: select text, press a hotkey, hear it spoken aloud. Completes the "io" in voiceio. Use a local TTS engine (Piper, Coqui, espeak-ng), same philosophy: no cloud, no API keys
+- [ ] **Wake word**: "Hey voiceio" hands-free activation (no hotkey needed). Use a small always-on keyword model (e.g. openWakeWord, Porcupine)
+- [ ] **Custom vocabulary / hot words**: user-defined word list for names, jargon, technical terms that Whisper gets wrong. Boost via `initial_prompt` or fine-tuned logit bias
+- [ ] **Per-app profiles**: different language/model/output settings per application (e.g. formal writing in docs, casual in chat)
+- [ ] **Voice commands**: "select all", "new line", "undo that", "delete last sentence". Parse transcribed text for command patterns before injecting
+- [ ] **Punctuation & formatting commands**: "period", "comma", "new paragraph", "capitalize that"
+- [ ] **Auto-punctuation model**: post-process Whisper output with a small punctuation/capitalization model for cleaner text
 
 **Platform expansion**
-- [ ] **macOS Input Method (IMKit)** — native streaming preedit on macOS, matching IBus quality on Linux
-- [ ] **Windows support** — Text Services Framework (TSF) for text injection, global hotkeys via win32api
-- [ ] **Flatpak / Snap packaging** — sandboxed distribution for Linux
-- [ ] **AUR package** — community package for Arch Linux
+- [ ] **macOS Input Method (IMKit)**: native streaming preedit on macOS, matching IBus quality on Linux
+- [ ] **Windows support**: Text Services Framework (TSF) for text injection, global hotkeys via win32api
+- [ ] **Flatpak / Snap packaging**: sandboxed distribution for Linux
+- [ ] **AUR package**: community package for Arch Linux
 
 **UX polish**
-- [ ] **System tray icon with recording animation** — pulsing/colored icon showing recording state, quick menu for model/language switching
-- [ ] **Desktop notifications with transcribed text** — show what was typed, with an undo button
-- [ ] **Confidence indicator** — visual hint when Whisper is uncertain (maybe highlight low-confidence words)
-- [ ] **Recording timeout** — auto-stop after N seconds of silence or max duration, preventing forgotten recordings
-- [ ] **Sound themes** — bundled sound packs (subtle, mechanical, sci-fi, none)
-- [ ] **First-run onboarding overlay** — lightweight "press Ctrl+Alt+V to start" hint on first launch
+- [ ] **System tray icon with recording animation**: pulsing/colored icon showing recording state, quick menu for model/language switching
+- [ ] **Desktop notifications with transcribed text**: show what was typed, with an undo button
+- [ ] **Confidence indicator**: visual hint when Whisper is uncertain (maybe highlight low-confidence words)
+- [ ] **Recording timeout**: auto-stop after N seconds of silence or max duration, preventing forgotten recordings
+- [ ] **Sound themes**: bundled sound packs (subtle, mechanical, sci-fi, none)
+- [ ] **First-run onboarding overlay**: lightweight "press Ctrl+Alt+V to start" hint on first launch
 
 **Power features**
-- [ ] **Multi-language in one session** — auto-detect language switches mid-dictation (Whisper supports this but needs tuning)
-- [ ] **Speaker diarization** — "Person 1: ... Person 2: ..." for meeting notes (via pyannote or whisperX)
-- [ ] **LLM post-processing** — pipe transcription through a local LLM (Ollama) for grammar correction, summarization, or reformatting
-- [ ] **Clipboard history** — keep last N transcriptions, quick-paste from history
-- [ ] **Transcription log / journal** — searchable history of everything you've dictated, with timestamps
-- [ ] **API / webhook** — expose a local API so other tools can trigger recording or receive transcriptions
-- [ ] **Browser extension** — inject text into web apps that don't work with IBus (e.g. some Electron apps)
+- [ ] **Multi-language in one session**: auto-detect language switches mid-dictation (Whisper supports this but needs tuning)
+- [ ] **Speaker diarization**: "Person 1: ... Person 2: ..." for meeting notes (via pyannote or whisperX)
+- [ ] **LLM post-processing**: pipe transcription through a local LLM (Ollama) for grammar correction, summarization, or reformatting
+- [ ] **Clipboard history**: keep last N transcriptions, quick-paste from history
+- [ ] **Transcription log / journal**: searchable history of everything you've dictated, with timestamps
+- [ ] **API / webhook**: expose a local API so other tools can trigger recording or receive transcriptions
+- [ ] **Browser extension**: inject text into web apps that don't work with IBus (e.g. some Electron apps)
 
 **Developer experience**
-- [ ] **Plugin system** — hooks for pre/post processing (e.g. custom formatters, translators, text transforms)
-- [ ] **Alternative STT backends** — support Whisper.cpp, Deepgram, AssemblyAI, OpenAI Whisper API as optional backends
-- [ ] **GPU acceleration docs** — CUDA/ROCm setup guide for faster transcription on large models
+- [ ] **Plugin system**: hooks for pre/post processing (e.g. custom formatters, translators, text transforms)
+- [ ] **Alternative STT backends**: support Whisper.cpp, Deepgram, AssemblyAI, OpenAI Whisper API as optional backends
+- [ ] **GPU acceleration docs**: CUDA/ROCm setup guide for faster transcription on large models
 
 ## License
 

@@ -98,7 +98,7 @@ class TestVoiceIOInit:
             vio.on_hotkey()
             assert vio.recorder.is_recording
 
-            # Immediately double-press (< 0.5s) — cancels
+            # Immediately double-press (< 0.5s) - cancels
             vio.on_hotkey()
             assert not vio.recorder.is_recording
             mock_typer.type_text.assert_not_called()
@@ -130,6 +130,6 @@ class TestVoiceIOInit:
             # Set record_start past cancel window but before min duration
             vio._record_start = time.monotonic() - (cfg.output.cancel_window_secs + 0.1)
 
-            # Press again — should be ignored
+            # Press again - should be ignored
             vio.on_hotkey()
             assert vio.recorder.is_recording  # still recording

@@ -1,4 +1,4 @@
-"""Ydotool text injection backend — Wayland via uinput."""
+"""Ydotool text injection backend for Wayland via uinput."""
 from __future__ import annotations
 
 import functools

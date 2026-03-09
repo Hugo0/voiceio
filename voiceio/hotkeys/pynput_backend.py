@@ -1,4 +1,4 @@
-"""Pynput hotkey backend — works on X11 and macOS."""
+"""Pynput hotkey backend for X11 and macOS."""
 from __future__ import annotations
 
 import logging

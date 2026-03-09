@@ -1,4 +1,4 @@
-"""Whisper transcription worker — runs in a subprocess.
+"""Whisper transcription worker that runs in a subprocess.
 
 Communicates with the parent process via stdin (JSON requests) and
 stdout (JSON responses). Loads the model once, then processes requests
@@ -20,7 +20,7 @@ def main() -> None:
     args = json.loads(sys.argv[1])
     model = WhisperModel(args["model"], device=args["device"], compute_type=args["compute_type"])
 
-    # Warmup — first transcription is always slow
+    # Warmup: first transcription is always slow
     segs, _ = model.transcribe(np.zeros(16000, dtype=np.float32), language=args.get("language"), beam_size=1)
     list(segs)
     print("READY", flush=True)

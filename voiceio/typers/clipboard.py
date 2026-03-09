@@ -1,4 +1,4 @@
-"""Clipboard-based text injection — universal fallback."""
+"""Clipboard-based text injection, the universal fallback."""
 from __future__ import annotations
 
 import logging

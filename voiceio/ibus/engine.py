@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""VoiceIO IBus engine — receives commands via Unix socket, injects text via IBus.
+"""VoiceIO IBus engine: receives commands via Unix socket, injects text via IBus.
 
 Run as a standalone process:
     python3 -m voiceio.ibus.engine
 
 Architecture:
-    - GLib main loop drives the IBus engine (required by IBus)
-    - Socket listener thread receives commands from voiceio daemon
-    - Commands dispatched to engine via GLib.idle_add() for thread safety
+    - GLib main loop drives the IBus engine (required by IBus).
+    - Socket listener thread receives commands from voiceio daemon.
+    - Commands are dispatched to the engine via GLib.idle_add() for thread safety.
 """
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def _socket_listener(mainloop: GLib.MainLoop) -> None:
         log.debug("Received: %s", msg[:80])
 
         if msg == "ping":
-            # Respond to probe — send pong back
+            # Respond to probe: send pong back
             if addr:
                 try:
                     sock.sendto(b"pong", addr)
@@ -184,7 +184,7 @@ def _handle_command(msg: str) -> bool:
 
     # Flush any buffered commands first
     if _pending_commands:
-        log.info("Engine ready — flushing %d buffered commands", len(_pending_commands))
+        log.info("Engine ready, flushing %d buffered commands", len(_pending_commands))
         _flush_pending()
 
     _dispatch(msg)

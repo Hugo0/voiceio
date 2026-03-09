@@ -25,13 +25,13 @@ def start(quit_callback) -> None:
     try:
         import pystray
     except ImportError:
-        log.warning("pystray not installed — tray icon disabled. Install with: pip install voiceio[tray]")
+        log.warning("pystray not installed, tray icon disabled. Install with: pip install voiceio[tray]")
         return
 
     _icon = pystray.Icon(
         "voiceio",
         icon=_make_icon("idle"),
-        title="voiceio — idle",
+        title="voiceio - idle",
         menu=pystray.Menu(pystray.MenuItem("Quit", lambda: quit_callback())),
     )
 
@@ -44,7 +44,7 @@ def set_recording(recording: bool) -> None:
         return
     state = "recording" if recording else "idle"
     _icon.icon = _make_icon(state)
-    _icon.title = f"voiceio — {state}"
+    _icon.title = f"voiceio - {state}"
 
 
 def stop() -> None:

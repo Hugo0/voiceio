@@ -40,7 +40,7 @@ def _service_unit(bin_path: str) -> str:
     """Generate the systemd unit file content."""
     return f"""\
 [Unit]
-Description=VoiceIO — voice-to-text input
+Description=VoiceIO - voice-to-text input
 Documentation=https://github.com/Hugo0/voiceio
 After=graphical-session.target
 PartOf=graphical-session.target
@@ -62,7 +62,7 @@ def install_service() -> bool:
     Returns True if installed successfully.
     """
     if not has_systemd():
-        log.warning("systemctl not found — cannot install service")
+        log.warning("systemctl not found: cannot install service")
         return False
 
     bin_path = _find_voiceio_bin()
@@ -165,7 +165,7 @@ def install_symlinks() -> list[str]:
     so we skip symlink creation.
     """
     if _is_pipx_install():
-        # pipx already placed scripts in ~/.local/bin/ — nothing to do
+        # pipx already placed scripts in ~/.local/bin/, nothing to do
         return [name for name in SCRIPT_NAMES if (LOCAL_BIN / name).exists()]
 
     venv_bin = Path(sys.prefix) / "bin"
@@ -183,7 +183,7 @@ def install_symlinks() -> list[str]:
         # Remove stale symlink; skip regular files
         if dest.exists() or dest.is_symlink():
             if not dest.is_symlink():
-                log.warning("Skipping %s — regular file exists at %s", name, dest)
+                log.warning("Skipping %s: regular file exists at %s", name, dest)
                 continue
             dest.unlink()
         dest.symlink_to(src.resolve())
@@ -212,7 +212,7 @@ def _add_local_bin_to_path() -> None:
             log.info("Added ~/.local/bin to PATH in %s", rc)
             _PATH_HINT_ADDED = True
             return
-    # No shell rc found — create .profile
+    # No shell rc found, create .profile
     rc = Path.home() / ".profile"
     rc.write_text(line)
     log.info("Created %s with PATH entry", rc)
@@ -224,7 +224,7 @@ def symlinks_installed() -> bool:
     # Check if it's anywhere on PATH
     if shutil.which("voiceio"):
         return True
-    # Check if symlink exists (even if not on PATH yet — new shell will pick it up)
+    # Check if symlink exists (even if not on PATH yet, a new shell will pick it up)
     dest = LOCAL_BIN / "voiceio"
     return dest.exists()
 

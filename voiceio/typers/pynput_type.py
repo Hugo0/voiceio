@@ -1,4 +1,4 @@
-"""Pynput text injection backend — macOS (and X11 fallback)."""
+"""Pynput text injection backend for macOS (and X11 fallback)."""
 from __future__ import annotations
 
 import logging

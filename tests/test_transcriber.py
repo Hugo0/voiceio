@@ -23,7 +23,7 @@ class TestTranscriberProtocol:
         with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
             t = Transcriber(ModelConfig())
 
-        # Now test timeout — readline blocks forever
+        # Now test timeout: readline blocks forever
         import threading
         def block_forever():
             threading.Event().wait()

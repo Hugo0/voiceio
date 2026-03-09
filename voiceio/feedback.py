@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 _SOUNDS_DIR = Path(__file__).parent / "sounds"
 
-# Cache tool lookups — they don't change during a session
+# Cache tool lookups; they don't change during a session
 _which = functools.lru_cache(maxsize=16)(shutil.which)
 
 
@@ -39,7 +39,7 @@ def notify_clipboard(text: str) -> None:
     preview = text[:80] + ("\u2026" if len(text) > 80 else "")
     threading.Thread(
         target=_send_notification,
-        args=("VoiceIO \u2014 copied to clipboard", preview),
+        args=("VoiceIO: copied to clipboard", preview),
         daemon=True,
     ).start()
 

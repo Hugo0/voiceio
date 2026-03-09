@@ -1,4 +1,4 @@
-"""Xdotool text injection backend — X11 only."""
+"""Xdotool text injection backend for X11."""
 from __future__ import annotations
 
 import logging

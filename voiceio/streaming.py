@@ -48,7 +48,7 @@ class StreamingSession:
     """Manages one streaming transcription cycle.
 
     During streaming: append-only with word-level fuzzy matching.
-    Whisper changes punctuation/capitalization between passes — word-level
+    Whisper changes punctuation/capitalization between passes, so word-level
     matching ignores these, so text keeps growing even when Whisper
     flip-flops on commas vs periods.
 
@@ -101,7 +101,7 @@ class StreamingSession:
                 break
             self._transcribe_and_apply()
 
-        # Final transcription on stop — allow full correction
+        # Final transcription on stop: allow full correction
         self._transcribe_and_apply(min_seconds=0.5, final=True)
 
     def _transcribe_and_apply(
@@ -131,10 +131,10 @@ class StreamingSession:
         """
         old = self._typed_text
 
-        # Preedit path: trivial — just replace the preview text
+        # Preedit path: trivial, just replace the preview text
         if isinstance(self._typer, StreamingTyper):
             if final:
-                # Always commit — preedit is just preview, clipboard paste is delivery
+                # Always commit: preedit is just preview, clipboard paste is delivery
                 self._typer.commit_text(new_text)
                 self._typed_text = new_text
                 log.debug("Preedit commit: '%s'", new_text[:60])
@@ -152,7 +152,7 @@ class StreamingSession:
             return
 
         if not old:
-            # First transcription — just type it
+            # First transcription, just type it
             self._typer.type_text(new_text)
             self._typed_text = new_text
             log.debug("Initial: '%s'", new_text)
@@ -173,7 +173,7 @@ class StreamingSession:
         matched = _word_match_len(old_words, new_words)
 
         if matched >= len(old_words) and len(new_words) > matched:
-            # All our typed words match — append the new ones
+            # All our typed words match, so append the new ones
             new_tail = " ".join(new_words[matched:])
             to_type = " " + new_tail
             self._typer.type_text(to_type)

@@ -1,4 +1,4 @@
-"""Platform detection — OS, display server, desktop environment, available tools."""
+"""Platform detection: OS, display server, desktop environment, available tools."""
 from __future__ import annotations
 
 import os
@@ -121,7 +121,7 @@ def _check_uinput_access() -> bool:
 
 @lru_cache(maxsize=1)
 def detect() -> Platform:
-    """Detect the current platform. Cached — safe to call multiple times."""
+    """Detect the current platform. Cached, safe to call multiple times."""
     plat_os = _detect_os()
     return Platform(
         os=plat_os,

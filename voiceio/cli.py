@@ -14,7 +14,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="voiceio",
-        description="Voice-to-text for Linux. Speak naturally — text appears at your cursor.",
+        description="Voice-to-text for Linux. Speak naturally, and text appears at your cursor.",
     )
     parser.add_argument("-V", "--version", action="version",
                         version=f"%(prog)s {__version__}")
@@ -176,7 +176,7 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
             from voiceio.service import install_symlinks
             linked = install_symlinks()
             if linked:
-                print(f"  Done — linked: {', '.join(linked)}")
+                print(f"  Done, linked: {', '.join(linked)}")
                 fixed_any = True
             else:
                 print("  Failed: no scripts found to link")
@@ -426,7 +426,7 @@ def _cmd_uninstall() -> None:
         for item in removed:
             print(f"  - {item}")
     else:
-        print("\nNothing to remove — voiceio was not installed on this system.")
+        print("\nNothing to remove. voiceio was not installed on this system.")
 
     # Offer to uninstall the Python package itself
     is_pipx = "pipx" in sys.prefix
@@ -436,9 +436,9 @@ def _cmd_uninstall() -> None:
             try:
                 subprocess.run(["pipx", "uninstall", "voiceio"], timeout=30)
             except (FileNotFoundError, subprocess.TimeoutExpired):
-                print("Failed — run manually: pipx uninstall voiceio")
+                print("Failed. Run manually: pipx uninstall voiceio")
     else:
-        # Dev install or pip install — check if voiceio is still reachable
+        # Dev install or pip install: check if voiceio is still reachable
         voiceio_bin = shutil.which("voiceio")
         if voiceio_bin:
             print(f"\nNote: 'voiceio' is still available at {voiceio_bin}")

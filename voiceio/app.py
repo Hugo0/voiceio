@@ -1,4 +1,4 @@
-"""Main VoiceIO engine — state machine, backend wiring, self-healing."""
+"""Main VoiceIO engine: state machine, backend wiring, and self-healing."""
 from __future__ import annotations
 
 import fcntl
@@ -70,7 +70,7 @@ class VoiceIO:
                 log.info("Recording cancelled (double-press)")
                 return
             if elapsed < self.cfg.output.min_recording_secs:
-                log.debug("Ignoring stop — only %.1fs into recording (min %.1fs)", elapsed, self.cfg.output.min_recording_secs)
+                log.debug("Ignoring stop, only %.1fs into recording (min %.1fs)", elapsed, self.cfg.output.min_recording_secs)
                 return
 
             self._play_record_cue(start=False)
@@ -86,7 +86,7 @@ class VoiceIO:
                 log.info("Stopped recording (%.1fs)", elapsed)
                 if audio is not None and not self._processing:
                     threading.Thread(target=self._process, args=(audio,), daemon=True).start()
-            # Deactivate IBus engine — return keyboard to normal
+            # Deactivate IBus engine, return keyboard to normal
             self._deactivate_ibus()
         elif not self._processing:
             # Activate IBus engine so preedit/commit can reach the focused app
@@ -118,7 +118,7 @@ class VoiceIO:
     def _activate_ibus(self) -> None:
         """Switch GNOME input source to voiceio engine for text injection.
 
-        Done in a thread to avoid blocking the hotkey handler — the 0.5s
+        Done in a thread to avoid blocking the hotkey handler. The 0.5s
         GNOME activation delay is fine since transcription takes ~1s anyway.
         """
         if self._typer.name != "ibus":
@@ -133,7 +133,7 @@ class VoiceIO:
         if self._typer.name != "ibus":
             return
         self._set_gnome_input_source_index(0)
-        log.debug("IBus engine deactivated — keyboard restored")
+        log.debug("IBus engine deactivated, keyboard restored")
 
     def _play_record_cue(self, start: bool) -> None:
         """Play a subtle click on record start/stop."""
@@ -162,7 +162,7 @@ class VoiceIO:
         except Exception as e:
             if not self._auto_fallback:
                 raise
-            log.warning("Typer '%s' failed: %s — trying fallback", self._typer.name, e)
+            log.warning("Typer '%s' failed: %s, trying fallback", self._typer.name, e)
             probe = self._typer.probe()
             if not probe.ok:
                 log.warning("Typer '%s' no longer works: %s", self._typer.name, probe.reason)
@@ -225,12 +225,12 @@ class VoiceIO:
                 stderr = self._engine_proc.stderr.read().decode(errors="replace") if self._engine_proc.stderr else ""
                 log.error("IBus engine crashed (rc=%d): %s", self._engine_proc.returncode, stderr.strip()[-500:])
             else:
-                log.warning("IBus engine started but socket not found — commands may fail")
+                log.warning("IBus engine started but socket not found, commands may fail")
             return
 
         # Phase 2: activate via `ibus engine voiceio` to create engine instance.
         # This triggers do_create_engine. We do NOT switch GNOME input source
-        # here — that only happens during active recording to avoid blocking
+        # here. That only happens during active recording to avoid blocking
         # keyboard input when voiceio is idle.
         log.info("Activating VoiceIO IBus engine...")
         activate_proc = subprocess.Popen(
@@ -246,7 +246,7 @@ class VoiceIO:
                 break
             time.sleep(0.1)
         else:
-            log.warning("IBus engine instance not created — preedit may not work")
+            log.warning("IBus engine instance not created, preedit may not work")
 
         # Clean up the activation process (don't leave it dangling)
         try:
@@ -254,7 +254,7 @@ class VoiceIO:
         except subprocess.TimeoutExpired:
             activate_proc.kill()
 
-        # Switch back to normal keyboard — engine is ready but stays dormant
+        # Switch back to normal keyboard. Engine is ready but stays dormant
         # until recording starts
         self._set_gnome_input_source_index(0)
 
@@ -295,7 +295,7 @@ class VoiceIO:
             # and set current to that index
             if f"('ibus', '{engine_name}')" not in sources:
                 return
-            # Parse to find index — sources format: [('xkb', 'us'), ('ibus', 'voiceio')]
+            # Parse to find index. Sources format: [('xkb', 'us'), ('ibus', 'voiceio')]
             import ast
             try:
                 source_list = ast.literal_eval(sources)
@@ -317,7 +317,7 @@ class VoiceIO:
 
     def _stop_ibus_engine(self) -> None:
         """Stop the IBus engine process and restore previous input method."""
-        # Always restore normal keyboard first — most critical step
+        # Always restore normal keyboard first, the most critical step
         self._set_gnome_input_source_index(0)
 
         # Terminate engine process we spawned
@@ -390,11 +390,11 @@ class VoiceIO:
 
         from voiceio import __version__
         log.info(
-            "voiceio v%s ready — press [%s] to toggle recording (hotkey=%s, typer=%s)",
+            "voiceio v%s ready. Press [%s] to toggle recording (hotkey=%s, typer=%s)",
             __version__, self.cfg.hotkey.key, self._hotkey.name, self._typer.name,
         )
         print(
-            f"voiceio v{__version__} ready — press [{self.cfg.hotkey.key}] to record "
+            f"voiceio v{__version__} ready. Press [{self.cfg.hotkey.key}] to record "
             f"(model={self.cfg.model.name}, typer={self._typer.name})",
         )
 

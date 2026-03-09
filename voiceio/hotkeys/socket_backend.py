@@ -1,4 +1,4 @@
-"""Socket-based hotkey backend — DE shortcut fires voiceio-toggle."""
+"""Socket-based hotkey backend: DE shortcut fires voiceio-toggle."""
 from __future__ import annotations
 
 import logging

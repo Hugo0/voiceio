@@ -1,4 +1,4 @@
-"""Integration tests for AudioRecorder — simulate full recording cycle without real audio hardware."""
+"""Integration tests for AudioRecorder: simulate full recording cycle without real audio hardware."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

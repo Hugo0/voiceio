@@ -13,7 +13,10 @@ from voiceio.typers.ibus import IBusTyper, SOCKET_PATH
 @pytest.fixture
 def mock_socket(tmp_path):
     """Create a mock IBus engine socket that records received messages."""
-    sock_path = tmp_path / "voiceio-ibus.sock"
+    # Use /tmp for short path - macOS has 104-char limit on AF_UNIX paths
+    import tempfile
+    sock_dir = tempfile.mkdtemp()
+    sock_path = type(tmp_path)(sock_dir) / "vi.sock"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     sock.bind(str(sock_path))
     sock.settimeout(2.0)

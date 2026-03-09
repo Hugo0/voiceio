@@ -29,7 +29,7 @@ class RingBuffer:
         flat = data.flatten()
         n = len(flat)
         if n >= self._max:
-            # Data larger than buffer — just keep the tail
+            # Data larger than buffer: just keep the tail
             self._buf[:] = flat[-self._max:]
             self._write_pos = 0
             self._filled = self._max
@@ -52,7 +52,7 @@ class RingBuffer:
             return np.zeros(0, dtype=np.float32)
         if self._filled < self._max:
             return self._buf[:self._filled].copy()
-        # Full ring — read from write_pos (oldest) through the end
+        # Full ring: read from write_pos (oldest) through the end
         return np.concatenate([
             self._buf[self._write_pos:],
             self._buf[:self._write_pos],
@@ -68,7 +68,7 @@ class AudioRecorder:
 
     The audio stream runs continuously. A ring buffer captures the last
     `prebuffer_secs` of audio. When recording starts, the ring buffer
-    contents become the start of the recording — no lost first syllable.
+    contents become the start of the recording, so no first syllable is lost.
     """
 
     def __init__(self, cfg: AudioConfig, on_speech_pause: Callable[[], None] | None = None):
@@ -151,7 +151,7 @@ class AudioRecorder:
                 log.warning("Audio too short (%.1fs), skipping", duration)
                 return None
 
-            log.info("Recording stopped — %.1fs audio", duration)
+            log.info("Recording stopped, %.1fs audio", duration)
             return remaining
 
     def get_audio_so_far(self) -> np.ndarray | None:
@@ -204,5 +204,5 @@ class AudioRecorder:
 
             if self._silent_chunks >= self._silence_duration and has_new:
                 self._silent_chunks = 0.0
-                # Signal pause — don't concatenate on the audio thread
+                # Signal pause. Don't concatenate on the audio thread.
                 self._on_speech_pause()

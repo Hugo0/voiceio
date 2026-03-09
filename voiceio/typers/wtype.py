@@ -1,4 +1,4 @@
-"""Wtype text injection backend — wlroots compositors (Sway, Hyprland)."""
+"""Wtype text injection backend for wlroots compositors (Sway, Hyprland)."""
 from __future__ import annotations
 
 import logging
@@ -25,7 +25,7 @@ class WtypeTyper:
         if session != "wayland":
             return ProbeResult(ok=False, reason="wtype requires Wayland")
 
-        # wtype doesn't work on GNOME/Mutter — only wlroots compositors
+        # wtype doesn't work on GNOME/Mutter, only wlroots compositors
         desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
         if "gnome" in desktop:
             return ProbeResult(

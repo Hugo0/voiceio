@@ -1,4 +1,4 @@
-"""Evdev hotkey backend — reads /dev/input directly."""
+"""Evdev hotkey backend: reads /dev/input directly."""
 from __future__ import annotations
 
 import logging
