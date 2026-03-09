@@ -7,15 +7,6 @@
 
 Speak → text, locally, instantly.
 
-<!-- demo video -->
-<p align="center">
-  <a href="https://www.tella.tv/video/YOUR_VIDEO_ID">
-    <img src="https://github.com/Hugo0/voiceio/raw/main/assets/demo-thumbnail.png" alt="voiceio demo" width="600">
-  </a>
-  <br>
-  <em>Click to watch the demo</em>
-</p>
-
 ## Quick start
 
 ```bash
@@ -64,7 +55,7 @@ voiceio setup
 ```
 </details>
 
-> You can also install with `uv tool install voiceio` or `pip install voiceio`.
+> You can also install with `uv tool install python-voiceio` or `pip install python-voiceio`.
 
 ## How it works
 
@@ -109,6 +100,7 @@ voiceio setup            Interactive setup wizard
 voiceio doctor           Health check (--fix to auto-repair)
 voiceio test             Test microphone + live transcription
 voiceio toggle           Toggle recording on a running daemon
+voiceio update           Update to latest version
 voiceio service install  Autostart on login via systemd
 voiceio logs             View recent logs
 voiceio uninstall        Remove all system integrations
@@ -160,28 +152,15 @@ voiceio uninstall        # removes service, IBus, shortcuts, symlinks
 pipx uninstall python-voiceio   # removes the package
 ```
 
-## TODO
-
-**Launch**
-- [ ] Publish to PyPI
-- [ ] Record demo video + thumbnail
-- [ ] Test clean install on a fresh VM/container
-- [ ] GitHub repo: description, topics, social preview image
-- [ ] Bump version to 0.2.0
-
-**Code quality**
-- [ ] IBus activation on non-GNOME desktops (KDE, Sway, Hyprland), currently GNOME-only via gsettings
-- [ ] `voiceio doctor --json` for machine-readable output
-- [ ] Shell completions (`voiceio completion bash/zsh/fish`)
-- [ ] Refactor wizard.py (882 lines) into smaller, testable modules
-- [ ] Socket protocol versioning (e.g. `v1:preedit:text`)
-- [ ] Configurable log file path
-
 ## Wishlist
 
-Contributions welcome! Open an issue to discuss before starting.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md). Open an issue to discuss before starting.
 
 **High impact**
+- [ ] **macOS support**: test and polish pynput hotkey + typer backends
+- [ ] **Silence filtering**: VAD-based trimming to prevent Whisper hallucinations on silence
+- [ ] **distil-whisper models**: better speed/accuracy tradeoffs
+- [ ] **IBus on non-GNOME desktops**: KDE, Sway, Hyprland activation (currently GNOME-only via gsettings)
 - [ ] **Text-to-speech (voice output)**: select text, press a hotkey, hear it spoken aloud. Completes the "io" in voiceio. Use a local TTS engine (Piper, Coqui, espeak-ng), same philosophy: no cloud, no API keys
 - [ ] **Wake word**: "Hey voiceio" hands-free activation (no hotkey needed). Use a small always-on keyword model (e.g. openWakeWord, Porcupine)
 - [ ] **Custom vocabulary / hot words**: user-defined word list for names, jargon, technical terms that Whisper gets wrong. Boost via `initial_prompt` or fine-tuned logit bias

@@ -18,7 +18,6 @@ from voiceio.recorder import AudioRecorder
 from voiceio.streaming import StreamingSession
 from voiceio.transcriber import Transcriber
 from voiceio.typers import chain as typer_chain
-from voiceio.typers.base import StreamingTyper
 log = logging.getLogger("voiceio")
 
 
