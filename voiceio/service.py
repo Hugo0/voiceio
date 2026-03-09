@@ -41,7 +41,7 @@ def _service_unit(bin_path: str) -> str:
     return f"""\
 [Unit]
 Description=VoiceIO — voice-to-text input
-Documentation=https://github.com/hugomontenegro/voiceio
+Documentation=https://github.com/Hugo0/voiceio
 After=graphical-session.target
 PartOf=graphical-session.target
 

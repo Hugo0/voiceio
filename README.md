@@ -1,6 +1,6 @@
 # voiceio
 
-[![CI](https://github.com/hugomontenegro/voiceio/actions/workflows/ci.yml/badge.svg)](https://github.com/hugomontenegro/voiceio/actions/workflows/ci.yml)
+[![CI](https://github.com/Hugo0/voiceio/actions/workflows/ci.yml/badge.svg)](https://github.com/Hugo0/voiceio/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/voiceio)](https://pypi.org/project/voiceio/)
 [![Python](https://img.shields.io/pypi/pyversions/voiceio)](https://pypi.org/project/voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -12,7 +12,7 @@ Push-to-talk voice-to-text for Linux and macOS, on any app. Press a hotkey, spea
 <!-- demo video -->
 <p align="center">
   <a href="https://www.tella.tv/video/YOUR_VIDEO_ID">
-    <img src="https://github.com/hugomontenegro/voiceio/raw/main/assets/demo-thumbnail.png" alt="voiceio demo" width="600">
+    <img src="https://github.com/Hugo0/voiceio/raw/main/assets/demo-thumbnail.png" alt="voiceio demo" width="600">
   </a>
   <br>
   <em>Click to watch the demo</em>
@@ -57,7 +57,7 @@ voiceio setup
 <summary><strong>From source (contributors)</strong></summary>
 
 ```bash
-git clone https://github.com/hugomontenegro/voiceio
+git clone https://github.com/Hugo0/voiceio
 cd voiceio
 pip install -e ".[linux,dev]"
 voiceio setup
