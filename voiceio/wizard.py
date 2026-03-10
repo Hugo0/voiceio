@@ -68,35 +68,29 @@ def _ask(prompt: str, default: str = "") -> str:
     return answer or default
 
 
-def _ask_choice(options: list[tuple[str, ...]], default: int = 0) -> int:
-    """Interactive choice with arrow keys, w/s, j/k navigation. Enter to confirm."""
-    import atexit
-    import re
-    import select
-    import termios
-    import tty
+class _MenuRenderer:
+    """Shared ANSI menu rendering for interactive choice menus."""
 
-    # Ensure cursor is restored if process crashes/exits unexpectedly
-    atexit.register(lambda: sys.stdout.write("\033[?25h"))
+    _ansi_re = __import__("re").compile(r"\033\[[0-9;]*m")
 
-    selected = default
-    n = len(options)
+    def __init__(self, options: list[tuple[str, ...]], selected: int = 0):
+        self.options = options
+        self.selected = selected
+        self.n = len(options)
+        try:
+            self.cols = os.get_terminal_size().columns
+        except OSError:
+            self.cols = 80
+        self.hint = f"  {DIM}\u2191\u2193 navigate, enter to confirm{RESET}"
 
-    try:
-        cols = os.get_terminal_size().columns
-    except OSError:
-        cols = 80
+    def _visible_len(self, s: str) -> int:
+        return len(self._ansi_re.sub("", s))
 
-    _ansi_re = re.compile(r"\033\[[0-9;]*m")
-
-    def _visible_len(s: str) -> int:
-        return len(_ansi_re.sub("", s))
-
-    def _truncate(s: str, max_width: int) -> str:
+    def _truncate(self, s: str, max_width: int) -> str:
         vis = 0
         result = []
-        for part in _ansi_re.split(s):
-            if _ansi_re.match(part):
+        for part in self._ansi_re.split(s):
+            if self._ansi_re.match(part):
                 result.append(part)
             else:
                 remaining = max_width - vis
@@ -106,33 +100,106 @@ def _ask_choice(options: list[tuple[str, ...]], default: int = 0) -> int:
                     break
         return "".join(result) + RESET
 
-    def _format_line(i: int) -> str:
-        marker = f"{GREEN}●{RESET}" if i == selected else f"{DIM}○{RESET}"
-        label = options[i][0]
-        detail = f"  {DIM}({', '.join(options[i][1:])}){RESET}" if len(options[i]) > 1 else ""
+    def format_line(self, i: int) -> str:
+        marker = f"{GREEN}\u25cf{RESET}" if i == self.selected else f"{DIM}\u25cb{RESET}"
+        label = self.options[i][0]
+        detail = f"  {DIM}({', '.join(self.options[i][1:])}){RESET}" if len(self.options[i]) > 1 else ""
         line = f"  {marker} {BOLD}{i + 1}{RESET}. {label}{detail}"
-        if _visible_len(line) >= cols:
-            line = _truncate(line, cols - 2)
+        if self._visible_len(line) >= self.cols:
+            line = self._truncate(line, self.cols - 2)
         return line
 
-    # Hint text shown below options
-    hint = f"  {DIM}\u2191\u2193 navigate, enter to confirm{RESET}"
-
-    def _draw() -> None:
-        """Draw menu from current cursor position.
-
-        After this call, cursor is at column 0 of the hint line.
-        """
-        sys.stdout.write("\033[J")  # clear from cursor to end of screen
-        for i in range(n):
-            sys.stdout.write(f"{_format_line(i)}\r\n")
-        sys.stdout.write(f"{hint}\r")
+    def draw(self) -> None:
+        sys.stdout.write("\033[J")
+        for i in range(self.n):
+            sys.stdout.write(f"{self.format_line(i)}\r\n")
+        sys.stdout.write(f"{self.hint}\r")
         sys.stdout.flush()
 
-    def _redraw() -> None:
-        """Move cursor from hint line back to first option, then redraw."""
-        sys.stdout.write(f"\033[{n}A")
-        _draw()
+    def redraw(self) -> None:
+        sys.stdout.write(f"\033[{self.n}A")
+        self.draw()
+
+    def handle_key(self, key: str) -> str | None:
+        """Process a key name. Returns 'done' on enter, None otherwise."""
+        if key in ("up", "w", "k"):
+            self.selected = (self.selected - 1) % self.n
+        elif key in ("down", "s", "j"):
+            self.selected = (self.selected + 1) % self.n
+        elif key == "enter":
+            return "done"
+        elif key == "ctrl-c":
+            sys.stdout.write("\033[?25h\r\n")
+            sys.exit(0)
+        elif key.isdigit():
+            idx = int(key) - 1
+            if 0 <= idx < self.n:
+                self.selected = idx
+        else:
+            return None
+        self.redraw()
+        return None
+
+    def finish(self) -> int:
+        self.redraw()
+        sys.stdout.write("\033[?25h\r\n\n")
+        sys.stdout.flush()
+        return self.selected
+
+
+def _ask_choice(options: list[tuple[str, ...]], default: int = 0) -> int:
+    """Interactive choice with arrow keys, w/s, j/k navigation. Enter to confirm."""
+    import atexit
+    atexit.register(lambda: sys.stdout.write("\033[?25h"))
+
+    menu = _MenuRenderer(options, default)
+    sys.stdout.write("\033[?25l")
+    menu.draw()
+
+    if sys.platform == "win32":
+        return _menu_loop_win(menu)
+    return _menu_loop_unix(menu)
+
+
+def _menu_loop_win(menu: _MenuRenderer) -> int:
+    """Read keys using msvcrt (Windows)."""
+    import msvcrt
+
+    # Enable ANSI escape codes on legacy cmd.exe
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
+
+    try:
+        while True:
+            ch = msvcrt.getwch()
+            if ch in ("\xe0", "\x00"):
+                ch2 = msvcrt.getwch()
+                key = {"H": "up", "P": "down"}.get(ch2)
+                if key and menu.handle_key(key) == "done":
+                    break
+            elif ch == "\r":
+                if menu.handle_key("enter") == "done":
+                    break
+            elif ch == "\x03":
+                menu.handle_key("ctrl-c")
+            else:
+                menu.handle_key(ch)
+    except KeyboardInterrupt:
+        sys.stdout.write("\033[?25h\r\n")
+        sys.exit(0)
+
+    return menu.finish()
+
+
+def _menu_loop_unix(menu: _MenuRenderer) -> int:
+    """Read keys using termios/tty/select (Unix)."""
+    import select
+    import termios
+    import tty
 
     def _read_key(fd: int) -> str:
         ch = os.read(fd, 1)
@@ -152,45 +219,41 @@ def _ask_choice(options: list[tuple[str, ...]], default: int = 0) -> int:
             return "ctrl-c"
         return ch.decode("utf-8", errors="replace")
 
-    sys.stdout.write("\033[?25l")  # hide cursor
-    _draw()
-
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
         while True:
             key = _read_key(fd)
-            if key in ("up", "w", "k"):
-                selected = (selected - 1) % n
-            elif key in ("down", "s", "j"):
-                selected = (selected + 1) % n
-            elif key == "enter":
+            if menu.handle_key(key) == "done":
                 break
-            elif key == "ctrl-c":
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-                sys.stdout.write("\033[?25h\r\n")
-                sys.exit(0)
-            elif key.isdigit():
-                idx = int(key) - 1
-                if 0 <= idx < n:
-                    selected = idx
-            else:
-                continue
-            _redraw()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        termios.tcflush(fd, termios.TCIFLUSH)  # flush stale input from raw mode
+        termios.tcflush(fd, termios.TCIFLUSH)
 
-    # Final redraw showing confirmed selection, then move past menu
-    _redraw()
-    sys.stdout.write("\033[?25h\r\n\n")  # show cursor, past hint, blank line
-    sys.stdout.flush()
-    return selected
+    return menu.finish()
 
 
 def _check_binary(name: str) -> bool:
     return shutil.which(name) is not None
+
+
+def _wait_for_service_ready(timeout: float = 30) -> bool:
+    """Wait for the voiceio service to finish loading by checking for its socket/PID file."""
+    from voiceio.config import PID_PATH
+    from voiceio.hotkeys.socket_backend import SOCKET_PATH, _IS_WINDOWS
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _IS_WINDOWS:
+            # On Windows there's no Unix socket; check PID file as readiness signal
+            if PID_PATH.exists():
+                return True
+        else:
+            if SOCKET_PATH.exists():
+                return True
+        time.sleep(0.5)
+    return False
 
 
 def _check_system() -> dict:
@@ -302,6 +365,7 @@ def _download_model(model_name: str) -> bool:
 def _write_config(
     model: str, language: str, hotkey: str, method: str, streaming: bool, backend: str,
     sound_enabled: bool = True, notify_clipboard: bool = False,
+    tray_enabled: bool = False,
 ) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     config_text = f"""# voiceio configuration, generated by setup wizard
@@ -319,6 +383,7 @@ compute_type = "int8"
 [audio]
 sample_rate = 16000
 device = "default"
+auto_stop_silence_secs = 5.0
 
 [output]
 method = "{method}"
@@ -329,7 +394,7 @@ sound_enabled = {'true' if sound_enabled else 'false'}
 notify_clipboard = {'true' if notify_clipboard else 'false'}
 
 [tray]
-enabled = false
+enabled = {'true' if tray_enabled else 'false'}
 
 [daemon]
 log_level = "INFO"
@@ -640,24 +705,25 @@ def run_wizard() -> None:
                  f"{len(checks['audio_devices'])} device(s)" if checks["audio"] else "no devices found")
 
     # IBus (preferred typer on Linux)
+    from voiceio.platform import pkg_install
     if checks["ibus"] and checks["ibus_gi"]:
         _print_check("IBus", True, "recommended, atomic text insertion")
     elif checks["ibus"]:
-        _print_check("IBus", False, "install bindings: sudo apt install gir1.2-ibus-1.0")
+        _print_check("IBus", False, f"install bindings: {pkg_install('gir1.2-ibus-1.0')}")
     else:
-        _print_check("IBus", False, "install: sudo apt install ibus gir1.2-ibus-1.0")
+        _print_check("IBus", False, f"install: {pkg_install('ibus', 'gir1.2-ibus-1.0')}")
 
     # Fallback typers (optional)
     if checks["display"] == "wayland":
         _print_check("ydotool", checks["ydotool"],
-                     "fallback" if checks["ydotool"] else "optional: sudo apt install ydotool",
+                     "fallback" if checks["ydotool"] else f"optional: {pkg_install('ydotool')}",
                      optional=True)
         _print_check("wtype", checks["wtype"],
-                     "fallback" if checks["wtype"] else "optional: sudo apt install wtype",
+                     "fallback" if checks["wtype"] else f"optional: {pkg_install('wtype')}",
                      optional=True)
     else:
         _print_check("xdotool", checks["xdotool"],
-                     "fallback" if checks["xdotool"] else "optional: sudo apt install xdotool",
+                     "fallback" if checks["xdotool"] else f"optional: {pkg_install('xdotool')}",
                      optional=True)
 
     _print_check("CUDA GPU", checks["cuda"],
@@ -669,6 +735,16 @@ def run_wizard() -> None:
                      "" if checks["input_group"] else "optional: sudo usermod -aG input $USER",
                      optional=True)
 
+    # Tray icon
+    from voiceio.tray import probe_availability
+    tray_ok, tray_reason, tray_fix_hint = probe_availability()
+    if tray_ok:
+        _print_check("Tray icon", True, "system tray indicator available")
+    else:
+        _print_check("Tray icon", False,
+                     tray_fix_hint if tray_fix_hint else tray_reason,
+                     optional=True)
+
     # Install CLI symlinks to ~/.local/bin/
     from voiceio.service import install_symlinks, symlinks_installed, path_hint_needed, _is_pipx_install
     if _is_pipx_install():
@@ -678,7 +754,9 @@ def run_wizard() -> None:
         if linked:
             _print_check("CLI commands", True, f"linked {len(linked)} commands to ~/.local/bin/")
             if path_hint_needed():
-                print(f"  {YELLOW}ℹ{RESET}  {DIM}Restart your terminal for 'voiceio' to be on PATH{RESET}")
+                print(f"  {YELLOW}ℹ{RESET}  {DIM}Restart your terminal so 'voiceio' is on PATH{RESET}")
+            else:
+                print(f"  {DIM}  You can now run 'voiceio' from any terminal{RESET}")
         else:
             _print_check("CLI commands", False, "could not create symlinks in ~/.local/bin/")
     else:
@@ -693,7 +771,7 @@ def run_wizard() -> None:
     has_typer = has_typer or checks["xdotool"] or checks["ydotool"] or checks["wtype"]
     if not has_typer:
         print(f"\n  {RED}No text injection backend available.{RESET}")
-        print(f"  {DIM}Install one: sudo apt install ibus gir1.2-ibus-1.0{RESET}")
+        print(f"  {DIM}Install one: {pkg_install('ibus', 'gir1.2-ibus-1.0')}{RESET}")
         sys.exit(1)
 
     # ── Step 2: Choose model ────────────────────────────────────────────
@@ -767,7 +845,8 @@ def run_wizard() -> None:
     _print_step(7, total_steps, "Save config & shortcut")
 
     _write_config(model_name, language, hotkey, method, streaming=True, backend=backend,
-                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard)
+                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard,
+                  tray_enabled=tray_ok)
 
     # Set up DE shortcut if on GNOME + socket backend
     desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
@@ -831,7 +910,8 @@ def run_wizard() -> None:
 
             # Re-save config and shortcut with new hotkey
             _write_config(model_name, language, hotkey, method, streaming=True, backend=backend,
-                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard)
+                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard,
+                  tray_enabled=tray_ok)
             if "GNOME" in desktop and backend == "socket":
                 _setup_gnome_shortcut(hotkey)
 
@@ -846,28 +926,42 @@ def run_wizard() -> None:
     # ── Done ────────────────────────────────────────────────────────────
     # Start (or restart) the service so it's immediately usable
     if autostart_idx == 0:
+        from voiceio.hotkeys.socket_backend import SOCKET_PATH
         from voiceio.service import is_running
         action = "restart" if is_running() else "start"
+        # Remove stale socket so we can detect when the new instance is ready
+        SOCKET_PATH.unlink(missing_ok=True)
         try:
             subprocess.run(
                 ["systemctl", "--user", action, "voiceio.service"],
                 capture_output=True, timeout=5,
             )
-            print(f"  {GREEN}✓{RESET} {DIM}voiceio service started{RESET}")
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
+        # Wait for the service to finish loading (model warmup takes a few seconds)
+        print(f"  {DIM}Waiting for model to load...{RESET}", end="", flush=True)
+        if _wait_for_service_ready(timeout=30):
+            print(f" {GREEN}✓{RESET}")
+        else:
+            print(f" {YELLOW}timed out{RESET}")
+            print(f"  {DIM}Service may still be loading. Check: voiceio logs{RESET}")
+
     from voiceio.config import LOG_PATH
+    from voiceio.service import _is_pipx_install
     log_path = LOG_PATH
     start_hint = (
         "  voiceio is running and will start automatically on login."
         if autostart_idx == 0
         else f"  Start voiceio:\n    {CYAN}voiceio{RESET}"
     )
+    path_note = ""
+    if not _is_pipx_install() and not shutil.which("voiceio"):
+        path_note = f"\n  {YELLOW}ℹ{RESET}  Restart your terminal so 'voiceio' is on PATH.\n"
     print(f"""
 {GREEN}{'━' * 50}{RESET}
 {BOLD}  Setup complete!{RESET}
-
+{path_note}
 {start_hint}
 
   Press {BOLD}{hotkey}{RESET} to toggle recording.

@@ -61,6 +61,10 @@ class Transcriber:
         elapsed = time.monotonic() - t0
         log.info("Model ready (%.1fs)", elapsed)
 
+    def is_worker_alive(self) -> bool:
+        """Check if the worker subprocess is still running."""
+        return self._proc is not None and self._proc.poll() is None
+
     def _ensure_worker(self) -> None:
         """Restart worker if it has died."""
         if self._proc is not None and self._proc.poll() is None:

@@ -1,11 +1,14 @@
 """Platform detection: OS, display server, desktop environment, available tools."""
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,10 @@ class Platform:
         return self.display_server == "x11"
 
     @property
+    def is_windows(self) -> bool:
+        return self.os == "windows"
+
+    @property
     def is_gnome(self) -> bool:
         return self.desktop in ("gnome", "unity")
 
@@ -63,7 +70,7 @@ def _detect_display_server() -> str:
     if plat == "darwin":
         return "quartz"
     if plat == "windows":
-        return "unknown"
+        return "win32"
 
     session = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if session == "wayland":
@@ -84,6 +91,8 @@ def _detect_desktop() -> str:
     plat = _detect_os()
     if plat == "darwin":
         return "macos"
+    if plat == "windows":
+        return "windows"
 
     raw = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
 
@@ -119,14 +128,76 @@ def _check_uinput_access() -> bool:
         return False
 
 
+_INSTALL_CMDS: dict[str, str] = {
+    "apt": "sudo apt install",
+    "dnf": "sudo dnf install",
+    "pacman": "sudo pacman -S",
+    "zypper": "sudo zypper install",
+    "brew": "brew install",
+}
+
+# Package name overrides per package manager (when they differ from apt names)
+_PKG_NAMES: dict[str, dict[str, str]] = {
+    "dnf": {
+        "gir1.2-ibus-1.0": "ibus-libs",
+        "python3-gi": "python3-gobject",
+        "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator-gtk3",
+    },
+    "pacman": {
+        "gir1.2-ibus-1.0": "ibus",
+        "python3-gi": "python-gobject",
+        "portaudio19-dev": "portaudio",
+        "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator",
+    },
+    "zypper": {
+        "gir1.2-ibus-1.0": "typelib-1_0-IBus-1_0",
+        "python3-gi": "python3-gobject",
+        "gir1.2-ayatanaappindicator3-0.1": "typelib-1_0-AyatanaAppIndicator3-0_1",
+    },
+}
+
+
+@lru_cache(maxsize=1)
+def _detect_pkg_manager() -> str:
+    """Detect the system package manager."""
+    for mgr in ("apt", "dnf", "pacman", "zypper", "brew"):
+        if shutil.which(mgr):
+            return mgr
+    return "apt"  # fallback to apt for hint text
+
+
+def pkg_install(*packages: str) -> str:
+    """Return an install command string for the detected package manager.
+
+    Example: pkg_install("ibus", "gir1.2-ibus-1.0")
+    → "sudo apt install ibus gir1.2-ibus-1.0"  (on Debian)
+    → "sudo dnf install ibus ibus-libs"         (on Fedora)
+    → "sudo pacman -S ibus"                     (on Arch)
+    """
+    mgr = _detect_pkg_manager()
+    prefix = _INSTALL_CMDS.get(mgr, f"sudo {mgr} install")
+    overrides = _PKG_NAMES.get(mgr, {})
+    mapped = []
+    seen = set()
+    for pkg in packages:
+        resolved = overrides.get(pkg, pkg)
+        if resolved not in seen:
+            seen.add(resolved)
+            mapped.append(resolved)
+    return f"{prefix} {' '.join(mapped)}"
+
+
 @lru_cache(maxsize=1)
 def detect() -> Platform:
     """Detect the current platform. Cached, safe to call multiple times."""
     plat_os = _detect_os()
+    ds = _detect_display_server()
+    desktop = _detect_desktop()
+    log.debug("Platform detected: os=%s display_server=%s desktop=%s", plat_os, ds, desktop)
     return Platform(
         os=plat_os,
-        display_server=_detect_display_server(),
-        desktop=_detect_desktop(),
+        display_server=ds,
+        desktop=desktop,
         has_xdotool=shutil.which("xdotool") is not None,
         has_ydotool=shutil.which("ydotool") is not None,
         has_wtype=shutil.which("wtype") is not None,

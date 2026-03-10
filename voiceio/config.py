@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,9 +13,15 @@ log = logging.getLogger(__name__)
 
 PYPI_NAME = "python-voiceio"
 
-CONFIG_DIR = Path.home() / ".config" / "voiceio"
+if sys.platform == "win32":
+    _APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "voiceio"
+    CONFIG_DIR = _APP_DIR / "config"
+    LOG_DIR = _APP_DIR / "logs"
+else:
+    CONFIG_DIR = Path.home() / ".config" / "voiceio"
+    LOG_DIR = Path.home() / ".local" / "state" / "voiceio"
+
 CONFIG_PATH = CONFIG_DIR / "config.toml"
-LOG_DIR = Path.home() / ".local" / "state" / "voiceio"
 LOG_PATH = LOG_DIR / "voiceio.log"
 PID_PATH = LOG_DIR / "voiceio.pid"
 
@@ -39,6 +47,7 @@ class AudioConfig:
     prebuffer_secs: float = 1.0
     silence_threshold: float = 0.01
     silence_duration: float = 0.6
+    auto_stop_silence_secs: float = 5.0
 
 
 @dataclass

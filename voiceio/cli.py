@@ -14,7 +14,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="voiceio",
-        description="Voice-to-text for Linux. Speak naturally, and text appears at your cursor.",
+        description="Voice-to-text. Speak naturally, and text appears at your cursor.",
     )
     parser.add_argument("-V", "--version", action="version",
                         version=f"%(prog)s {__version__}")
@@ -131,9 +131,20 @@ def _cmd_run(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.DEBUG, handlers=[console, file_handler])
     logging.getLogger("voiceio").setLevel(getattr(logging, cfg.daemon.log_level))
 
+    log = logging.getLogger("voiceio")
+    from voiceio import __version__, platform as plat
+    p = plat.detect()
+    log.info("=== voiceio v%s startup ===", __version__)
+    log.info("Python %s on %s", sys.version.split()[0], sys.platform)
+    log.info("Detected: os=%s display=%s desktop=%s", p.os, p.display_server, p.desktop)
+    from voiceio.config import CONFIG_PATH as _default_cfg
+    log.info("Config: %s", args.config or _default_cfg)
+    log.info("Logs: %s", LOG_PATH)
+
     from voiceio.app import VoiceIO
     app = VoiceIO(cfg)
-    signal.signal(signal.SIGTERM, lambda *_: app.request_shutdown())
+    if sys.platform != "win32":
+        signal.signal(signal.SIGTERM, lambda *_: app.request_shutdown())
     app.run()
 
 
@@ -234,7 +245,7 @@ def _cmd_test() -> None:
 
 
 def _cmd_service(args: argparse.Namespace) -> None:
-    """Manage the systemd user service."""
+    """Manage the autostart service (systemd on Linux, Startup folder on Windows)."""
     from voiceio.service import (
         install_service, uninstall_service, is_installed, is_running,
         start_service, SERVICE_PATH,
@@ -249,7 +260,8 @@ def _cmd_service(args: argparse.Namespace) -> None:
         print(f"Service installed: {'yes' if installed else 'no'}")
         if installed:
             print(f"Service running:   {'yes' if running else 'no'}")
-            print(f"Service file:      {SERVICE_PATH}")
+            if sys.platform != "win32":
+                print(f"Service file:      {SERVICE_PATH}")
         else:
             print("Run 'voiceio service install' to set up autostart.")
         sys.exit(0 if installed else 1)
@@ -257,7 +269,8 @@ def _cmd_service(args: argparse.Namespace) -> None:
     elif action == "install":
         if install_service():
             print("Service installed and enabled. It will start on next login.")
-            print("Start now: systemctl --user start voiceio")
+            if sys.platform != "win32":
+                print("Start now: systemctl --user start voiceio")
         else:
             print("Failed to install service.", file=sys.stderr)
             sys.exit(1)
@@ -277,6 +290,9 @@ def _cmd_service(args: argparse.Namespace) -> None:
             sys.exit(1)
 
     elif action == "stop":
+        if sys.platform == "win32":
+            print("On Windows, close the voiceio window or use Task Manager.", file=sys.stderr)
+            return
         try:
             subprocess.run(
                 ["systemctl", "--user", "stop", "voiceio.service"],
@@ -333,128 +349,140 @@ def _cmd_uninstall() -> None:
         print("Aborted.")
         return
 
-    # 1. Stop running daemons and disable systemd service
-    # Kill any running voiceio daemon (manual or systemd)
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "voiceio.cli"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if result.returncode == 0:
-            my_pid = str(os.getpid())
-            for pid in result.stdout.strip().split("\n"):
-                pid = pid.strip()
-                if pid and pid != my_pid:
-                    subprocess.run(["kill", pid], capture_output=True, timeout=3)
-            removed.append("Running voiceio daemon(s)")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    # Kill any running IBus engine process
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "voiceio.ibus.engine"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if result.returncode == 0:
-            for pid in result.stdout.strip().split("\n"):
-                pid = pid.strip()
-                if pid:
-                    subprocess.run(["kill", pid], capture_output=True, timeout=3)
-            removed.append("Running IBus engine(s)")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    # Stop and disable systemd service
-    service_path = home / ".config" / "systemd" / "user" / "voiceio.service"
-    if service_path.exists():
+    # 1. Stop running daemons
+    if sys.platform == "win32":
         try:
             subprocess.run(
-                ["systemctl", "--user", "stop", "voiceio.service"],
+                ["taskkill", "/F", "/IM", "voiceio.exe"],
                 capture_output=True, timeout=5,
             )
-            subprocess.run(
-                ["systemctl", "--user", "disable", "voiceio.service"],
-                capture_output=True, timeout=5,
-            )
+            removed.append("Running voiceio process(es)")
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
-        service_path.unlink(missing_ok=True)
+
+        # Remove Windows startup shortcut
+        from voiceio.service import uninstall_windows_startup
+        if uninstall_windows_startup():
+            removed.append("Windows startup shortcut")
+    else:
+        # Kill any running voiceio daemon (manual or systemd)
         try:
-            subprocess.run(
-                ["systemctl", "--user", "daemon-reload"],
-                capture_output=True, timeout=5,
+            result = subprocess.run(
+                ["pgrep", "-f", "voiceio.cli"],
+                capture_output=True, text=True, timeout=3,
             )
+            if result.returncode == 0:
+                my_pid = str(os.getpid())
+                for pid in result.stdout.strip().split("\n"):
+                    pid = pid.strip()
+                    if pid and pid != my_pid:
+                        subprocess.run(["kill", pid], capture_output=True, timeout=3)
+                removed.append("Running voiceio daemon(s)")
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
-        removed.append(str(service_path))
 
-    # 2. Remove IBus component and launcher
-    ibus_component = home / ".local" / "share" / "ibus" / "component" / "voiceio.xml"
-    ibus_launcher = home / ".local" / "share" / "voiceio" / "voiceio-ibus-engine"
-    if ibus_component.exists():
-        ibus_component.unlink()
-        removed.append(str(ibus_component))
-    if ibus_launcher.exists():
-        ibus_launcher.unlink()
-        removed.append(str(ibus_launcher))
-        # Remove parent dir if empty
-        launcher_dir = ibus_launcher.parent
+        # Kill any running IBus engine process
         try:
-            launcher_dir.rmdir()
-            removed.append(str(launcher_dir))
-        except OSError:
+            result = subprocess.run(
+                ["pgrep", "-f", "voiceio.ibus.engine"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if result.returncode == 0:
+                for pid in result.stdout.strip().split("\n"):
+                    pid = pid.strip()
+                    if pid:
+                        subprocess.run(["kill", pid], capture_output=True, timeout=3)
+                removed.append("Running IBus engine(s)")
+        except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-    # 3. Remove GNOME input source entry
-    try:
-        result = subprocess.run(
-            ["gsettings", "get", "org.gnome.desktop.input-sources", "sources"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if result.returncode == 0 and "'ibus', 'voiceio'" in result.stdout:
-            import ast
-            sources = ast.literal_eval(result.stdout.strip())
-            new_sources = [s for s in sources if s != ("ibus", "voiceio")]
-            formatted = "[" + ", ".join(f"({s[0]!r}, {s[1]!r})" for s in new_sources) + "]"
-            subprocess.run(
-                ["gsettings", "set", "org.gnome.desktop.input-sources", "sources", formatted],
-                capture_output=True, timeout=3,
+        # Stop and disable systemd service
+        service_path = home / ".config" / "systemd" / "user" / "voiceio.service"
+        if service_path.exists():
+            try:
+                subprocess.run(
+                    ["systemctl", "--user", "stop", "voiceio.service"],
+                    capture_output=True, timeout=5,
+                )
+                subprocess.run(
+                    ["systemctl", "--user", "disable", "voiceio.service"],
+                    capture_output=True, timeout=5,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            service_path.unlink(missing_ok=True)
+            try:
+                subprocess.run(
+                    ["systemctl", "--user", "daemon-reload"],
+                    capture_output=True, timeout=5,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            removed.append(str(service_path))
+
+        # 2. Remove IBus component and launcher
+        ibus_component = home / ".local" / "share" / "ibus" / "component" / "voiceio.xml"
+        ibus_launcher = home / ".local" / "share" / "voiceio" / "voiceio-ibus-engine"
+        if ibus_component.exists():
+            ibus_component.unlink()
+            removed.append(str(ibus_component))
+        if ibus_launcher.exists():
+            ibus_launcher.unlink()
+            removed.append(str(ibus_launcher))
+            launcher_dir = ibus_launcher.parent
+            try:
+                launcher_dir.rmdir()
+                removed.append(str(launcher_dir))
+            except OSError:
+                pass
+
+        # 3. Remove GNOME input source entry
+        try:
+            result = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.input-sources", "sources"],
+                capture_output=True, text=True, timeout=3,
             )
-            removed.append("GNOME input source ('ibus', 'voiceio')")
-    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, SyntaxError):
-        pass
+            if result.returncode == 0 and "'ibus', 'voiceio'" in result.stdout:
+                import ast
+                sources = ast.literal_eval(result.stdout.strip())
+                new_sources = [s for s in sources if s != ("ibus", "voiceio")]
+                formatted = "[" + ", ".join(f"({s[0]!r}, {s[1]!r})" for s in new_sources) + "]"
+                subprocess.run(
+                    ["gsettings", "set", "org.gnome.desktop.input-sources", "sources", formatted],
+                    capture_output=True, timeout=3,
+                )
+                removed.append("GNOME input source ('ibus', 'voiceio')")
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, SyntaxError):
+            pass
 
-    # 4. Remove environment.d file
-    env_file = home / ".config" / "environment.d" / "voiceio.conf"
-    if env_file.exists():
-        env_file.unlink()
-        removed.append(str(env_file))
+        # 4. Remove environment.d file
+        env_file = home / ".config" / "environment.d" / "voiceio.conf"
+        if env_file.exists():
+            env_file.unlink()
+            removed.append(str(env_file))
 
-    # 5. Remove CLI symlinks from ~/.local/bin/
-    local_bin = home / ".local" / "bin"
-    symlink_names = ["voiceio", "voiceio-toggle", "voiceio-doctor", "voiceio-setup", "voiceio-test"]
-    for name in symlink_names:
-        link = local_bin / name
-        if link.is_symlink():
-            link.unlink()
-            removed.append(str(link))
+        # 5. Remove CLI symlinks from ~/.local/bin/
+        local_bin = home / ".local" / "bin"
+        symlink_names = ["voiceio", "voiceio-toggle", "voiceio-doctor", "voiceio-setup", "voiceio-test"]
+        for name in symlink_names:
+            link = local_bin / name
+            if link.is_symlink():
+                link.unlink()
+                removed.append(str(link))
 
-    # 6. Optionally remove config
-    config_dir = home / ".config" / "voiceio"
-    if config_dir.exists():
+    # 6. Optionally remove config and logs (use platform-aware paths)
+    from voiceio.config import CONFIG_DIR, LOG_DIR
+    if CONFIG_DIR.exists():
         answer = input("Remove config too? [y/N] ").strip().lower()
         if answer == "y":
-            shutil.rmtree(config_dir)
-            removed.append(str(config_dir))
+            shutil.rmtree(CONFIG_DIR)
+            removed.append(str(CONFIG_DIR))
 
-    # 7. Optionally remove logs
-    log_dir = home / ".local" / "state" / "voiceio"
-    if log_dir.exists():
+    if LOG_DIR.exists():
         answer = input("Remove logs too? [y/N] ").strip().lower()
         if answer == "y":
-            shutil.rmtree(log_dir)
-            removed.append(str(log_dir))
+            shutil.rmtree(LOG_DIR)
+            removed.append(str(LOG_DIR))
 
     # Print summary
     if removed:

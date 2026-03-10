@@ -1,4 +1,11 @@
-"""User feedback: notifications and audio cues."""
+"""User feedback: notifications and audio cues.
+
+Uses a persistent sounddevice OutputStream on the 'pulse' device for reliable
+playback. The stream stays open for the lifetime of the daemon, avoiding
+PipeWire's dropped-audio issue with short-lived clients (pw-play, paplay).
+The 'pulse' device routes through PulseAudio/PipeWire's session manager,
+so audio always goes to the same output as other desktop apps.
+"""
 from __future__ import annotations
 
 import functools
@@ -6,36 +13,91 @@ import logging
 import shutil
 import subprocess
 import threading
+import wave
 from pathlib import Path
+
+import numpy as np
+import sounddevice as sd
 
 log = logging.getLogger(__name__)
 
 _SOUNDS_DIR = Path(__file__).parent / "sounds"
-
-# Cache tool lookups; they don't change during a session
 _which = functools.lru_cache(maxsize=16)(shutil.which)
+
+_stream: sd.OutputStream | None = None
+_stream_lock = threading.Lock()
+_sounds: dict[str, np.ndarray] = {}
+
+
+def warm_up() -> None:
+    """Open a persistent output stream and pre-load all sounds."""
+    global _stream
+
+    # Pre-load all WAV files
+    for name in ("start", "stop", "commit"):
+        path = _SOUNDS_DIR / f"{name}.wav"
+        if not path.exists():
+            continue
+        with wave.open(str(path), "rb") as wf:
+            rate = wf.getframerate()
+            data = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
+        # Pad with 100ms silence so PipeWire doesn't clip the tail
+        pad = np.zeros(int(rate * 0.1), dtype=np.int16)
+        _sounds[name] = np.concatenate([data, pad]).reshape(-1, 1)
+
+    # Open persistent output stream.
+    # Linux: use 'pulse' device which routes through PulseAudio/PipeWire session
+    #   manager — audio goes to the same output as other desktop apps.
+    # macOS/other: use default device (CoreAudio routes correctly).
+    import sys
+    devices_to_try = ["pulse", None] if sys.platform.startswith("linux") else [None]
+    log.debug("Sound warm_up: platform=%s, devices_to_try=%s", sys.platform, devices_to_try)
+
+    for device in devices_to_try:
+        try:
+            _stream = sd.OutputStream(
+                samplerate=44100, channels=1, dtype="int16", device=device,
+            )
+            _stream.start()
+            label = device or "default"
+            log.info("Sound output stream open (device=%s)", label)
+            return
+        except Exception:
+            label = device or "default"
+            log.debug("Could not open %s audio output", label, exc_info=True)
+
+    log.warning("Sound output unavailable — no working audio device found")
 
 
 def play_record_start() -> None:
-    """Play a subtle sound when recording starts. Runs async."""
-    threading.Thread(target=_play_wav, args=(_SOUNDS_DIR / "start.wav",), daemon=True).start()
+    _play("start")
 
 
 def play_record_stop() -> None:
-    """Play a subtle sound when recording stops. Runs async."""
-    threading.Thread(target=_play_wav, args=(_SOUNDS_DIR / "stop.wav",), daemon=True).start()
+    _play("stop")
 
 
 def play_commit_sound() -> None:
-    """Play a short success sound when text is committed. Runs async."""
-    threading.Thread(target=_play_wav, args=(_SOUNDS_DIR / "commit.wav",), daemon=True).start()
+    _play("commit")
+
+
+def _play(name: str) -> None:
+    """Write pre-loaded samples to the persistent stream. Non-blocking."""
+    if _stream is None or name not in _sounds:
+        return
+    threading.Thread(target=_play_sync, args=(name,), daemon=True).start()
+
+
+def _play_sync(name: str) -> None:
+    data = _sounds[name]
+    try:
+        with _stream_lock:
+            _stream.write(data)
+    except Exception:
+        log.debug("Playback failed for %s", name, exc_info=True)
 
 
 def notify_clipboard(text: str) -> None:
-    """Show desktop notification that text is in clipboard.
-
-    Runs async so it never blocks the typing pipeline.
-    """
     preview = text[:80] + ("\u2026" if len(text) > 80 else "")
     threading.Thread(
         target=_send_notification,
@@ -45,7 +107,6 @@ def notify_clipboard(text: str) -> None:
 
 
 def _send_notification(title: str, body: str) -> None:
-    """Send a desktop notification via notify-send (GNOME/freedesktop)."""
     if not _which("notify-send"):
         return
     try:
@@ -55,24 +116,3 @@ def _send_notification(title: str, body: str) -> None:
         )
     except (subprocess.TimeoutExpired, OSError):
         pass
-
-
-def _play_wav(path: Path) -> None:
-    """Play a WAV file via paplay, aplay, or pw-play."""
-    if not path.exists():
-        return
-    for player, args in [
-        ("paplay", [str(path)]),
-        ("pw-play", [str(path)]),
-        ("aplay", ["-q", str(path)]),
-    ]:
-        if not _which(player):
-            continue
-        try:
-            subprocess.run(
-                [player, *args],
-                capture_output=True, timeout=3,
-            )
-            return
-        except (subprocess.TimeoutExpired, OSError):
-            continue

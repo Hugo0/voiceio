@@ -40,7 +40,7 @@ def test_health_report_format():
 
     def mock_typer_resolve(platform):
         return [
-            ("ydotool", MagicMock(), ProbeResult(ok=False, reason="not installed", fix_hint="apt install ydotool")),
+            ("ydotool", MagicMock(), ProbeResult(ok=False, reason="not installed", fix_hint="sudo apt install ydotool")),
             ("clipboard", MagicMock(), ProbeResult(ok=True)),
         ]
 
@@ -53,7 +53,7 @@ def test_health_report_format():
     assert "wayland" in text
     assert "\u2714 evdev" in text           # ✔ evdev
     assert "\u2718 ydotool" in text         # ✘ ydotool
-    assert "apt install ydotool" in text
+    assert "install ydotool" in text
     assert "\u2714 clipboard" in text       # ✔ clipboard
     assert "\u25C0 active" in text          # ◀ active marker
 

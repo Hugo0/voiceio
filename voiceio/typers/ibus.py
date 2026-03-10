@@ -285,18 +285,19 @@ class IBusTyper:
         self._wl_copy_proc: subprocess.Popen | None = None
 
     def probe(self) -> ProbeResult:
+        from voiceio.platform import pkg_install
         if not shutil.which("ibus"):
             return ProbeResult(
                 ok=False,
                 reason="ibus not installed",
-                fix_hint="sudo apt install ibus",
+                fix_hint=pkg_install("ibus"),
             )
 
         if not _has_ibus_gi():
             return ProbeResult(
                 ok=False,
                 reason="IBus Python bindings not available for system Python",
-                fix_hint="sudo apt install gir1.2-ibus-1.0 python3-gi",
+                fix_hint=pkg_install("gir1.2-ibus-1.0", "python3-gi"),
             )
 
         if not _ibus_daemon_running():

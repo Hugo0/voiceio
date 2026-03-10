@@ -1,0 +1,62 @@
+name: Build Windows Executable
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:  # allow manual trigger for testing
+
+permissions:
+  contents: write  # needed to upload release assets
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[win,tray]"
+          pip install pyinstaller
+
+      - name: Build executable
+        run: pyinstaller voiceio.spec
+
+      - name: Verify executable runs
+        run: dist\voiceio\voiceio.exe --version
+
+      - name: Create zip archive
+        run: Compress-Archive -Path dist\voiceio -DestinationPath dist\voiceio-windows-x64.zip
+        shell: pwsh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiceio-windows-x64
+          path: dist/voiceio-windows-x64.zip
+
+      - name: Wait for GitHub Release to exist
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          for ($i = 0; $i -lt 30; $i++) {
+            $result = gh release view $tag 2>&1
+            if ($LASTEXITCODE -eq 0) { Write-Host "Release $tag found"; exit 0 }
+            Write-Host "Waiting for release $tag... ($i)"
+            Start-Sleep -Seconds 10
+          }
+          Write-Host "Release not found after 5 min, uploading anyway"
+        shell: pwsh
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" dist/voiceio-windows-x64.zip --clobber

@@ -37,6 +37,10 @@ class HealthReport:
     audio_reason: str = ""
     cli_in_path: bool = False
     ibus_checks: IBusStatus | None = None
+    tray_ok: bool = False
+    tray_reason: str = ""
+    tray_fix_hint: str = ""
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def all_ok(self) -> bool:
@@ -78,10 +82,31 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
     from voiceio.service import symlinks_installed
     report.cli_in_path = symlinks_installed()
 
+    # Tray icon
+    from voiceio.tray import probe_availability
+    report.tray_ok, report.tray_reason, report.tray_fix_hint = probe_availability()
+
     # IBus-specific checks (only if IBus is in the typer chain)
     ibus_backends = [b for b in report.typer_backends if b.name == "ibus"]
     if ibus_backends and ibus_backends[0].ok:
         report.ibus_checks = _check_ibus()
+
+    # Platform-specific warnings
+    import sys
+    if sys.platform == "win32":
+        active_hotkey = next((b.name for b in report.hotkey_backends if b.ok), None)
+        if active_hotkey == "pynput":
+            report.warnings.append(
+                "Windows antivirus software may block pynput keyboard hooks. "
+                "If hotkeys stop working, add voiceio to your antivirus exclusions."
+            )
+    elif sys.platform == "darwin":
+        active_hotkey = next((b.name for b in report.hotkey_backends if b.ok), None)
+        if active_hotkey == "pynput":
+            report.warnings.append(
+                "macOS requires Accessibility permission for pynput. "
+                "Grant it in System Settings → Privacy & Security → Accessibility."
+            )
 
     return report
 
@@ -171,8 +196,16 @@ def format_report(report: HealthReport) -> str:
     icon = _icon(report.cli_in_path)
     line = f"CLI in PATH: {icon}"
     if not report.cli_in_path:
-        line += "  \u2014 run 'voiceio setup' or 'voiceio doctor --fix'"
+        line += "  \u2014 run 'voiceio doctor --fix' to create ~/.local/bin/ symlinks"
     lines.append(line)
+
+    icon = _icon(report.tray_ok, warn=True)
+    line = f"Tray icon: {icon}"
+    if not report.tray_ok:
+        line += f"  \u2014 {report.tray_reason}"
+    lines.append(line)
+    if report.tray_fix_hint and not report.tray_ok:
+        lines.append(f"  \u2192 {report.tray_fix_hint}")
 
     if report.ibus_checks is not None:
         ibus = report.ibus_checks
@@ -190,5 +223,11 @@ def format_report(report: HealthReport) -> str:
             if not ok:
                 line += f"  \u2014 {hint}"
             lines.append(line)
+
+    if report.warnings:
+        lines.append("")
+        lines.append("Warnings:")
+        for w in report.warnings:
+            lines.append(f"  \u26A0 {w}")
 
     return "\n".join(lines)
