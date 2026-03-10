@@ -13,6 +13,7 @@ Backend selection:
 from __future__ import annotations
 
 import atexit
+import functools
 import logging
 import shutil
 import subprocess
@@ -42,6 +43,7 @@ _APPINDICATOR_PROBE = (
 )
 
 
+@functools.lru_cache(maxsize=1)
 def _find_system_python() -> str | None:
     """Find a system Python 3 that has GTK3 + AppIndicator3."""
     for py in ["/usr/bin/python3"]:

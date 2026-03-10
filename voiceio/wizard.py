@@ -260,16 +260,35 @@ def _check_system() -> dict:
     """Check system dependencies and capabilities."""
     checks = {}
 
-    # Display server
-    session = os.environ.get("XDG_SESSION_TYPE", "unknown")
-    checks["display"] = session
+    _is_win = sys.platform == "win32"
+    _is_mac = sys.platform == "darwin"
+    checks["is_windows"] = _is_win
+    checks["is_mac"] = _is_mac
+    checks["is_linux"] = not _is_win and not _is_mac
 
-    # Typer binaries
-    checks["xdotool"] = _check_binary("xdotool")
-    checks["xclip"] = _check_binary("xclip")
-    checks["ydotool"] = _check_binary("ydotool")
-    checks["wtype"] = _check_binary("wtype")
-    checks["ibus"] = _check_binary("ibus")
+    # Display server
+    if _is_win:
+        checks["display"] = "win32"
+    elif _is_mac:
+        checks["display"] = "darwin"
+    else:
+        checks["display"] = os.environ.get("XDG_SESSION_TYPE", "unknown")
+
+    # pynput (Windows/macOS primary backend)
+    checks["pynput"] = False
+    if _is_win or _is_mac:
+        try:
+            import pynput  # noqa: F401
+            checks["pynput"] = True
+        except ImportError:
+            pass
+
+    # Linux-only typer binaries
+    checks["xdotool"] = _check_binary("xdotool") if checks["is_linux"] else False
+    checks["xclip"] = _check_binary("xclip") if checks["is_linux"] else False
+    checks["ydotool"] = _check_binary("ydotool") if checks["is_linux"] else False
+    checks["wtype"] = _check_binary("wtype") if checks["is_linux"] else False
+    checks["ibus"] = _check_binary("ibus") if checks["is_linux"] else False
 
     # IBus Python bindings (check system Python, not venv)
     checks["ibus_gi"] = False
@@ -295,14 +314,16 @@ def _check_system() -> dict:
     except Exception:
         checks["cuda"] = False
 
-    # Input group (for evdev)
-    groups = os.getgroups()
-    try:
-        import grp
-        input_gid = grp.getgrnam("input").gr_gid
-        checks["input_group"] = input_gid in groups
-    except (KeyError, ImportError):
-        checks["input_group"] = False
+    # Input group (for evdev, Linux only)
+    checks["input_group"] = False
+    if checks["is_linux"]:
+        groups = os.getgroups()
+        try:
+            import grp
+            input_gid = grp.getgrnam("input").gr_gid
+            checks["input_group"] = input_gid in groups
+        except (KeyError, ImportError):
+            pass
 
     return checks
 
@@ -700,31 +721,35 @@ def run_wizard() -> None:
     _print_step(1, total_steps, "System check")
     checks = _check_system()
 
-    _print_check("Display server", True, checks["display"])
+    _print_check("Platform", True, checks["display"])
     _print_check("Audio input", checks["audio"],
                  f"{len(checks['audio_devices'])} device(s)" if checks["audio"] else "no devices found")
 
-    # IBus (preferred typer on Linux)
-    from voiceio.platform import pkg_install
-    if checks["ibus"] and checks["ibus_gi"]:
-        _print_check("IBus", True, "recommended, atomic text insertion")
-    elif checks["ibus"]:
-        _print_check("IBus", False, f"install bindings: {pkg_install('gir1.2-ibus-1.0')}")
+    if checks["is_windows"] or checks["is_mac"]:
+        # Windows/macOS: pynput is the primary backend
+        _print_check("pynput", checks["pynput"],
+                     "hotkeys + text injection" if checks["pynput"] else "pip install pynput")
     else:
-        _print_check("IBus", False, f"install: {pkg_install('ibus', 'gir1.2-ibus-1.0')}")
+        # Linux: IBus preferred, fallback typers optional
+        from voiceio.platform import pkg_install
+        if checks["ibus"] and checks["ibus_gi"]:
+            _print_check("IBus", True, "recommended, atomic text insertion")
+        elif checks["ibus"]:
+            _print_check("IBus", False, f"install bindings: {pkg_install('gir1.2-ibus-1.0')}")
+        else:
+            _print_check("IBus", False, f"install: {pkg_install('ibus', 'gir1.2-ibus-1.0')}")
 
-    # Fallback typers (optional)
-    if checks["display"] == "wayland":
-        _print_check("ydotool", checks["ydotool"],
-                     "fallback" if checks["ydotool"] else f"optional: {pkg_install('ydotool')}",
-                     optional=True)
-        _print_check("wtype", checks["wtype"],
-                     "fallback" if checks["wtype"] else f"optional: {pkg_install('wtype')}",
-                     optional=True)
-    else:
-        _print_check("xdotool", checks["xdotool"],
-                     "fallback" if checks["xdotool"] else f"optional: {pkg_install('xdotool')}",
-                     optional=True)
+        if checks["display"] == "wayland":
+            _print_check("ydotool", checks["ydotool"],
+                         "fallback" if checks["ydotool"] else f"optional: {pkg_install('ydotool')}",
+                         optional=True)
+            _print_check("wtype", checks["wtype"],
+                         "fallback" if checks["wtype"] else f"optional: {pkg_install('wtype')}",
+                         optional=True)
+        else:
+            _print_check("xdotool", checks["xdotool"],
+                         "fallback" if checks["xdotool"] else f"optional: {pkg_install('xdotool')}",
+                         optional=True)
 
     _print_check("CUDA GPU", checks["cuda"],
                  "will use GPU" if checks["cuda"] else "will use CPU (still fast)",
@@ -767,12 +792,20 @@ def run_wizard() -> None:
         sys.exit(1)
 
     # Need at least one typer
-    has_typer = checks["ibus"] and checks["ibus_gi"]
-    has_typer = has_typer or checks["xdotool"] or checks["ydotool"] or checks["wtype"]
-    if not has_typer:
-        print(f"\n  {RED}No text injection backend available.{RESET}")
-        print(f"  {DIM}Install one: {pkg_install('ibus', 'gir1.2-ibus-1.0')}{RESET}")
-        sys.exit(1)
+    if checks["is_windows"] or checks["is_mac"]:
+        has_typer = checks["pynput"]
+        if not has_typer:
+            print(f"\n  {RED}No text injection backend available.{RESET}")
+            print(f"  {DIM}Install pynput: pip install pynput{RESET}")
+            sys.exit(1)
+    else:
+        has_typer = checks["ibus"] and checks["ibus_gi"]
+        has_typer = has_typer or checks["xdotool"] or checks["ydotool"] or checks["wtype"]
+        if not has_typer:
+            from voiceio.platform import pkg_install
+            print(f"\n  {RED}No text injection backend available.{RESET}")
+            print(f"  {DIM}Install one: {pkg_install('ibus', 'gir1.2-ibus-1.0')}{RESET}")
+            sys.exit(1)
 
     # ── Step 2: Choose model ────────────────────────────────────────────
     _print_step(2, total_steps, "Choose a Whisper model")
@@ -802,27 +835,32 @@ def run_wizard() -> None:
     else:
         hotkey = hotkey_options[hk_idx][0]
 
-    # Output method: auto selects best available (IBus preferred)
+    # Output method: auto selects best available
     method = "auto"
-    if checks["ibus"] and checks["ibus_gi"]:
-        print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: IBus (best quality, auto-selected){RESET}")
-        # Install IBus component and add GNOME input source
-        from voiceio.typers.ibus import install_component, _ensure_gnome_input_source
-        if install_component():
-            print(f"  {GREEN}✓{RESET} {DIM}IBus engine component installed{RESET}")
-            _ensure_gnome_input_source()
-            print(f"  {GREEN}✓{RESET} {DIM}Added VoiceIO to GNOME input sources{RESET}")
-        else:
-            print(f"  {YELLOW}⚠{RESET}  {DIM}Could not install IBus component, will use fallback{RESET}")
-
-    # Backend
-    if checks["display"] == "wayland":
-        if checks["input_group"]:
-            backend = "evdev"
-        else:
-            backend = "socket"
-    else:
+    if checks["is_windows"] or checks["is_mac"]:
         backend = "auto"
+        label = "pynput" if checks["is_windows"] else "pynput (requires Accessibility permission)"
+        print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: {label}{RESET}")
+    else:
+        if checks["ibus"] and checks["ibus_gi"]:
+            print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: IBus (best quality, auto-selected){RESET}")
+            # Install IBus component and add GNOME input source
+            from voiceio.typers.ibus import install_component, _ensure_gnome_input_source
+            if install_component():
+                print(f"  {GREEN}✓{RESET} {DIM}IBus engine component installed{RESET}")
+                _ensure_gnome_input_source()
+                print(f"  {GREEN}✓{RESET} {DIM}Added VoiceIO to GNOME input sources{RESET}")
+            else:
+                print(f"  {YELLOW}⚠{RESET}  {DIM}Could not install IBus component, will use fallback{RESET}")
+
+        # Backend
+        if checks["display"] == "wayland":
+            if checks["input_group"]:
+                backend = "evdev"
+            else:
+                backend = "socket"
+        else:
+            backend = "auto"
 
     # ── Step 5: Feedback ───────────────────────────────────────────────
     _print_step(5, total_steps, "Feedback")
@@ -848,43 +886,63 @@ def run_wizard() -> None:
                   sound_enabled=sound_enabled, notify_clipboard=notify_clipboard,
                   tray_enabled=tray_ok)
 
-    # Set up DE shortcut if on GNOME + socket backend
-    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
-    if "GNOME" in desktop and backend == "socket":
-        print(f"\n  {CYAN}Setting up GNOME keyboard shortcut...{RESET}")
-        if _setup_gnome_shortcut(hotkey):
-            print(f"  {GREEN}✓{RESET} Shortcut {BOLD}{hotkey}{RESET} → voiceio-toggle configured!")
-        else:
-            print(f"  {YELLOW}⚠{RESET}  Auto-setup failed. Add manually in Settings → Keyboard → Shortcuts:")
-            print("    Command: voiceio-toggle")
-    elif backend == "socket":
-        print(f"\n  {YELLOW}ℹ{RESET}  Add a keyboard shortcut manually in your DE settings:")
-        print(f"    Shortcut: {BOLD}{hotkey}{RESET}")
-        print(f"    Command:  {BOLD}voiceio-toggle{RESET}")
+    # Set up DE shortcut if on GNOME + socket backend (Linux only)
+    if checks["is_linux"]:
+        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
+        if "GNOME" in desktop and backend == "socket":
+            print(f"\n  {CYAN}Setting up GNOME keyboard shortcut...{RESET}")
+            if _setup_gnome_shortcut(hotkey):
+                print(f"  {GREEN}✓{RESET} Shortcut {BOLD}{hotkey}{RESET} → voiceio-toggle configured!")
+            else:
+                print(f"  {YELLOW}⚠{RESET}  Auto-setup failed. Add manually in Settings → Keyboard → Shortcuts:")
+                print("    Command: voiceio-toggle")
+        elif backend == "socket":
+            print(f"\n  {YELLOW}ℹ{RESET}  Add a keyboard shortcut manually in your DE settings:")
+            print(f"    Shortcut: {BOLD}{hotkey}{RESET}")
+            print(f"    Command:  {BOLD}voiceio-toggle{RESET}")
 
     # ── Step 8: Autostart ─────────────────────────────────────────────────
     _print_step(8, total_steps, "Autostart")
-    from voiceio.service import has_systemd
+    from voiceio.service import install_service
     autostart_idx = 1  # default: no autostart
-    if has_systemd():
-        print(f"  {DIM}Install a systemd user service so voiceio starts on login{RESET}")
-        print(f"  {DIM}and restarts automatically if it crashes.{RESET}\n")
+
+    if checks["is_windows"]:
+        print(f"  {DIM}Add voiceio to Windows Startup so it runs on login.{RESET}\n")
         autostart_options = [
-            ("Yes", "install & enable systemd service"),
+            ("Yes", "add to Windows Startup folder"),
             ("No", "I'll start it manually"),
         ]
         autostart_idx = _ask_choice(autostart_options, default=0)
         if autostart_idx == 0:
-            from voiceio.service import install_service
             if install_service():
-                print(f"  {GREEN}✓{RESET} Systemd service installed and enabled")
+                print(f"  {GREEN}✓{RESET} Added to Windows Startup")
                 print(f"  {DIM}voiceio will start automatically on next login{RESET}")
             else:
-                print(f"  {YELLOW}⚠{RESET}  Could not install systemd service")
+                print(f"  {YELLOW}⚠{RESET}  Could not add to Startup folder")
                 print(f"  {DIM}Start manually with: voiceio{RESET}")
+    elif checks["is_mac"]:
+        print(f"  {DIM}macOS autostart: start voiceio manually for now.{RESET}")
+        print(f"  {DIM}Run: voiceio{RESET}")
     else:
-        print(f"  {DIM}systemd not available, skipping autostart setup{RESET}")
-        print(f"  {DIM}Start manually with: voiceio{RESET}")
+        from voiceio.service import has_systemd
+        if has_systemd():
+            print(f"  {DIM}Install a systemd user service so voiceio starts on login{RESET}")
+            print(f"  {DIM}and restarts automatically if it crashes.{RESET}\n")
+            autostart_options = [
+                ("Yes", "install & enable systemd service"),
+                ("No", "I'll start it manually"),
+            ]
+            autostart_idx = _ask_choice(autostart_options, default=0)
+            if autostart_idx == 0:
+                if install_service():
+                    print(f"  {GREEN}✓{RESET} Systemd service installed and enabled")
+                    print(f"  {DIM}voiceio will start automatically on next login{RESET}")
+                else:
+                    print(f"  {YELLOW}⚠{RESET}  Could not install systemd service")
+                    print(f"  {DIM}Start manually with: voiceio{RESET}")
+        else:
+            print(f"  {DIM}systemd not available, skipping autostart setup{RESET}")
+            print(f"  {DIM}Start manually with: voiceio{RESET}")
 
     # ── Step 9: Test ────────────────────────────────────────────────────
     _print_step(9, total_steps, "Test")

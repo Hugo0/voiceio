@@ -61,6 +61,8 @@ hidden_imports = [
     "_sounddevice_data",
     # clipboard
     "pyperclip",
+    # notifications
+    "win11toast",
 ]
 
 # Data files to include

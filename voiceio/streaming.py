@@ -70,6 +70,7 @@ class StreamingSession:
         self._transcriber = transcriber
         self._typer = typer
         self._recorder: AudioRecorder | None = recorder
+        self._sample_rate = recorder.sample_rate
         self._generation = generation
         self._typed_text = ""
         self._pending = threading.Event()
@@ -139,7 +140,7 @@ class StreamingSession:
 
         if audio is None:
             return
-        if len(audio) < 16000 * min_seconds:
+        if len(audio) < self._sample_rate * min_seconds:
             return
 
         try:

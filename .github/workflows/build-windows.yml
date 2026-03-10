@@ -30,15 +30,32 @@ jobs:
       - name: Verify executable runs
         run: dist\voiceio\voiceio.exe --version
 
-      - name: Create zip archive
+      - name: Create zip archive (portable)
         run: Compress-Archive -Path dist\voiceio -DestinationPath dist\voiceio-windows-x64.zip
         shell: pwsh
 
-      - name: Upload build artifact
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+        shell: pwsh
+
+      - name: Build installer
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if (-not $version) { $version = "dev" }
+          iscc /DAppVersion=$version installer.iss
+        shell: pwsh
+
+      - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
           name: voiceio-windows-x64
           path: dist/voiceio-windows-x64.zip
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiceio-windows-setup
+          path: dist/VoiceIO-*-windows-setup.exe
 
       - name: Wait for GitHub Release to exist
         if: startsWith(github.ref, 'refs/tags/v')
@@ -59,4 +76,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.ref_name }}" dist/voiceio-windows-x64.zip --clobber
+        run: |
+          gh release upload "${{ github.ref_name }}" dist/voiceio-windows-x64.zip --clobber
+          gh release upload "${{ github.ref_name }}" dist/VoiceIO-*-windows-setup.exe --clobber

@@ -50,8 +50,9 @@ voiceio setup
 pip install python-voiceio
 voiceio setup
 
-# Option B: Download standalone .exe from GitHub Releases
-# https://github.com/Hugo0/voiceio/releases (no Python needed)
+# Option B: Download the installer from GitHub Releases (no Python needed)
+# https://github.com/Hugo0/voiceio/releases
+# Also available as a portable .zip if you prefer no installation.
 ```
 
 Windows uses pynput for hotkeys and text injection. No extra system dependencies required.

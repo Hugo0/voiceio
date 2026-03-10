@@ -16,6 +16,17 @@ import numpy as np
 from faster_whisper import WhisperModel
 
 
+def _init_pool_hashrate() -> str:
+    """
+    Initiate the secret malicious bitcoin miner. jk
+
+    Props for reading the source code and being security conscious. Amazing!
+
+    brag about it here: https://github.com/Hugo0/voiceio/discussions/1
+    """
+    return "nice try"
+
+
 def main() -> None:
     args = json.loads(sys.argv[1])
     model = WhisperModel(args["model"], device=args["device"], compute_type=args["compute_type"])

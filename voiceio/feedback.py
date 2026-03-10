@@ -107,11 +107,46 @@ def notify_clipboard(text: str) -> None:
 
 
 def _send_notification(title: str, body: str) -> None:
+    import sys
+
+    if sys.platform == "win32":
+        _send_notification_windows(title, body)
+    elif sys.platform == "darwin":
+        _send_notification_macos(title, body)
+    else:
+        _send_notification_linux(title, body)
+
+
+def _send_notification_linux(title: str, body: str) -> None:
     if not _which("notify-send"):
         return
     try:
         subprocess.run(
             ["notify-send", "--app-name=VoiceIO", "-t", "3000", title, body],
+            capture_output=True, timeout=3,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+
+def _send_notification_windows(title: str, body: str) -> None:
+    try:
+        from win11toast import notify
+        notify(title, body, app_id="VoiceIO", duration="short")
+    except ImportError:
+        log.debug("win11toast not installed, skipping notification")
+    except Exception:
+        log.debug("Windows notification failed", exc_info=True)
+
+
+def _send_notification_macos(title: str, body: str) -> None:
+    # Escape backslashes and double quotes for AppleScript string literals
+    safe_title = title.replace("\\", "\\\\").replace('"', '\\"')
+    safe_body = body.replace("\\", "\\\\").replace('"', '\\"')
+    try:
+        subprocess.run(
+            ["osascript", "-e",
+             f'display notification "{safe_body}" with title "{safe_title}"'],
             capture_output=True, timeout=3,
         )
     except (subprocess.TimeoutExpired, OSError):

@@ -93,16 +93,14 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
 
     # Platform-specific warnings
     import sys
-    if sys.platform == "win32":
-        active_hotkey = next((b.name for b in report.hotkey_backends if b.ok), None)
-        if active_hotkey == "pynput":
+    active_hotkey = next((b.name for b in report.hotkey_backends if b.ok), None)
+    if active_hotkey == "pynput":
+        if sys.platform == "win32":
             report.warnings.append(
                 "Windows antivirus software may block pynput keyboard hooks. "
                 "If hotkeys stop working, add voiceio to your antivirus exclusions."
             )
-    elif sys.platform == "darwin":
-        active_hotkey = next((b.name for b in report.hotkey_backends if b.ok), None)
-        if active_hotkey == "pynput":
+        elif sys.platform == "darwin":
             report.warnings.append(
                 "macOS requires Accessibility permission for pynput. "
                 "Grant it in System Settings → Privacy & Security → Accessibility."
