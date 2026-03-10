@@ -15,21 +15,36 @@ uv run pytest tests/ -x -q
 ```
 voiceio/
 ├── app.py           # State machine (IDLE/RECORDING/FINALIZING/ERROR), health watchdog
-├── cli.py           # CLI: setup, doctor, test, toggle, service, logs, uninstall
+├── cli.py           # CLI: setup, doctor, test, toggle, correct, history, service, logs
 ├── config.py        # Config schema + TOML loading
-├── platform.py      # OS/DE detection, distro-aware pkg_install()
+├── platform.py      # OS/DE detection, distro-aware pkg_install(), open_in_terminal()
 ├── recorder.py      # Audio capture with 1s pre-buffer ring
 ├── transcriber.py   # Whisper subprocess with crash recovery
 ├── streaming.py     # Real-time transcription with word-level corrections
-├── health.py        # Diagnostic probes for all backends + tray
+├── postprocess.py   # Rule-based cleanup + shared post-processing pipeline
+├── numbers.py       # Spoken number → digit conversion ("twenty five" → "25")
+├── commands.py      # Voice commands: "new line", "scratch that", "correct that"
+├── corrections.py   # Corrections dictionary (auto-replace misheard words)
+├── autocorrect.py   # Frequency analysis + Levenshtein clustering + LLM review
+├── wordfreq.py      # Word frequency lookup via wordfreq package
+├── llm.py           # Optional LLM post-processing via Ollama
+├── llm_api.py       # OpenAI-compatible chat completions client (OpenRouter/OpenAI/etc.)
+├── hints.py         # Contextual CLI hints (silenceable, frequency-limited)
+├── vad.py           # Voice Activity Detection (Silero neural net / RMS fallback)
+├── vocabulary.py    # Custom vocabulary for Whisper conditioning
+├── history.py       # Transcription history (JSONL log)
+├── clipboard_read.py # Read text from system clipboard / primary selection
+├── demo.py          # Interactive guided tour (voiceio demo)
+├── health.py        # Diagnostic probes for all backends + features
 ├── feedback.py      # Sound playback (persistent sounddevice stream) + notifications
 ├── service.py       # Systemd service + CLI symlink management
-├── wizard.py        # Interactive setup wizard
+├── wizard.py        # Interactive setup wizard with Ollama integration
 ├── worker.py        # Whisper worker subprocess
 ├── hotkeys/         # evdev, pynput, Unix socket backends + chain resolution
 ├── typers/          # ibus, ydotool, wtype, xdotool, clipboard, pynput + chain
 ├── ibus/            # IBus engine process (GLib main loop + socket listener)
 ├── tray/            # Animated tray icon (AppIndicator3 / pystray fallback)
+├── tts/             # Text-to-speech engines (piper, espeak, edge-tts) + chain
 └── sounds/          # WAV audio cues
 ```
 
@@ -44,6 +59,10 @@ voiceio/
 **Hotkey deduplication** — evdev and socket both fire for the same keypress. `on_hotkey()` uses lock + 0.3s debounce.
 
 **Streaming** — IBus path uses preedit (underlined preview) + commit. Fallback path uses word-level append with char-level diff on final.
+
+**Post-processing pipeline** — `postprocess.apply_pipeline()` is the single shared pipeline: cleanup → numbers → commands → corrections → LLM (final only). Used by both streaming and batch modes.
+
+**LLM integration** — Optional Ollama-based grammar/spelling cleanup. Runs on final pass only (never during streaming). `llm.py` has shared helpers (install, start, pull, diagnose) used by wizard, doctor, and app.
 
 **Tray icon** — Pre-rendered PNG frames in freedesktop icon theme. AppIndicator3 subprocess under system Python (avoids GTK/venv conflicts). Phase-matched transitions between states. App works fine without it.
 

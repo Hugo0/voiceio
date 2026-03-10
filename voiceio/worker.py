@@ -41,7 +41,11 @@ def main() -> None:
             break
         req = json.loads(line)
         audio = np.frombuffer(base64.b64decode(req["audio_b64"]), dtype=np.float32)
-        segs, _ = model.transcribe(audio, language=args.get("language"), beam_size=1, best_of=1)
+        initial_prompt = req.get("initial_prompt") or None
+        segs, _ = model.transcribe(
+            audio, language=args.get("language"),
+            beam_size=1, best_of=1, initial_prompt=initial_prompt,
+        )
         text = " ".join(s.text.strip() for s in segs).strip()
         print(json.dumps({"text": text}), flush=True)
 

@@ -187,12 +187,29 @@ pipx uninstall python-voiceio   # removes the package
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) and [open issues](https://github.com/Hugo0/voiceio/issues).
 
-- [ ] macOS polish (pynput + IMKit for native preedit)
-- [ ] Voice commands ("new line", "undo that", "select all")
-- [ ] VAD-based silence filtering (prevents Whisper hallucinations)
-- [ ] LLM post-processing via Ollama (grammar, reformatting)
+**Now**
+- [ ] macOS polish (IMKit for native preedit, Accessibility API for text injection)
+
+**Soon**
+- [ ] Per-app context awareness (detect focused app, adapt formatting/behavior)
+- [ ] File/audio transcription mode (`voiceio transcribe recording.mp3`)
+
+**Backlog**
+- [ ] Multiple engine backends (whisper.cpp for Vulkan/AMD, VOSK for low-end hardware)
+- [ ] Echo cancellation (filter system audio for meeting use)
 - [ ] Wake word activation ("Hey voiceio")
 - [ ] Text-to-speech output (Piper/espeak-ng — completes the "io")
+
+**Done**
+- [x] LLM auto-audit dictionary (`voiceio correct --auto` — scan history with LLM, interactive correction)
+- [x] LLM post-processing via Ollama (grammar cleanup, spelling fixes on final pass)
+- [x] Corrections dictionary — auto-replace misheard words, "correct that" voice command
+- [x] Transcription history — searchable log of everything you've dictated
+- [x] Number-to-digit conversion ("three hundred forty two" → "342")
+- [x] VAD-based silence filtering (Silero VAD, prevents Whisper hallucinations)
+- [x] Voice commands — "new line", "new paragraph", "scratch that", punctuation by name
+- [x] Custom vocabulary / personal dictionary (bias Whisper via `initial_prompt`)
+- [x] Smart punctuation & capitalization post-processing
 - [x] Windows support
 - [x] System tray icon with animated states
 - [x] Auto-stop on silence

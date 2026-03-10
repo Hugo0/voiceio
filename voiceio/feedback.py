@@ -29,6 +29,32 @@ _stream_lock = threading.Lock()
 _sounds: dict[str, np.ndarray] = {}
 
 
+def open_output_stream(
+    samplerate: int = 44100, channels: int = 1, dtype: str = "int16",
+) -> sd.OutputStream | None:
+    """Open an output stream, trying 'pulse' first on Linux.
+
+    Returns the stream (not yet started) or None if no device works.
+    Used by both feedback.py (persistent cue stream) and tts/player.py.
+    """
+    import sys
+    devices_to_try = ["pulse", None] if sys.platform.startswith("linux") else [None]
+
+    for device in devices_to_try:
+        try:
+            stream = sd.OutputStream(
+                samplerate=samplerate, channels=channels, dtype=dtype,
+                device=device,
+            )
+            label = device or "default"
+            log.info("Audio output stream open (device=%s, sr=%d)", label, samplerate)
+            return stream
+        except Exception:
+            label = device or "default"
+            log.debug("Could not open %s audio output", label, exc_info=True)
+    return None
+
+
 def warm_up() -> None:
     """Open a persistent output stream and pre-load all sounds."""
     global _stream
@@ -45,28 +71,11 @@ def warm_up() -> None:
         pad = np.zeros(int(rate * 0.1), dtype=np.int16)
         _sounds[name] = np.concatenate([data, pad]).reshape(-1, 1)
 
-    # Open persistent output stream.
-    # Linux: use 'pulse' device which routes through PulseAudio/PipeWire session
-    #   manager — audio goes to the same output as other desktop apps.
-    # macOS/other: use default device (CoreAudio routes correctly).
-    import sys
-    devices_to_try = ["pulse", None] if sys.platform.startswith("linux") else [None]
-    log.debug("Sound warm_up: platform=%s, devices_to_try=%s", sys.platform, devices_to_try)
-
-    for device in devices_to_try:
-        try:
-            _stream = sd.OutputStream(
-                samplerate=44100, channels=1, dtype="int16", device=device,
-            )
-            _stream.start()
-            label = device or "default"
-            log.info("Sound output stream open (device=%s)", label)
-            return
-        except Exception:
-            label = device or "default"
-            log.debug("Could not open %s audio output", label, exc_info=True)
-
-    log.warning("Sound output unavailable — no working audio device found")
+    _stream = open_output_stream(samplerate=44100)
+    if _stream:
+        _stream.start()
+    else:
+        log.warning("Sound output unavailable — no working audio device found")
 
 
 def play_record_start() -> None:

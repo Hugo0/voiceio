@@ -39,11 +39,27 @@ def start(
     _idle_img = Image.open(idle_path)
     _recording_frames = [Image.open(p) for p in frame_paths]
 
+    def _open_terminal(action: str):
+        def _handler():
+            from voiceio.tray import _MENU_COMMANDS
+            from voiceio.platform import open_in_terminal
+            cli_cmd = _MENU_COMMANDS.get(action)
+            if cli_cmd:
+                open_in_terminal(cli_cmd)
+        return _handler
+
     _icon = pystray.Icon(
         "voiceio",
         icon=_idle_img,
         title="voiceio - idle",
         menu=pystray.Menu(
+            pystray.MenuItem("Review corrections...", _open_terminal("correct")),
+            pystray.MenuItem("View history...", _open_terminal("history")),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Demo...", _open_terminal("demo")),
+            pystray.MenuItem("Doctor...", _open_terminal("doctor")),
+            pystray.MenuItem("View logs...", _open_terminal("logs")),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda: quit_callback()),
         ),
     )

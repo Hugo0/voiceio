@@ -10,6 +10,7 @@ import sounddevice as sd
 
 if TYPE_CHECKING:
     from voiceio.config import AudioConfig
+    from voiceio.vad import VadBackend
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +72,12 @@ class AudioRecorder:
     contents become the start of the recording, so no first syllable is lost.
     """
 
-    def __init__(self, cfg: AudioConfig, on_speech_pause: Callable[[], None] | None = None):
+    def __init__(
+        self,
+        cfg: AudioConfig,
+        on_speech_pause: Callable[[], None] | None = None,
+        vad: VadBackend | None = None,
+    ):
         self.sample_rate = cfg.sample_rate
         self.device = None if cfg.device == "default" else cfg.device
         self.prebuffer_secs = cfg.prebuffer_secs
@@ -82,9 +88,14 @@ class AudioRecorder:
         self._lock = threading.Lock()
         self._recording = False
 
+        # VAD backend (Silero or RMS fallback)
+        if vad is None:
+            from voiceio.vad import RmsVad
+            vad = RmsVad(threshold=cfg.silence_threshold)
+        self._vad = vad
+
         # Streaming VAD
         self._on_speech_pause = on_speech_pause
-        self._silence_threshold = cfg.silence_threshold
         self._silence_duration = cfg.silence_duration
         self._silent_chunks = 0.0
         self._last_transcribed_len = 0
@@ -126,6 +137,8 @@ class AudioRecorder:
             # Ensure stream is running
             if self._stream is None:
                 self.open_stream()
+            # Reset VAD state between sessions
+            self._vad.reset()
             # Grab pre-buffer
             prebuf = self._ring.get()
             self._chunks = [prebuf.reshape(-1, 1)] if len(prebuf) > 0 else []
@@ -202,11 +215,9 @@ class AudioRecorder:
         self._chunks.append(chunk)
         self._total_samples += chunk.shape[0]
 
-        # Silence detection
-        flat = indata.ravel()
-        rms = float(np.sqrt(np.dot(flat, flat) / len(flat)))
+        # Silence detection via VAD backend
         chunk_secs = frames / self.sample_rate
-        is_silent = rms < self._silence_threshold
+        is_silent = not self._vad.is_speech(indata)
 
         if is_silent:
             self._silent_chunks += chunk_secs

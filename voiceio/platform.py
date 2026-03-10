@@ -142,17 +142,20 @@ _PKG_NAMES: dict[str, dict[str, str]] = {
         "gir1.2-ibus-1.0": "ibus-libs",
         "python3-gi": "python3-gobject",
         "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator-gtk3",
+        "espeak-ng": "espeak-ng",
     },
     "pacman": {
         "gir1.2-ibus-1.0": "ibus",
         "python3-gi": "python-gobject",
         "portaudio19-dev": "portaudio",
         "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator",
+        "espeak-ng": "espeak-ng",
     },
     "zypper": {
         "gir1.2-ibus-1.0": "typelib-1_0-IBus-1_0",
         "python3-gi": "python3-gobject",
         "gir1.2-ayatanaappindicator3-0.1": "typelib-1_0-AyatanaAppIndicator3-0_1",
+        "espeak-ng": "espeak-ng",
     },
 }
 
@@ -185,6 +188,65 @@ def pkg_install(*packages: str) -> str:
             seen.add(resolved)
             mapped.append(resolved)
     return f"{prefix} {' '.join(mapped)}"
+
+
+def open_in_terminal(cmd: list[str]) -> bool:
+    """Launch a command in the user's terminal emulator. Returns success."""
+    import subprocess
+
+    plat_os = _detect_os()
+
+    if plat_os == "darwin":
+        # macOS: use open -a Terminal
+        try:
+            subprocess.Popen(["open", "-a", "Terminal", "--args", *cmd])
+            return True
+        except OSError:
+            log.warning("Failed to open Terminal.app")
+            return False
+
+    if plat_os == "windows":
+        try:
+            subprocess.Popen(["cmd", "/c", "start", "cmd", "/k", *cmd])
+            return True
+        except OSError:
+            log.warning("Failed to open cmd.exe")
+            return False
+
+    # Linux: try common terminal emulators
+    term = os.environ.get("TERMINAL")
+    if term and shutil.which(term):
+        try:
+            subprocess.Popen([term, "-e", *cmd])
+            return True
+        except OSError:
+            pass
+
+    # x-terminal-emulator (Debian/Ubuntu alternative)
+    if shutil.which("x-terminal-emulator"):
+        try:
+            subprocess.Popen(["x-terminal-emulator", "-e", *cmd])
+            return True
+        except OSError:
+            pass
+
+    # Try specific terminals with their flags
+    _TERMINALS = [
+        (["gnome-terminal", "--"], "gnome-terminal"),
+        (["konsole", "-e"], "konsole"),
+        (["xfce4-terminal", "-e"], "xfce4-terminal"),
+        (["xterm", "-e"], "xterm"),
+    ]
+    for prefix, binary in _TERMINALS:
+        if shutil.which(binary):
+            try:
+                subprocess.Popen([*prefix, *cmd])
+                return True
+            except OSError:
+                continue
+
+    log.warning("No terminal emulator found")
+    return False
 
 
 @lru_cache(maxsize=1)

@@ -51,11 +51,11 @@ def test_health_report_format():
 
     text = format_report(report)
     assert "wayland" in text
-    assert "\u2714 evdev" in text           # ✔ evdev
-    assert "\u2718 ydotool" in text         # ✘ ydotool
+    assert "✓" in text and "evdev" in text
+    assert "✗" in text and "ydotool" in text
     assert "install ydotool" in text
-    assert "\u2714 clipboard" in text       # ✔ clipboard
-    assert "\u25C0 active" in text          # ◀ active marker
+    assert "clipboard" in text
+    assert "◀ active" in text
 
 
 def test_all_ok_property():

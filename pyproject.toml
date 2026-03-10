@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-voiceio"
-version = "0.2.4"
+version = "0.3.0"
 description = "Speak → text, locally, instantly."
 readme = "README.md"
 license = "MIT"
@@ -25,6 +25,8 @@ dependencies = [
     "faster-whisper>=1.0.0",
     "sounddevice>=0.4.6",
     "numpy>=1.24.0",
+    "onnxruntime>=1.16.0",
+    "wordfreq>=3.0",
     "evdev>=1.6.0; sys_platform == 'linux'",
     "pynput>=1.7.6; sys_platform == 'win32'",
     "pynput>=1.7.6; sys_platform == 'darwin'",
@@ -37,6 +39,8 @@ x11 = ["pynput>=1.7.6"]
 mac = ["pynput>=1.7.6"]
 win = ["pynput>=1.7.6", "pyperclip>=1.8.0", "win11toast>=0.36"]
 tray = ["pystray>=0.19", "Pillow>=10.0"]
+tts = ["piper-tts>=1.2.0"]
+tts-cloud = ["edge-tts>=6.1.0"]
 dev = ["pytest>=7.0", "pytest-mock"]
 
 [project.urls]
@@ -61,3 +65,4 @@ include = ["voiceio*"]
 
 [tool.setuptools.package-data]
 "voiceio.sounds" = ["*.wav"]
+"voiceio.models" = ["*.onnx"]

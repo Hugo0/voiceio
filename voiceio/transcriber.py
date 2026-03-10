@@ -27,7 +27,12 @@ class Transcriber:
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
         self._restarts = 0
+        self._initial_prompt: str | None = None
         self._start_worker()
+
+    def set_initial_prompt(self, prompt: str | None) -> None:
+        """Set a static initial_prompt for vocabulary conditioning."""
+        self._initial_prompt = prompt or None
 
     def _start_worker(self) -> None:
         log.info(
@@ -90,14 +95,17 @@ class Transcriber:
             t0 = time.monotonic()
 
             audio_b64 = base64.b64encode(audio.tobytes()).decode("ascii")
+            req = {"audio_b64": audio_b64}
+            if self._initial_prompt:
+                req["initial_prompt"] = self._initial_prompt
             try:
-                self._proc.stdin.write(json.dumps({"audio_b64": audio_b64}) + "\n")
+                self._proc.stdin.write(json.dumps(req) + "\n")
                 self._proc.stdin.flush()
             except (BrokenPipeError, OSError):
                 log.warning("Worker pipe broken, restarting")
                 self._kill_worker()
                 self._ensure_worker()
-                self._proc.stdin.write(json.dumps({"audio_b64": audio_b64}) + "\n")
+                self._proc.stdin.write(json.dumps(req) + "\n")
                 self._proc.stdin.flush()
 
             # Read with timeout

@@ -12,12 +12,16 @@ import time
 import numpy as np
 
 from voiceio import config, platform as plat, tray
+from voiceio.commands import CommandProcessor
+from voiceio.corrections import CorrectionDict
 from voiceio.hotkeys import chain as hotkey_chain
 from voiceio.hotkeys.socket_backend import SocketHotkey
 from voiceio.recorder import AudioRecorder
 from voiceio.streaming import StreamingSession
 from voiceio.transcriber import Transcriber
 from voiceio.typers import chain as typer_chain
+from voiceio.vad import load_vad
+from voiceio.vocabulary import load_vocabulary
 log = logging.getLogger("voiceio")
 _DEBOUNCE_SECS = 0.3
 
@@ -51,8 +55,36 @@ class VoiceIO:
         t0 = time.monotonic()
         self.transcriber = Transcriber(cfg.model)
         print(f" ready ({time.monotonic() - t0:.1f}s)")
-        self.recorder = AudioRecorder(cfg.audio)
+
+        # VAD, vocabulary, commands
+        vad = load_vad(cfg.audio)
+        self.recorder = AudioRecorder(cfg.audio, vad=vad)
+
+        vocab = load_vocabulary(cfg.model)
+        self._corrections = CorrectionDict()
+        # Merge correction targets into vocabulary for Whisper conditioning
+        vocab_terms = self._corrections.vocabulary_terms()
+        if vocab_terms:
+            extra = ", ".join(vocab_terms)
+            vocab = f"{vocab}, {extra}" if vocab else extra
+        if vocab:
+            self.transcriber.set_initial_prompt(vocab)
+
+        self._command_processor = CommandProcessor(enabled=cfg.commands.enabled)
+        self._cleanup = cfg.output.punctuation_cleanup
+        self._number_conversion = cfg.output.number_conversion
         self._streaming = cfg.output.streaming
+
+        # LLM post-processing (optional, requires Ollama)
+        # Processor is kept even when unavailable — is_available() has a retry cooldown
+        self._llm = None
+        if cfg.llm.enabled:
+            from voiceio.llm import LLMProcessor
+            self._llm = LLMProcessor(cfg.llm)
+            if self._llm.is_available():
+                log.info("LLM: %s via %s", cfg.llm.model or "auto", cfg.llm.base_url)
+            else:
+                log.warning("LLM enabled but Ollama not available (will retry)")
 
         # Explicit state machine
         self._state = _State.IDLE
@@ -63,6 +95,22 @@ class VoiceIO:
         # Hotkey deduplication
         self._hotkey_lock = threading.Lock()
         self._last_hotkey: float = 0
+
+        # TTS (text-to-speech)
+        self._tts_engine = None
+        self._tts_player = None
+        self._tts_hotkey = None
+        if cfg.tts.enabled:
+            from voiceio.tts import select as tts_select
+            from voiceio.tts.player import TTSPlayer
+            self._tts_engine = tts_select(cfg.tts)
+            if self._tts_engine:
+                self._tts_player = TTSPlayer()
+                # Create a second hotkey backend for TTS
+                self._tts_hotkey = hotkey_chain.select(self.platform, cfg.hotkey.backend)
+                log.info("TTS: engine=%s, hotkey=%s", self._tts_engine.name, cfg.tts.hotkey)
+            else:
+                log.warning("TTS enabled but no engine available")
 
         # IBus engine management
         self._prev_ibus_engine: str | None = None
@@ -123,6 +171,7 @@ class VoiceIO:
         """Transition to RECORDING."""
         self._state = _State.RECORDING
         self._activate_ibus()
+        self._corrections.load()  # hot-reload corrections on each recording
         self._record_start = time.monotonic()
         self.recorder.start()
         self.recorder.set_on_auto_stop(self._on_auto_stop)
@@ -132,6 +181,12 @@ class VoiceIO:
             self._session = StreamingSession(
                 self.transcriber, self._typer, self.recorder,
                 generation=self._generation,
+                cleanup=self._cleanup,
+                number_conversion=self._number_conversion,
+                language=self.cfg.model.language,
+                commands=self._command_processor,
+                corrections=self._corrections,
+                llm=self._llm,
             )
             self._session.start()
         log.info("Recording... press [%s] again to stop", self.cfg.hotkey.key)
@@ -189,6 +244,8 @@ class VoiceIO:
             return
         if final_text:
             self._play_feedback(final_text)
+            from voiceio import history
+            history.append(final_text)
         log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
         # Transition to IDLE under lock to avoid racing with _toggle
         with self._hotkey_lock:
@@ -205,11 +262,60 @@ class VoiceIO:
             if self._generation != gen:
                 return
             if text:
-                self._type_with_fallback(text)
-                self._play_feedback(text)
-                log.info("Typed: '%s'", text)
+                from voiceio.postprocess import apply_pipeline
+                text, abort = apply_pipeline(
+                    text,
+                    do_cleanup=self._cleanup,
+                    number_conversion=self._number_conversion,
+                    language=self.cfg.model.language,
+                    commands=self._command_processor,
+                    corrections=self._corrections,
+                    llm=self._llm,
+                    final=True,
+                )
+                if abort:
+                    return
+                if text:
+                    self._type_with_fallback(text)
+                    self._play_feedback(text)
+                    from voiceio import history
+                    history.append(text)
+                    log.info("Typed: '%s'", text)
         except Exception:
             log.exception("Processing failed")
+
+    # ── Text-to-speech ─────────────────────────────────────────────
+
+    def on_tts_hotkey(self) -> None:
+        """Toggle TTS: if playing, cancel. Otherwise read clipboard and speak."""
+        if self._tts_player is None or self._tts_engine is None:
+            return
+        if self._tts_player.is_playing():
+            self._tts_player.cancel()
+            tray.set_processing(False)
+            log.info("TTS: cancelled")
+            return
+        from voiceio import clipboard_read
+        text = clipboard_read.read_text()
+        if not text:
+            log.info("TTS: no text selected")
+            return
+        if self._state == _State.RECORDING:
+            log.warning("TTS: speaking while recording — mic will pick up audio")
+        tray.set_processing(True)
+        threading.Thread(target=self._speak, args=(text,), daemon=True).start()
+
+    def _speak(self, text: str) -> None:
+        """Synthesize and play text (runs in background thread)."""
+        try:
+            audio, sample_rate = self._tts_engine.synthesize(
+                text, self.cfg.tts.voice, self.cfg.tts.speed,
+            )
+            self._tts_player.play(audio, sample_rate)
+        except Exception:
+            log.exception("TTS synthesis/playback failed")
+        finally:
+            tray.set_processing(False)
 
     # ── IBus management ─────────────────────────────────────────────────
 
@@ -507,6 +613,9 @@ class VoiceIO:
         if self._socket is not None:
             self._socket.start(self.cfg.hotkey.key, self.on_hotkey)
 
+        if self._tts_hotkey:
+            self._tts_hotkey.start(self.cfg.tts.hotkey, self.on_tts_hotkey)
+
         # Start health watchdog
         threading.Thread(
             target=self._health_loop, daemon=True, name="health-watchdog",
@@ -531,6 +640,12 @@ class VoiceIO:
             self._hotkey.stop()
             if self._socket is not None:
                 self._socket.stop()
+            if self._tts_hotkey:
+                self._tts_hotkey.stop()
+            if self._tts_player:
+                self._tts_player.cancel()
+            if self._tts_engine:
+                self._tts_engine.shutdown()
             self.recorder.close_stream()
             self.transcriber.shutdown()
             tray.stop()

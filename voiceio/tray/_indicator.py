@@ -61,19 +61,44 @@ def main() -> None:
 
     recording = [False]
 
-    def _emit_toggle(_=None):
-        sys.stdout.write("toggle\n")
-        sys.stdout.flush()
+    def _emit(cmd):
+        def _handler(_=None):
+            sys.stdout.write(f"{cmd}\n")
+            sys.stdout.flush()
+        return _handler
 
     # Build menu
     menu = Gtk.Menu()
 
     toggle_item = Gtk.MenuItem(label="Start recording")
-    toggle_item.connect("activate", _emit_toggle)
+    toggle_item.connect("activate", _emit("toggle"))
     menu.append(toggle_item)
 
-    sep = Gtk.SeparatorMenuItem()
-    menu.append(sep)
+    menu.append(Gtk.SeparatorMenuItem())
+
+    correct_item = Gtk.MenuItem(label="Review corrections...")
+    correct_item.connect("activate", _emit("menu:correct"))
+    menu.append(correct_item)
+
+    history_item = Gtk.MenuItem(label="View history...")
+    history_item.connect("activate", _emit("menu:history"))
+    menu.append(history_item)
+
+    menu.append(Gtk.SeparatorMenuItem())
+
+    demo_item = Gtk.MenuItem(label="Demo...")
+    demo_item.connect("activate", _emit("menu:demo"))
+    menu.append(demo_item)
+
+    doctor_item = Gtk.MenuItem(label="Doctor...")
+    doctor_item.connect("activate", _emit("menu:doctor"))
+    menu.append(doctor_item)
+
+    logs_item = Gtk.MenuItem(label="View logs...")
+    logs_item.connect("activate", _emit("menu:logs"))
+    menu.append(logs_item)
+
+    menu.append(Gtk.SeparatorMenuItem())
 
     quit_item = Gtk.MenuItem(label="Quit voiceio")
     quit_item.connect("activate", lambda _: Gtk.main_quit())

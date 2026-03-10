@@ -122,8 +122,18 @@ def _start_indicator(
     )
 
 
+_MENU_COMMANDS: dict[str, list[str]] = {
+    "correct": ["voiceio", "correct", "--auto"],
+    "history": ["voiceio", "history"],
+    "demo": ["voiceio", "demo"],
+    "doctor": ["voiceio", "doctor"],
+    "logs": ["voiceio", "logs"],
+}
+
+
 def _read_stdout(proc: subprocess.Popen, toggle_cb: Callable[[], None]) -> None:
-    """Read toggle commands from indicator subprocess stdout."""
+    """Read toggle/menu commands from indicator subprocess stdout."""
+    from voiceio.platform import open_in_terminal
     try:
         while proc.poll() is None and proc.stdout:
             line = proc.stdout.readline()
@@ -132,6 +142,12 @@ def _read_stdout(proc: subprocess.Popen, toggle_cb: Callable[[], None]) -> None:
             cmd = line.decode().strip()
             if cmd == "toggle":
                 toggle_cb()
+            elif cmd.startswith("menu:"):
+                action = cmd[5:]
+                cli_cmd = _MENU_COMMANDS.get(action)
+                if cli_cmd:
+                    if not open_in_terminal(cli_cmd):
+                        log.warning("Failed to open terminal for: %s", action)
     except (OSError, ValueError):
         pass
 

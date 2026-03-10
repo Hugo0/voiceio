@@ -12,6 +12,9 @@ from voiceio.typers.base import StreamingTyper
 
 if TYPE_CHECKING:
     import numpy as np
+    from voiceio.commands import CommandProcessor
+    from voiceio.corrections import CorrectionDict
+    from voiceio.llm import LLMProcessor
     from voiceio.recorder import AudioRecorder
     from voiceio.transcriber import Transcriber
     from voiceio.typers.base import TyperBackend
@@ -66,12 +69,24 @@ class StreamingSession:
         typer: TyperBackend,
         recorder: AudioRecorder,
         generation: int = 0,
+        cleanup: bool = False,
+        number_conversion: bool = False,
+        language: str = "en",
+        commands: CommandProcessor | None = None,
+        corrections: CorrectionDict | None = None,
+        llm: LLMProcessor | None = None,
     ):
         self._transcriber = transcriber
         self._typer = typer
         self._recorder: AudioRecorder | None = recorder
         self._sample_rate = recorder.sample_rate
         self._generation = generation
+        self._cleanup = cleanup
+        self._number_conversion = number_conversion
+        self._language = language
+        self._commands = commands
+        self._corrections = corrections
+        self._llm = llm
         self._typed_text = ""
         self._pending = threading.Event()
         self._stop_event = threading.Event()
@@ -149,8 +164,28 @@ class StreamingSession:
             log.exception("Streaming transcription failed")
             return
 
-        if text:
-            self._apply_correction(text, final=final)
+        if text and isinstance(text, str):
+            from voiceio.postprocess import apply_pipeline
+            text, abort = apply_pipeline(
+                text,
+                do_cleanup=self._cleanup,
+                number_conversion=self._number_conversion,
+                language=self._language,
+                commands=self._commands,
+                corrections=self._corrections,
+                llm=self._llm,
+                final=final,
+            )
+            if abort:
+                if isinstance(self._typer, StreamingTyper):
+                    self._typer.clear_preedit()
+                elif self._typed_text:
+                    self._typer.delete_chars(len(self._typed_text))
+                self._typed_text = ""
+                return
+
+            if text:
+                self._apply_correction(text, final=final)
 
         if final and self._recorder is not None:
             self._recorder.mark_transcribed(len(audio))
