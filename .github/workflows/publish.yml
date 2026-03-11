@@ -31,4 +31,25 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/* --generate-notes
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NUM="${VERSION#v}"
+          gh release create "$VERSION" dist/* --notes "$(cat <<NOTES
+          ## Install
+
+          ### Windows
+          Download **[VoiceIO-${VERSION_NUM}-windows-setup.exe](https://github.com/Hugo0/voiceio/releases/download/${VERSION}/VoiceIO-${VERSION_NUM}-windows-setup.exe)** and run the installer.
+
+          > *Advanced users: [voiceio-windows-x64.zip](https://github.com/Hugo0/voiceio/releases/download/${VERSION}/voiceio-windows-x64.zip) is a portable build — extract and run \`voiceio.exe\` directly, no installation needed.*
+
+          ### Linux / macOS
+          \`\`\`bash
+          pip install python-voiceio
+          voiceio setup
+          \`\`\`
+
+          ---
+
+          **Full Changelog**: https://github.com/Hugo0/voiceio/compare/v${VERSION_NUM}...${VERSION}
+          NOTES
+          )"
