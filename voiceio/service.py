@@ -1,4 +1,8 @@
-"""Systemd user service installation and management."""
+"""Service installation and management.
+
+Linux: systemd user service.
+Windows: Startup folder .bat shortcut.
+"""
 from __future__ import annotations
 
 import logging
@@ -9,6 +13,8 @@ import sys
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+_IS_WINDOWS = sys.platform == "win32"
 
 LOCAL_BIN = Path.home() / ".local" / "bin"
 SCRIPT_NAMES = ["voiceio", "voiceio-toggle", "voiceio-doctor", "voiceio-setup", "voiceio-test"]
@@ -26,8 +32,9 @@ def has_systemd() -> bool:
 
 def _find_voiceio_bin() -> str:
     """Find the voiceio binary path."""
-    # Check venv first
-    venv_bin = Path(sys.prefix) / "bin" / "voiceio"
+    # Check venv first (Scripts/ on Windows, bin/ elsewhere)
+    scripts_dir = "Scripts" if _IS_WINDOWS else "bin"
+    venv_bin = Path(sys.prefix) / scripts_dir / "voiceio"
     if venv_bin.exists():
         return str(venv_bin.resolve())
     found = shutil.which("voiceio")
@@ -56,11 +63,45 @@ WantedBy=default.target
 """
 
 
+def _windows_startup_dir() -> Path:
+    """Return the Windows Startup folder path."""
+    appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
+    return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+
+
+def _windows_startup_bat() -> Path:
+    return _windows_startup_dir() / "voiceio.bat"
+
+
+def install_windows_startup() -> bool:
+    """Create a .bat file in the Windows Startup folder."""
+    bat_path = _windows_startup_bat()
+    voiceio_bin = _find_voiceio_bin()
+    bat_path.parent.mkdir(parents=True, exist_ok=True)
+    bat_path.write_text(f'@echo off\nstart /B "" "{voiceio_bin}"\n')
+    log.info("Windows startup script created: %s", bat_path)
+    return True
+
+
+def uninstall_windows_startup() -> bool:
+    """Remove the voiceio .bat from the Windows Startup folder."""
+    bat_path = _windows_startup_bat()
+    try:
+        bat_path.unlink()
+        log.info("Removed Windows startup script: %s", bat_path)
+        return True
+    except FileNotFoundError:
+        return False
+
+
 def install_service() -> bool:
-    """Install and enable the voiceio systemd user service.
+    """Install autostart (systemd on Linux, Startup folder on Windows).
 
     Returns True if installed successfully.
     """
+    if _IS_WINDOWS:
+        return install_windows_startup()
+
     if not has_systemd():
         log.warning("systemctl not found: cannot install service")
         return False
@@ -71,7 +112,6 @@ def install_service() -> bool:
     SERVICE_PATH.write_text(_service_unit(bin_path))
     log.info("Installed systemd service to %s", SERVICE_PATH)
 
-    # Reload systemd and enable the service
     try:
         subprocess.run(
             ["systemctl", "--user", "daemon-reload"],
@@ -89,7 +129,10 @@ def install_service() -> bool:
 
 
 def uninstall_service() -> bool:
-    """Disable and remove the voiceio systemd user service."""
+    """Disable and remove autostart."""
+    if _IS_WINDOWS:
+        return uninstall_windows_startup()
+
     try:
         subprocess.run(
             ["systemctl", "--user", "disable", SERVICE_NAME],
@@ -118,12 +161,27 @@ def uninstall_service() -> bool:
 
 
 def is_installed() -> bool:
-    """Check if the systemd service is installed."""
+    """Check if autostart is installed."""
+    if _IS_WINDOWS:
+        return _windows_startup_bat().exists()
     return SERVICE_PATH.exists()
 
 
 def is_running() -> bool:
-    """Check if the systemd service is currently running."""
+    """Check if the service is currently running."""
+    if _IS_WINDOWS:
+        # Check PID file — works for both pip installs (python.exe) and .exe builds
+        from voiceio.config import PID_PATH
+        try:
+            pid = int(PID_PATH.read_text().strip())
+            # On Windows, check if process with this PID exists
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return str(pid) in result.stdout
+        except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
+            return False
     try:
         result = subprocess.run(
             ["systemctl", "--user", "is-active", SERVICE_NAME],
@@ -162,8 +220,14 @@ def install_symlinks() -> list[str]:
 
     Returns list of names successfully linked.
     For pipx installs, scripts are already in ~/.local/bin/ as real files,
-    so we skip symlink creation.
+    so we skip symlink creation. On Windows, pip/pipx handles PATH placement.
     """
+    if _IS_WINDOWS:
+        # On Windows, pip/pipx places scripts in Scripts/ which is on PATH
+        found = [name for name in SCRIPT_NAMES if shutil.which(name)]
+        log.debug("Windows: found %d scripts on PATH: %s", len(found), found)
+        return found
+
     if _is_pipx_install():
         # pipx already placed scripts in ~/.local/bin/, nothing to do
         return [name for name in SCRIPT_NAMES if (LOCAL_BIN / name).exists()]

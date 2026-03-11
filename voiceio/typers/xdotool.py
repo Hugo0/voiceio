@@ -17,8 +17,9 @@ class XdotoolTyper:
 
     def probe(self) -> ProbeResult:
         if not shutil.which("xdotool"):
+            from voiceio.platform import pkg_install
             return ProbeResult(ok=False, reason="xdotool not installed",
-                               fix_hint="sudo apt install xdotool")
+                               fix_hint=pkg_install("xdotool"))
 
         import os
         session = os.environ.get("XDG_SESSION_TYPE", "")

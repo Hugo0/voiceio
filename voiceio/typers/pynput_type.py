@@ -30,9 +30,18 @@ class PynputTyper:
                                fix_hint="pip install pynput")
 
         import os
+        import sys
         session = os.environ.get("XDG_SESSION_TYPE", "")
         if session == "wayland":
             return ProbeResult(ok=False, reason="pynput typing does not work on Wayland")
+
+        if sys.platform == "darwin":
+            from voiceio.hotkeys.pynput_backend import _check_macos_accessibility
+            if not _check_macos_accessibility():
+                return ProbeResult(
+                    ok=False, reason="macOS Accessibility permission not granted",
+                    fix_hint="System Settings → Privacy & Security → Accessibility → enable your terminal/Python",
+                )
 
         return ProbeResult(ok=True)
 

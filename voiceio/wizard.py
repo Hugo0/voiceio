@@ -22,6 +22,54 @@ CYAN = "\033[36m"
 MAGENTA = "\033[35m"
 RESET = "\033[0m"
 
+# ── Spinner ─────────────────────────────────────────────────────────────────
+
+_BRAILLE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+class Spinner:
+    """Braille spinner for indeterminate waits. Use as context manager."""
+
+    def __init__(self, message: str):
+        self._message = message
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._final: str | None = None
+
+    def __enter__(self) -> Spinner:
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join()
+        # Clear spinner line and show final status
+        sys.stdout.write("\r\033[K")
+        if self._final:
+            sys.stdout.write(f"{self._final}\n")
+        sys.stdout.flush()
+
+    def ok(self, message: str | None = None) -> None:
+        self._final = f"  {GREEN}✓{RESET} {message or self._message}"
+
+    def fail(self, message: str | None = None) -> None:
+        self._final = f"  {RED}✗{RESET} {message or self._message}"
+
+    def warn(self, message: str | None = None) -> None:
+        self._final = f"  {YELLOW}⚠{RESET}  {message or self._message}"
+
+    def _spin(self) -> None:
+        i = 0
+        while not self._stop.is_set():
+            frame = _BRAILLE[i % len(_BRAILLE)]
+            sys.stdout.write(f"\r  {CYAN}{frame}{RESET} {self._message}")
+            sys.stdout.flush()
+            i += 1
+            self._stop.wait(0.08)
+
+
 LOGO = f"""{CYAN}{BOLD}
  ██╗   ██╗ ██████╗ ██╗ ██████╗███████╗██╗ ██████╗
  ██║   ██║██╔═══██╗██║██╔════╝██╔════╝██║██╔═══██╗
@@ -30,6 +78,26 @@ LOGO = f"""{CYAN}{BOLD}
   ╚████╔╝ ╚██████╔╝██║╚██████╗███████╗██║╚██████╔╝
    ╚═══╝   ╚═════╝ ╚═╝ ╚═════╝╚══════╝╚═╝ ╚═════╝
 {RESET}{DIM}  speak → text, locally, instantly{RESET}
+"""
+
+LOGO_CORRECT = f"""{CYAN}{BOLD}\
+  ██████╗ ██████╗ ██████╗ ██████╗ ███████╗ ██████╗████████╗
+ ██╔════╝██╔═══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝╚══██╔══╝
+ ██║     ██║   ██║██████╔╝██████╔╝█████╗  ██║        ██║
+ ██║     ██║   ██║██╔══██╗██╔══██╗██╔══╝  ██║        ██║
+ ╚██████╗╚██████╔╝██║  ██║██║  ██║███████╗╚██████╗   ██║
+  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ ╚═════╝   ╚═╝
+{RESET}{DIM}  find and fix transcription mistakes{RESET}
+"""
+
+LOGO_DOCTOR = f"""{CYAN}{BOLD}\
+ ██████╗  ██████╗  ██████╗████████╗ ██████╗ ██████╗
+ ██╔══██╗██╔═══██╗██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗
+ ██║  ██║██║   ██║██║        ██║   ██║   ██║██████╔╝
+ ██║  ██║██║   ██║██║        ██║   ██║   ██║██╔══██╗
+ ██████╔╝╚██████╔╝╚██████╗   ██║   ╚██████╔╝██║  ██║
+ ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝
+{RESET}{DIM}  system health check{RESET}
 """
 
 MODELS = [
@@ -58,45 +126,45 @@ def _print_step(n: int, total: int, title: str) -> None:
     print(f"{DIM}{'─' * 50}{RESET}")
 
 
+def _rl_prompt(prompt: str) -> str:
+    """Wrap ANSI escapes in \\001/\\002 so readline calculates width correctly."""
+    import re
+    return re.sub(r"(\033\[[0-9;]*m)", r"\001\1\002", prompt)
+
+
 def _ask(prompt: str, default: str = "") -> str:
     default_hint = f" {DIM}[{default}]{RESET}" if default else ""
     try:
-        answer = input(f"  {CYAN}›{RESET} {prompt}{default_hint}: ").strip()
+        answer = input(_rl_prompt(f"  {CYAN}›{RESET} {prompt}{default_hint}: ")).strip()
     except (EOFError, KeyboardInterrupt):
         print()
         sys.exit(0)
     return answer or default
 
 
-def _ask_choice(options: list[tuple[str, ...]], default: int = 0) -> int:
-    """Interactive choice with arrow keys, w/s, j/k navigation. Enter to confirm."""
-    import atexit
-    import re
-    import select
-    import termios
-    import tty
+class _MenuRenderer:
+    """Shared ANSI menu rendering for interactive choice menus."""
 
-    # Ensure cursor is restored if process crashes/exits unexpectedly
-    atexit.register(lambda: sys.stdout.write("\033[?25h"))
+    _ansi_re = __import__("re").compile(r"\033\[[0-9;]*m")
 
-    selected = default
-    n = len(options)
+    def __init__(self, options: list[tuple[str, ...]], selected: int = 0):
+        self.options = options
+        self.selected = selected
+        self.n = len(options)
+        try:
+            self.cols = os.get_terminal_size().columns
+        except OSError:
+            self.cols = 80
+        self.hint = f"  {DIM}\u2191\u2193 navigate, enter to confirm{RESET}"
 
-    try:
-        cols = os.get_terminal_size().columns
-    except OSError:
-        cols = 80
+    def _visible_len(self, s: str) -> int:
+        return len(self._ansi_re.sub("", s))
 
-    _ansi_re = re.compile(r"\033\[[0-9;]*m")
-
-    def _visible_len(s: str) -> int:
-        return len(_ansi_re.sub("", s))
-
-    def _truncate(s: str, max_width: int) -> str:
+    def _truncate(self, s: str, max_width: int) -> str:
         vis = 0
         result = []
-        for part in _ansi_re.split(s):
-            if _ansi_re.match(part):
+        for part in self._ansi_re.split(s):
+            if self._ansi_re.match(part):
                 result.append(part)
             else:
                 remaining = max_width - vis
@@ -106,33 +174,106 @@ def _ask_choice(options: list[tuple[str, ...]], default: int = 0) -> int:
                     break
         return "".join(result) + RESET
 
-    def _format_line(i: int) -> str:
-        marker = f"{GREEN}●{RESET}" if i == selected else f"{DIM}○{RESET}"
-        label = options[i][0]
-        detail = f"  {DIM}({', '.join(options[i][1:])}){RESET}" if len(options[i]) > 1 else ""
+    def format_line(self, i: int) -> str:
+        marker = f"{GREEN}\u25cf{RESET}" if i == self.selected else f"{DIM}\u25cb{RESET}"
+        label = self.options[i][0]
+        detail = f"  {DIM}({', '.join(self.options[i][1:])}){RESET}" if len(self.options[i]) > 1 else ""
         line = f"  {marker} {BOLD}{i + 1}{RESET}. {label}{detail}"
-        if _visible_len(line) >= cols:
-            line = _truncate(line, cols - 2)
+        if self._visible_len(line) >= self.cols:
+            line = self._truncate(line, self.cols - 2)
         return line
 
-    # Hint text shown below options
-    hint = f"  {DIM}\u2191\u2193 navigate, enter to confirm{RESET}"
-
-    def _draw() -> None:
-        """Draw menu from current cursor position.
-
-        After this call, cursor is at column 0 of the hint line.
-        """
-        sys.stdout.write("\033[J")  # clear from cursor to end of screen
-        for i in range(n):
-            sys.stdout.write(f"{_format_line(i)}\r\n")
-        sys.stdout.write(f"{hint}\r")
+    def draw(self) -> None:
+        sys.stdout.write("\033[J")
+        for i in range(self.n):
+            sys.stdout.write(f"{self.format_line(i)}\r\n")
+        sys.stdout.write(f"{self.hint}\r")
         sys.stdout.flush()
 
-    def _redraw() -> None:
-        """Move cursor from hint line back to first option, then redraw."""
-        sys.stdout.write(f"\033[{n}A")
-        _draw()
+    def redraw(self) -> None:
+        sys.stdout.write(f"\033[{self.n}A")
+        self.draw()
+
+    def handle_key(self, key: str) -> str | None:
+        """Process a key name. Returns 'done' on enter, None otherwise."""
+        if key in ("up", "w", "k"):
+            self.selected = (self.selected - 1) % self.n
+        elif key in ("down", "s", "j"):
+            self.selected = (self.selected + 1) % self.n
+        elif key == "enter":
+            return "done"
+        elif key == "ctrl-c":
+            sys.stdout.write("\033[?25h\r\n")
+            sys.exit(0)
+        elif key.isdigit():
+            idx = int(key) - 1
+            if 0 <= idx < self.n:
+                self.selected = idx
+        else:
+            return None
+        self.redraw()
+        return None
+
+    def finish(self) -> int:
+        self.redraw()
+        sys.stdout.write("\033[?25h\r\n\n")
+        sys.stdout.flush()
+        return self.selected
+
+
+def _ask_choice(options: list[tuple[str, ...]], default: int = 0) -> int:
+    """Interactive choice with arrow keys, w/s, j/k navigation. Enter to confirm."""
+    import atexit
+    atexit.register(lambda: sys.stdout.write("\033[?25h"))
+
+    menu = _MenuRenderer(options, default)
+    sys.stdout.write("\033[?25l")
+    menu.draw()
+
+    if sys.platform == "win32":
+        return _menu_loop_win(menu)
+    return _menu_loop_unix(menu)
+
+
+def _menu_loop_win(menu: _MenuRenderer) -> int:
+    """Read keys using msvcrt (Windows)."""
+    import msvcrt
+
+    # Enable ANSI escape codes on legacy cmd.exe
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
+
+    try:
+        while True:
+            ch = msvcrt.getwch()
+            if ch in ("\xe0", "\x00"):
+                ch2 = msvcrt.getwch()
+                key = {"H": "up", "P": "down"}.get(ch2)
+                if key and menu.handle_key(key) == "done":
+                    break
+            elif ch == "\r":
+                if menu.handle_key("enter") == "done":
+                    break
+            elif ch == "\x03":
+                menu.handle_key("ctrl-c")
+            else:
+                menu.handle_key(ch)
+    except KeyboardInterrupt:
+        sys.stdout.write("\033[?25h\r\n")
+        sys.exit(0)
+
+    return menu.finish()
+
+
+def _menu_loop_unix(menu: _MenuRenderer) -> int:
+    """Read keys using termios/tty/select (Unix)."""
+    import select
+    import termios
+    import tty
 
     def _read_key(fd: int) -> str:
         ch = os.read(fd, 1)
@@ -152,61 +293,76 @@ def _ask_choice(options: list[tuple[str, ...]], default: int = 0) -> int:
             return "ctrl-c"
         return ch.decode("utf-8", errors="replace")
 
-    sys.stdout.write("\033[?25l")  # hide cursor
-    _draw()
-
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
         while True:
             key = _read_key(fd)
-            if key in ("up", "w", "k"):
-                selected = (selected - 1) % n
-            elif key in ("down", "s", "j"):
-                selected = (selected + 1) % n
-            elif key == "enter":
+            if menu.handle_key(key) == "done":
                 break
-            elif key == "ctrl-c":
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-                sys.stdout.write("\033[?25h\r\n")
-                sys.exit(0)
-            elif key.isdigit():
-                idx = int(key) - 1
-                if 0 <= idx < n:
-                    selected = idx
-            else:
-                continue
-            _redraw()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        termios.tcflush(fd, termios.TCIFLUSH)  # flush stale input from raw mode
+        termios.tcflush(fd, termios.TCIFLUSH)
 
-    # Final redraw showing confirmed selection, then move past menu
-    _redraw()
-    sys.stdout.write("\033[?25h\r\n\n")  # show cursor, past hint, blank line
-    sys.stdout.flush()
-    return selected
+    return menu.finish()
 
 
 def _check_binary(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def _wait_for_service_ready(timeout: float = 30) -> bool:
+    """Wait for the voiceio service to finish loading by checking for its socket/PID file."""
+    from voiceio.config import PID_PATH
+    from voiceio.hotkeys.socket_backend import SOCKET_PATH, _IS_WINDOWS
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _IS_WINDOWS:
+            # On Windows there's no Unix socket; check PID file as readiness signal
+            if PID_PATH.exists():
+                return True
+        else:
+            if SOCKET_PATH.exists():
+                return True
+        time.sleep(0.5)
+    return False
+
+
 def _check_system() -> dict:
     """Check system dependencies and capabilities."""
     checks = {}
 
-    # Display server
-    session = os.environ.get("XDG_SESSION_TYPE", "unknown")
-    checks["display"] = session
+    _is_win = sys.platform == "win32"
+    _is_mac = sys.platform == "darwin"
+    checks["is_windows"] = _is_win
+    checks["is_mac"] = _is_mac
+    checks["is_linux"] = not _is_win and not _is_mac
 
-    # Typer binaries
-    checks["xdotool"] = _check_binary("xdotool")
-    checks["xclip"] = _check_binary("xclip")
-    checks["ydotool"] = _check_binary("ydotool")
-    checks["wtype"] = _check_binary("wtype")
-    checks["ibus"] = _check_binary("ibus")
+    # Display server
+    if _is_win:
+        checks["display"] = "win32"
+    elif _is_mac:
+        checks["display"] = "darwin"
+    else:
+        checks["display"] = os.environ.get("XDG_SESSION_TYPE", "unknown")
+
+    # pynput (Windows/macOS primary backend)
+    checks["pynput"] = False
+    if _is_win or _is_mac:
+        try:
+            import pynput  # noqa: F401
+            checks["pynput"] = True
+        except ImportError:
+            pass
+
+    # Linux-only typer binaries
+    checks["xdotool"] = _check_binary("xdotool") if checks["is_linux"] else False
+    checks["xclip"] = _check_binary("xclip") if checks["is_linux"] else False
+    checks["ydotool"] = _check_binary("ydotool") if checks["is_linux"] else False
+    checks["wtype"] = _check_binary("wtype") if checks["is_linux"] else False
+    checks["ibus"] = _check_binary("ibus") if checks["is_linux"] else False
 
     # IBus Python bindings (check system Python, not venv)
     checks["ibus_gi"] = False
@@ -232,14 +388,16 @@ def _check_system() -> dict:
     except Exception:
         checks["cuda"] = False
 
-    # Input group (for evdev)
-    groups = os.getgroups()
-    try:
-        import grp
-        input_gid = grp.getgrnam("input").gr_gid
-        checks["input_group"] = input_gid in groups
-    except (KeyError, ImportError):
-        checks["input_group"] = False
+    # Input group (for evdev, Linux only)
+    checks["input_group"] = False
+    if checks["is_linux"]:
+        groups = os.getgroups()
+        try:
+            import grp
+            input_gid = grp.getgrnam("input").gr_gid
+            checks["input_group"] = input_gid in groups
+        except (KeyError, ImportError):
+            pass
 
     return checks
 
@@ -278,30 +436,42 @@ def _get_or_load_model(model_name: str | None = None):
 
 
 def _download_model(model_name: str) -> bool:
-    """Download the whisper model with a progress display."""
-    print(f"\n  {CYAN}Downloading model '{model_name}'...{RESET}")
-    print(f"  {DIM}This only happens once. The model is cached locally.{RESET}\n")
+    """Download the whisper model with a spinner."""
+    print(f"  {DIM}This only happens once. The model is cached locally.{RESET}")
 
-    try:
-        # Suppress HuggingFace "unauthenticated requests" warning during download
-        import logging
-        hf_logger = logging.getLogger("huggingface_hub")
-        prev_level = hf_logger.level
-        hf_logger.setLevel(logging.ERROR)
+    with Spinner(f"Downloading model '{model_name}'...") as sp:
         try:
-            _get_or_load_model(model_name)
-        finally:
-            hf_logger.setLevel(prev_level)
-        print(f"\n  {GREEN}✓{RESET} Model '{model_name}' ready!")
-        return True
-    except Exception as e:
-        print(f"\n  {RED}✗{RESET} Download failed: {e}")
-        return False
+            # Suppress HuggingFace "unauthenticated requests" warning during download
+            import logging
+            hf_logger = logging.getLogger("huggingface_hub")
+            prev_level = hf_logger.level
+            hf_logger.setLevel(logging.ERROR)
+            try:
+                _get_or_load_model(model_name)
+            finally:
+                hf_logger.setLevel(prev_level)
+            sp.ok(f"Model '{model_name}' ready!")
+            return True
+        except Exception as e:
+            sp.fail(f"Download failed: {e}")
+            return False
 
 
 def _write_config(
     model: str, language: str, hotkey: str, method: str, streaming: bool, backend: str,
     sound_enabled: bool = True, notify_clipboard: bool = False,
+    tray_enabled: bool = False,
+    commands_enabled: bool = True,
+    punctuation_cleanup: bool = True,
+    number_conversion: bool = True,
+    llm_enabled: bool = False,
+    llm_model: str = "",
+    autocorrect_api_key: str = "",
+    autocorrect_base_url: str = "",
+    autocorrect_model: str = "",
+    tts_enabled: bool = False,
+    tts_engine: str = "auto",
+    tts_speed: float = 1.0,
 ) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     config_text = f"""# voiceio configuration, generated by setup wizard
@@ -319,17 +489,37 @@ compute_type = "int8"
 [audio]
 sample_rate = 16000
 device = "default"
+auto_stop_silence_secs = 5.0
 
 [output]
 method = "{method}"
 streaming = {'true' if streaming else 'false'}
+punctuation_cleanup = {'true' if punctuation_cleanup else 'false'}
+number_conversion = {'true' if number_conversion else 'false'}
+
+[commands]
+enabled = {'true' if commands_enabled else 'false'}
 
 [feedback]
 sound_enabled = {'true' if sound_enabled else 'false'}
 notify_clipboard = {'true' if notify_clipboard else 'false'}
 
 [tray]
-enabled = false
+enabled = {'true' if tray_enabled else 'false'}
+
+[llm]
+enabled = {'true' if llm_enabled else 'false'}
+model = "{llm_model}"
+
+[autocorrect]
+api_key = "{autocorrect_api_key}"
+base_url = "{autocorrect_base_url or 'https://openrouter.ai/api/v1'}"
+model = "{autocorrect_model or 'anthropic/claude-sonnet-4'}"
+
+[tts]
+enabled = {'true' if tts_enabled else 'false'}
+engine = "{tts_engine}"
+speed = {tts_speed}
 
 [daemon]
 log_level = "INFO"
@@ -409,9 +599,9 @@ def _streaming_test(model=None) -> None:
     max_duration = 10
 
     if model is None:
-        print(f"\n  {CYAN}Loading model...{RESET}", end="", flush=True)
-        model = _get_or_load_model()
-        print(f"\r  {GREEN}✓{RESET} Model loaded     ")
+        with Spinner("Loading model...") as sp:
+            model = _get_or_load_model()
+            sp.ok("Model loaded")
 
     from voiceio.config import load
     cfg = load()
@@ -629,36 +819,37 @@ def run_test() -> None:
 def run_wizard() -> None:
     print(LOGO)
 
-    total_steps = 9
-
     # ── Step 1: System check ────────────────────────────────────────────
-    _print_step(1, total_steps, "System check")
+    _print_step(1, 8, "System check")
     checks = _check_system()
 
-    _print_check("Display server", True, checks["display"])
+    _print_check("Platform", True, checks["display"])
     _print_check("Audio input", checks["audio"],
                  f"{len(checks['audio_devices'])} device(s)" if checks["audio"] else "no devices found")
 
-    # IBus (preferred typer on Linux)
-    if checks["ibus"] and checks["ibus_gi"]:
-        _print_check("IBus", True, "recommended, atomic text insertion")
-    elif checks["ibus"]:
-        _print_check("IBus", False, "install bindings: sudo apt install gir1.2-ibus-1.0")
+    if checks["is_windows"] or checks["is_mac"]:
+        _print_check("pynput", checks["pynput"],
+                     "hotkeys + text injection" if checks["pynput"] else "pip install pynput")
     else:
-        _print_check("IBus", False, "install: sudo apt install ibus gir1.2-ibus-1.0")
+        from voiceio.platform import pkg_install
+        if checks["ibus"] and checks["ibus_gi"]:
+            _print_check("IBus", True, "recommended, atomic text insertion")
+        elif checks["ibus"]:
+            _print_check("IBus", False, f"install bindings: {pkg_install('gir1.2-ibus-1.0')}")
+        else:
+            _print_check("IBus", False, f"install: {pkg_install('ibus', 'gir1.2-ibus-1.0')}")
 
-    # Fallback typers (optional)
-    if checks["display"] == "wayland":
-        _print_check("ydotool", checks["ydotool"],
-                     "fallback" if checks["ydotool"] else "optional: sudo apt install ydotool",
-                     optional=True)
-        _print_check("wtype", checks["wtype"],
-                     "fallback" if checks["wtype"] else "optional: sudo apt install wtype",
-                     optional=True)
-    else:
-        _print_check("xdotool", checks["xdotool"],
-                     "fallback" if checks["xdotool"] else "optional: sudo apt install xdotool",
-                     optional=True)
+        if checks["display"] == "wayland":
+            _print_check("ydotool", checks["ydotool"],
+                         "fallback" if checks["ydotool"] else f"optional: {pkg_install('ydotool')}",
+                         optional=True)
+            _print_check("wtype", checks["wtype"],
+                         "fallback" if checks["wtype"] else f"optional: {pkg_install('wtype')}",
+                         optional=True)
+        else:
+            _print_check("xdotool", checks["xdotool"],
+                         "fallback" if checks["xdotool"] else f"optional: {pkg_install('xdotool')}",
+                         optional=True)
 
     _print_check("CUDA GPU", checks["cuda"],
                  "will use GPU" if checks["cuda"] else "will use CPU (still fast)",
@@ -667,6 +858,16 @@ def run_wizard() -> None:
     if checks["display"] == "wayland":
         _print_check("Input group (evdev)", checks["input_group"],
                      "" if checks["input_group"] else "optional: sudo usermod -aG input $USER",
+                     optional=True)
+
+    # Tray icon
+    from voiceio.tray import probe_availability
+    tray_ok, tray_reason, tray_fix_hint = probe_availability()
+    if tray_ok:
+        _print_check("Tray icon", True, "system tray indicator available")
+    else:
+        _print_check("Tray icon", False,
+                     tray_fix_hint if tray_fix_hint else tray_reason,
                      optional=True)
 
     # Install CLI symlinks to ~/.local/bin/
@@ -678,7 +879,9 @@ def run_wizard() -> None:
         if linked:
             _print_check("CLI commands", True, f"linked {len(linked)} commands to ~/.local/bin/")
             if path_hint_needed():
-                print(f"  {YELLOW}ℹ{RESET}  {DIM}Restart your terminal for 'voiceio' to be on PATH{RESET}")
+                print(f"  {YELLOW}ℹ{RESET}  {DIM}Restart your terminal so 'voiceio' is on PATH{RESET}")
+            else:
+                print(f"  {DIM}  You can now run 'voiceio' from any terminal{RESET}")
         else:
             _print_check("CLI commands", False, "could not create symlinks in ~/.local/bin/")
     else:
@@ -688,28 +891,35 @@ def run_wizard() -> None:
         print(f"\n  {RED}No microphone found. Connect one and try again.{RESET}")
         sys.exit(1)
 
-    # Need at least one typer
-    has_typer = checks["ibus"] and checks["ibus_gi"]
-    has_typer = has_typer or checks["xdotool"] or checks["ydotool"] or checks["wtype"]
-    if not has_typer:
-        print(f"\n  {RED}No text injection backend available.{RESET}")
-        print(f"  {DIM}Install one: sudo apt install ibus gir1.2-ibus-1.0{RESET}")
-        sys.exit(1)
+    if checks["is_windows"] or checks["is_mac"]:
+        has_typer = checks["pynput"]
+        if not has_typer:
+            print(f"\n  {RED}No text injection backend available.{RESET}")
+            print(f"  {DIM}Install pynput: pip install pynput{RESET}")
+            sys.exit(1)
+    else:
+        has_typer = checks["ibus"] and checks["ibus_gi"]
+        has_typer = has_typer or checks["xdotool"] or checks["ydotool"] or checks["wtype"]
+        if not has_typer:
+            from voiceio.platform import pkg_install
+            print(f"\n  {RED}No text injection backend available.{RESET}")
+            print(f"  {DIM}Install one: {pkg_install('ibus', 'gir1.2-ibus-1.0')}{RESET}")
+            sys.exit(1)
 
     # ── Step 2: Choose model ────────────────────────────────────────────
-    _print_step(2, total_steps, "Choose a Whisper model")
+    _print_step(2, 8, "Choose a Whisper model")
     print(f"  {DIM}Larger models are more accurate but slower and use more RAM.{RESET}\n")
     model_idx = _ask_choice(MODELS, default=1)
     model_name = MODELS[model_idx][0]
 
     # ── Step 3: Language ────────────────────────────────────────────────
-    _print_step(3, total_steps, "Language")
+    _print_step(3, 8, "Language")
     print(f"  {DIM}Pick your primary language, or auto-detect.{RESET}\n")
     lang_idx = _ask_choice(LANGUAGES, default=0)
     language = LANGUAGES[lang_idx][0]
 
     # ── Step 4: Hotkey ──────────────────────────────────────────────────
-    _print_step(4, total_steps, "Keyboard shortcut")
+    _print_step(4, 8, "Keyboard shortcut")
     print(f"  {DIM}This combo toggles recording on/off.{RESET}\n")
     hotkey_options = [
         ("ctrl+alt+v", "Ctrl + Alt + V (recommended)"),
@@ -724,94 +934,226 @@ def run_wizard() -> None:
     else:
         hotkey = hotkey_options[hk_idx][0]
 
-    # Output method: auto selects best available (IBus preferred)
+    # Output method: auto selects best available
     method = "auto"
-    if checks["ibus"] and checks["ibus_gi"]:
-        print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: IBus (best quality, auto-selected){RESET}")
-        # Install IBus component and add GNOME input source
-        from voiceio.typers.ibus import install_component, _ensure_gnome_input_source
-        if install_component():
-            print(f"  {GREEN}✓{RESET} {DIM}IBus engine component installed{RESET}")
-            _ensure_gnome_input_source()
-            print(f"  {GREEN}✓{RESET} {DIM}Added VoiceIO to GNOME input sources{RESET}")
-        else:
-            print(f"  {YELLOW}⚠{RESET}  {DIM}Could not install IBus component, will use fallback{RESET}")
-
-    # Backend
-    if checks["display"] == "wayland":
-        if checks["input_group"]:
-            backend = "evdev"
-        else:
-            backend = "socket"
-    else:
+    if checks["is_windows"] or checks["is_mac"]:
         backend = "auto"
+        label = "pynput" if checks["is_windows"] else "pynput (requires Accessibility permission)"
+        print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: {label}{RESET}")
+    else:
+        if checks["ibus"] and checks["ibus_gi"]:
+            print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: IBus (best quality, auto-selected){RESET}")
+            from voiceio.typers.ibus import install_component, _ensure_gnome_input_source
+            if install_component():
+                print(f"  {GREEN}✓{RESET} {DIM}IBus engine component installed{RESET}")
+                _ensure_gnome_input_source()
+                print(f"  {GREEN}✓{RESET} {DIM}Added VoiceIO to GNOME input sources{RESET}")
+            else:
+                print(f"  {YELLOW}⚠{RESET}  {DIM}Could not install IBus component, will use fallback{RESET}")
 
-    # ── Step 5: Feedback ───────────────────────────────────────────────
-    _print_step(5, total_steps, "Feedback")
-    print(f"  {DIM}Sound plays when text is committed. Notifications show clipboard status.{RESET}\n")
-    feedback_options = [
-        ("Sound only", "short chime on commit"),
-        ("Sound + notification", "also shows a desktop notification"),
-        ("None", "silent"),
+        if checks["display"] == "wayland":
+            if checks["input_group"]:
+                backend = "evdev"
+            else:
+                backend = "socket"
+        else:
+            backend = "auto"
+
+    # ── Defaults for optional settings ──────────────────────────────────
+    sound_enabled = True
+    notify_clipboard = False
+    commands_enabled = True
+    punctuation_cleanup = True
+    number_conversion = True
+    llm_enabled = False
+    llm_model = ""
+    tts_enabled = False
+    tts_engine = "auto"
+    tts_speed = 1.0
+
+    # ── Step 5: Advanced options (optional) ─────────────────────────────
+    _print_step(5, 8, "Advanced options")
+    print(f"  {DIM}Sensible defaults are already set. Customize if you want.{RESET}\n")
+    advanced_options = [
+        ("Skip", "use defaults (recommended)"),
+        ("Customize", "feedback, notifications, and more"),
     ]
-    fb_idx = _ask_choice(feedback_options, default=0)
-    sound_enabled = fb_idx in (0, 1)
-    notify_clipboard = fb_idx == 1
+    if _ask_choice(advanced_options, default=0) == 1:
+        adv = _run_advanced_options(checks, tray_ok)
+        sound_enabled = adv.get("sound_enabled", True)
+        notify_clipboard = adv.get("notify_clipboard", False)
+        commands_enabled = adv.get("commands_enabled", True)
+        punctuation_cleanup = adv.get("punctuation_cleanup", True)
+        number_conversion = adv.get("number_conversion", True)
+        tts_enabled = adv.get("tts_enabled", False)
+        tts_engine = adv.get("tts_engine", "auto")
+        tts_speed = adv.get("tts_speed", 1.0)
 
-    # ── Step 6: Download model ──────────────────────────────────────────
-    _print_step(6, total_steps, "Download model")
+    # ── Step 6: LLM post-processing ─────────────────────────────────────
+    _print_step(6, 8, "LLM post-processing (Ollama)")
+    print(f"  {DIM}Use a local LLM to fix grammar and spelling in your dictation.{RESET}")
+    print(f"  {DIM}Runs only on the final pass — streaming preview is unaffected.{RESET}")
+
+    from voiceio.config import LLMConfig
+    from voiceio.llm import OllamaStatus, diagnose_ollama, _has_gpu
+    _llm_status, _llm_models = diagnose_ollama(LLMConfig(enabled=True))
+    has_gpu = _has_gpu()
+
+    if not has_gpu:
+        print(f"  {YELLOW}⚠{RESET}  {DIM}No GPU detected. LLM adds 5-15s latency on CPU — not recommended.{RESET}\n")
+
+    if _llm_status == OllamaStatus.OK:
+        print(f"  {GREEN}✓{RESET} {DIM}Ollama detected with {len(_llm_models)} model(s){RESET}\n")
+        if has_gpu:
+            print(f"  {DIM}Adds ~0.5-2s latency per dictation with GPU.{RESET}\n")
+            llm_options = [
+                ("Enabled", "use your existing Ollama install"),
+                ("Disabled", "skip LLM"),
+            ]
+            default_llm = 0
+        else:
+            llm_options = [
+                ("Disabled", "recommended without GPU"),
+                ("Enabled", "adds 5-15s latency on CPU"),
+            ]
+            default_llm = 0
+    elif _llm_status == OllamaStatus.NOT_INSTALLED:
+        if has_gpu:
+            size_note = "~800 MB Ollama + ~400 MB model"
+            print(f"  {DIM}Adds ~0.5-2s latency per dictation with GPU.{RESET}\n")
+            llm_options = [
+                ("Install Ollama + model", f"downloads {size_note}"),
+                ("Skip for now", "you can enable later with 'voiceio setup'"),
+            ]
+            default_llm = 0
+        else:
+            size_note = "~60 MB Ollama + ~400 MB model"
+            print(f"  {DIM}Requires Ollama ({size_note}).{RESET}\n")
+            llm_options = [
+                ("Skip for now", "recommended without GPU"),
+                ("Install anyway", f"downloads {size_note}, adds 5-15s latency"),
+            ]
+            default_llm = 0
+    else:
+        # Installed but not running, or missing model
+        print(f"  {DIM}Ollama is installed. Just needs a model (~400 MB).{RESET}\n")
+        if has_gpu:
+            llm_options = [
+                ("Enabled", "pull a small model"),
+                ("Disabled", "skip LLM"),
+            ]
+            default_llm = 0
+        else:
+            llm_options = [
+                ("Disabled", "recommended without GPU"),
+                ("Enabled", "pull a model, adds 5-15s latency on CPU"),
+            ]
+            default_llm = 0
+
+    llm_choice = _ask_choice(llm_options, default=default_llm)
+    # With GPU: enable option is always first (index 0)
+    # Without GPU: enable option is always second (index 1)
+    want_llm = llm_choice == (0 if has_gpu else 1)
+
+    if want_llm:
+        llm_enabled = True
+        llm_model = _setup_ollama(_llm_status, _llm_models)
+        if not llm_model:
+            llm_enabled = False
+    else:
+        llm_enabled = False
+        llm_model = ""
+
+    # ── Step 6b: Autocorrect API key (optional) ────────────────────────
+    autocorrect_api_key = ""
+    autocorrect_base_url = ""
+    autocorrect_model = ""
+    print(f"\n  {DIM}Autocorrect: 'voiceio correct --auto' can use a cloud LLM to find Whisper mistakes.{RESET}")
+    print(f"  {DIM}Paste any API key — OpenRouter, OpenAI, or Anthropic.{RESET}\n")
+    api_input = _ask("API key (or Enter to skip)", "")
+    if api_input:
+        from voiceio.config import AutocorrectConfig
+        from voiceio.llm_api import check_api_key, detect_provider
+        det_url, det_model = detect_provider(api_input)
+        # Show which provider was detected
+        provider_name = "OpenRouter"
+        if "openai.com" in det_url:
+            provider_name = "OpenAI"
+        elif "anthropic.com" in det_url:
+            provider_name = "Anthropic"
+        print(f"  {DIM}Detected: {provider_name}{RESET}")
+        cfg_check = AutocorrectConfig(
+            api_key=api_input, base_url=det_url, model=det_model,
+        )
+        if check_api_key(cfg_check):
+            print(f"  {GREEN}✓{RESET} API key validated ({provider_name})")
+            autocorrect_api_key = api_input
+            autocorrect_base_url = det_url
+            autocorrect_model = det_model
+        else:
+            print(f"  {YELLOW}⚠{RESET}  Validation failed. You can set it later in config.toml.")
+
+    # ── Step 7: Download & configure ────────────────────────────────────
+    _print_step(7, 8, "Download & configure")
+
+    # Download model
     if not _download_model(model_name):
         sys.exit(1)
 
-    # ── Step 7: Save config & set up shortcut ───────────────────────────
-    _print_step(7, total_steps, "Save config & shortcut")
-
+    # Save config
     _write_config(model_name, language, hotkey, method, streaming=True, backend=backend,
-                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard)
+                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard,
+                  tray_enabled=tray_ok,
+                  commands_enabled=commands_enabled,
+                  punctuation_cleanup=punctuation_cleanup,
+                  number_conversion=number_conversion,
+                  llm_enabled=llm_enabled, llm_model=llm_model,
+                  autocorrect_api_key=autocorrect_api_key,
+                  autocorrect_base_url=autocorrect_base_url,
+                  autocorrect_model=autocorrect_model,
+                  tts_enabled=tts_enabled, tts_engine=tts_engine, tts_speed=tts_speed)
 
-    # Set up DE shortcut if on GNOME + socket backend
-    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
-    if "GNOME" in desktop and backend == "socket":
-        print(f"\n  {CYAN}Setting up GNOME keyboard shortcut...{RESET}")
-        if _setup_gnome_shortcut(hotkey):
-            print(f"  {GREEN}✓{RESET} Shortcut {BOLD}{hotkey}{RESET} → voiceio-toggle configured!")
-        else:
-            print(f"  {YELLOW}⚠{RESET}  Auto-setup failed. Add manually in Settings → Keyboard → Shortcuts:")
-            print("    Command: voiceio-toggle")
-    elif backend == "socket":
-        print(f"\n  {YELLOW}ℹ{RESET}  Add a keyboard shortcut manually in your DE settings:")
-        print(f"    Shortcut: {BOLD}{hotkey}{RESET}")
-        print(f"    Command:  {BOLD}voiceio-toggle{RESET}")
-
-    # ── Step 8: Autostart ─────────────────────────────────────────────────
-    _print_step(8, total_steps, "Autostart")
-    from voiceio.service import has_systemd
-    autostart_idx = 1  # default: no autostart
-    if has_systemd():
-        print(f"  {DIM}Install a systemd user service so voiceio starts on login{RESET}")
-        print(f"  {DIM}and restarts automatically if it crashes.{RESET}\n")
-        autostart_options = [
-            ("Yes", "install & enable systemd service"),
-            ("No", "I'll start it manually"),
-        ]
-        autostart_idx = _ask_choice(autostart_options, default=0)
-        if autostart_idx == 0:
-            from voiceio.service import install_service
-            if install_service():
-                print(f"  {GREEN}✓{RESET} Systemd service installed and enabled")
-                print(f"  {DIM}voiceio will start automatically on next login{RESET}")
+    # Set up DE shortcut if on GNOME + socket backend (Linux only)
+    desktop = ""
+    if checks["is_linux"]:
+        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
+        if "GNOME" in desktop and backend == "socket":
+            print(f"\n  {CYAN}Setting up GNOME keyboard shortcut...{RESET}")
+            if _setup_gnome_shortcut(hotkey):
+                print(f"  {GREEN}✓{RESET} Shortcut {BOLD}{hotkey}{RESET} → voiceio-toggle configured!")
             else:
-                print(f"  {YELLOW}⚠{RESET}  Could not install systemd service")
-                print(f"  {DIM}Start manually with: voiceio{RESET}")
+                print(f"  {YELLOW}⚠{RESET}  Auto-setup failed. Add manually in Settings → Keyboard → Shortcuts:")
+                print("    Command: voiceio-toggle")
+        elif backend == "socket":
+            print(f"\n  {YELLOW}ℹ{RESET}  Add a keyboard shortcut manually in your DE settings:")
+            print(f"    Shortcut: {BOLD}{hotkey}{RESET}")
+            print(f"    Command:  {BOLD}voiceio-toggle{RESET}")
+
+    # Autostart
+    from voiceio.service import install_service
+    autostart_idx = 1
+
+    if checks["is_windows"]:
+        with Spinner("Setting up Windows Startup...") as sp:
+            if install_service():
+                sp.ok("Added to Windows Startup")
+                autostart_idx = 0
+            else:
+                sp.warn("Could not add to Startup folder")
+    elif checks["is_mac"]:
+        pass  # macOS autostart not yet supported
     else:
-        print(f"  {DIM}systemd not available, skipping autostart setup{RESET}")
-        print(f"  {DIM}Start manually with: voiceio{RESET}")
+        from voiceio.service import has_systemd
+        if has_systemd():
+            with Spinner("Installing systemd service...") as sp:
+                if install_service():
+                    sp.ok("Systemd service installed and enabled")
+                    autostart_idx = 0
+                else:
+                    sp.warn("Could not install service")
 
-    # ── Step 9: Test ────────────────────────────────────────────────────
-    _print_step(9, total_steps, "Test")
-
-    # Hotkey test
-    print(f"  {DIM}Let's verify your shortcut works.{RESET}")
+    # Quick hotkey test
+    print(f"\n  {DIM}Testing hotkey...{RESET}")
     hotkey_ok = _test_hotkey(hotkey, backend)
 
     if not hotkey_ok:
@@ -829,55 +1171,293 @@ def run_wizard() -> None:
             else:
                 hotkey = hotkey_options[hk_idx][0]
 
-            # Re-save config and shortcut with new hotkey
             _write_config(model_name, language, hotkey, method, streaming=True, backend=backend,
-                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard)
+                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard,
+                  tray_enabled=tray_ok,
+                  commands_enabled=commands_enabled,
+                  punctuation_cleanup=punctuation_cleanup,
+                  number_conversion=number_conversion,
+                  llm_enabled=llm_enabled, llm_model=llm_model,
+                  autocorrect_api_key=autocorrect_api_key,
+                  autocorrect_base_url=autocorrect_base_url,
+                  autocorrect_model=autocorrect_model,
+                  tts_enabled=tts_enabled, tts_engine=tts_engine, tts_speed=tts_speed)
             if "GNOME" in desktop and backend == "socket":
                 _setup_gnome_shortcut(hotkey)
 
             hotkey_ok = _test_hotkey(hotkey, backend)
 
-    # Mic + streaming test
-    print(f"\n{'─' * 50}")
+    # ── Step 7: Test ────────────────────────────────────────────────────
+    _print_step(8, 8, "Try it out")
+    print(f"  {DIM}Speak into your microphone and see the transcription live.{RESET}")
     test = _ask("Run a streaming mic test? (y/n)", "y")
     if test.lower() in ("y", "yes", ""):
         _streaming_test(model=_get_or_load_model())
 
-    # ── Done ────────────────────────────────────────────────────────────
     # Start (or restart) the service so it's immediately usable
     if autostart_idx == 0:
+        from voiceio.hotkeys.socket_backend import SOCKET_PATH
         from voiceio.service import is_running
         action = "restart" if is_running() else "start"
+        SOCKET_PATH.unlink(missing_ok=True)
         try:
             subprocess.run(
                 ["systemctl", "--user", action, "voiceio.service"],
                 capture_output=True, timeout=5,
             )
-            print(f"  {GREEN}✓{RESET} {DIM}voiceio service started{RESET}")
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
+        with Spinner("Waiting for service to start...") as sp:
+            if _wait_for_service_ready(timeout=30):
+                sp.ok("Service is running!")
+            else:
+                sp.warn("Timed out — service may still be loading. Check: voiceio logs")
+
+    # ── Done ────────────────────────────────────────────────────────────
     from voiceio.config import LOG_PATH
+    from voiceio.service import _is_pipx_install
     log_path = LOG_PATH
     start_hint = (
         "  voiceio is running and will start automatically on login."
         if autostart_idx == 0
         else f"  Start voiceio:\n    {CYAN}voiceio{RESET}"
     )
+    path_note = ""
+    if not _is_pipx_install() and not shutil.which("voiceio"):
+        path_note = f"\n  {YELLOW}ℹ{RESET}  Restart your terminal so 'voiceio' is on PATH.\n"
     print(f"""
 {GREEN}{'━' * 50}{RESET}
 {BOLD}  Setup complete!{RESET}
-
+{path_note}
 {start_hint}
 
   Press {BOLD}{hotkey}{RESET} to toggle recording.
   Speak naturally, and text streams at your cursor.
 
   Useful commands:
-    {CYAN}voiceio doctor{RESET}   check system health
-    {CYAN}voiceio test{RESET}     test mic + hotkey
+    {CYAN}voiceio doctor{RESET}     check system health
+    {CYAN}voiceio test{RESET}       test mic + hotkey
+    {CYAN}voiceio correct{RESET}    manage corrections dictionary
+    {CYAN}voiceio history{RESET}    view transcription history
 
   Config: {DIM}{CONFIG_PATH}{RESET}
   Logs:   {DIM}{log_path}{RESET}
 {GREEN}{'━' * 50}{RESET}
 """)
+
+
+# ── Ollama setup ─────────────────────────────────────────────────────────
+
+_LLM_RECOMMENDED_MODELS = [
+    ("qwen2.5:0.5b", "~400 MB", "fastest, recommended for CPU"),
+    ("llama3.2:1b", "~700 MB", "fast, good quality"),
+    ("phi3:mini", "~2.3 GB", "balanced speed/quality"),
+    ("mistral:7b", "~4.1 GB", "best quality, GPU recommended"),
+]
+
+
+def _setup_ollama(status=None, models=None) -> str:
+    """Guide user through Ollama installation, daemon start, and model pull.
+
+    Accepts cached status/models from the caller to avoid redundant diagnosis.
+    Returns the selected model name.
+    """
+    from voiceio.config import LLMConfig
+    from voiceio.llm import (
+        OllamaStatus, diagnose_ollama, install_ollama, start_ollama, pull_model,
+    )
+
+    cfg = LLMConfig(enabled=True)
+    if status is None:
+        status, models = diagnose_ollama(cfg)
+    if models is None:
+        models = []
+
+    # Step 1: Install if missing
+    if status == OllamaStatus.NOT_INSTALLED:
+        print(f"\n  {YELLOW}⚠{RESET}  Ollama is not installed.")
+        if sys.platform == "linux":
+            if _ask("Install Ollama now? (y/n)", "y").lower() in ("y", "yes", ""):
+                from voiceio.llm import _has_gpu
+                if _has_gpu():
+                    print(f"\n  {CYAN}Installing Ollama (with GPU support)...{RESET}\n")
+                else:
+                    print(f"\n  {CYAN}Installing Ollama (CPU-only, ~60 MB)...{RESET}\n")
+                if install_ollama():
+                    print(f"\n  {GREEN}✓{RESET} Ollama installed!")
+                    status, models = diagnose_ollama(cfg)
+                else:
+                    print(f"\n  {RED}✗{RESET} Installation failed. Visit https://ollama.com")
+                    return ""
+            else:
+                print(f"  {DIM}Install later from https://ollama.com{RESET}")
+                return ""
+        else:
+            print(f"  {DIM}Install from https://ollama.com and re-run setup.{RESET}")
+            return ""
+
+    # Step 2: Start daemon if not running
+    if status == OllamaStatus.NOT_RUNNING:
+        print(f"\n  {YELLOW}⚠{RESET}  Ollama is installed but not responding.")
+        if _ask("Start Ollama now? (y/n)", "y").lower() in ("y", "yes", ""):
+            with Spinner("Starting Ollama...") as sp:
+                if start_ollama():
+                    sp.ok("Ollama is running!")
+                    status, models = diagnose_ollama(cfg)
+                else:
+                    sp.fail("Could not start Ollama. Try 'ollama serve' manually.")
+                    return ""
+
+    # Step 3: Pick from installed models or pull a new one
+    if models:
+        print(f"\n  {GREEN}✓{RESET} Ollama is running with {len(models)} model(s)")
+        print(f"\n  {DIM}Select a model for grammar/spelling cleanup:{RESET}\n")
+        model_options = [(m,) for m in models[:6]]
+        model_options.append(("Pull a new model...",))
+        idx = _ask_choice(model_options, default=0)
+        if idx < len(models[:6]):
+            selected = models[idx]
+            print(f"  {GREEN}✓{RESET} Using {BOLD}{selected}{RESET}")
+            return selected
+        # Fall through to pull flow
+
+    if not models:
+        print(f"\n  {YELLOW}⚠{RESET}  No models installed yet. Let's pull one.")
+
+    # Step 4: Pull a recommended model
+    print(f"\n  {DIM}Choose a model to download:{RESET}\n")
+    idx = _ask_choice(_LLM_RECOMMENDED_MODELS, default=0)
+    model_name = _LLM_RECOMMENDED_MODELS[idx][0]
+
+    print(f"\n  {CYAN}Pulling {model_name}...{RESET}")
+    print(f"  {DIM}This downloads the model. May take a few minutes.{RESET}\n")
+    if pull_model(model_name):
+        print(f"\n  {GREEN}✓{RESET} Model {BOLD}{model_name}{RESET} ready!")
+    else:
+        print(f"\n  {RED}✗{RESET} Pull failed. You can pull manually later: ollama pull {model_name}")
+    return model_name
+
+
+# ── Advanced options (shown only when user opts in) ──────────────────────
+
+def _ensure_tts_engine(engine: str, checks: dict) -> None:
+    """Ensure a TTS engine is available, installing espeak-ng if needed."""
+    from voiceio.config import TTSConfig
+    from voiceio.tts.chain import probe_all
+
+    cfg = TTSConfig(enabled=True, engine=engine)
+    results = probe_all(cfg)
+
+    if any(probe.ok for _, probe in results):
+        active = next(name for name, probe in results if probe.ok)
+        print(f"\n  {GREEN}✓{RESET} TTS engine available: {BOLD}{active}{RESET}")
+        return
+
+    # No engine available — offer to install espeak-ng
+    if not checks.get("is_linux", False):
+        print(f"\n  {YELLOW}⚠{RESET}  No TTS engine found. Install one of:")
+        print(f"  {DIM}  pip install piper-tts     (offline, recommended){RESET}")
+        print(f"  {DIM}  pip install edge-tts      (cloud, free){RESET}")
+        return
+
+    print(f"\n  {YELLOW}⚠{RESET}  No TTS engine found.")
+    from voiceio.platform import pkg_install
+    install_cmd = pkg_install("espeak-ng")
+    print(f"  {DIM}espeak-ng is a lightweight system package (~2 MB).{RESET}\n")
+    if _ask(f"Install espeak-ng? ({install_cmd})", "y").lower() in ("y", "yes", ""):
+        import subprocess as _sp
+        parts = install_cmd.split()
+        print(f"\n  {CYAN}Running: {install_cmd}{RESET}\n")
+        try:
+            result = _sp.run(parts, timeout=120)
+            if result.returncode == 0:
+                print(f"\n  {GREEN}✓{RESET} espeak-ng installed!")
+            else:
+                print(f"\n  {RED}✗{RESET} Installation failed (exit {result.returncode})")
+                print(f"  {DIM}Install manually: {install_cmd}{RESET}")
+        except (FileNotFoundError, _sp.TimeoutExpired) as e:
+            print(f"\n  {RED}✗{RESET} Installation failed: {e}")
+            print(f"  {DIM}Install manually: {install_cmd}{RESET}")
+    else:
+        print(f"  {DIM}Install later: {install_cmd}{RESET}")
+
+
+def _run_advanced_options(checks: dict, tray_ok: bool) -> dict:
+    """Interactive advanced options. Returns dict of settings."""
+    result: dict = {}
+
+    # Feedback
+    print(f"\n  {BOLD}Feedback{RESET}")
+    print(f"  {DIM}Sound plays when recording starts/stops. Notifications show transcribed text.{RESET}\n")
+    feedback_options = [
+        ("Sound only", "short chime on start/stop (default)"),
+        ("Sound + notification", "also shows a desktop notification"),
+        ("None", "silent"),
+    ]
+    fb_idx = _ask_choice(feedback_options, default=0)
+    result["sound_enabled"] = fb_idx in (0, 1)
+    result["notify_clipboard"] = fb_idx == 1
+
+    # Voice commands
+    print(f"\n  {BOLD}Voice commands{RESET}")
+    print(f"  {DIM}Recognize spoken commands: \"new line\", \"period\", \"scratch that\", etc.{RESET}\n")
+    cmd_options = [
+        ("Enabled", "default"),
+        ("Disabled", "pass through raw text"),
+    ]
+    result["commands_enabled"] = _ask_choice(cmd_options, default=0) == 0
+
+    # Smart punctuation
+    print(f"\n  {BOLD}Smart punctuation{RESET}")
+    print(f"  {DIM}Auto-capitalize sentences, fix spacing around punctuation.{RESET}\n")
+    punct_options = [
+        ("Enabled", "default"),
+        ("Disabled", "raw Whisper output"),
+    ]
+    result["punctuation_cleanup"] = _ask_choice(punct_options, default=0) == 0
+
+    # Number conversion
+    print(f"\n  {BOLD}Number conversion{RESET}")
+    print(f"  {DIM}Convert spoken numbers to digits: \"twenty five\" → \"25\".{RESET}\n")
+    num_options = [
+        ("Enabled", "default"),
+        ("Disabled", "keep number words as text"),
+    ]
+    result["number_conversion"] = _ask_choice(num_options, default=0) == 0
+
+    # Text-to-speech
+    print(f"\n  {BOLD}Text-to-speech{RESET}")
+    print(f"  {DIM}Select text and press ctrl+alt+s to hear it spoken.{RESET}")
+    print(f"  {DIM}Engines: piper (offline), edge-tts (cloud), espeak-ng (system).{RESET}\n")
+    tts_options = [
+        ("Disabled", "default"),
+        ("Enabled", "auto-select best available engine"),
+    ]
+    if _ask_choice(tts_options, default=0) == 1:
+        result["tts_enabled"] = True
+        print(f"\n  {DIM}Engine:{RESET}\n")
+        engine_options = [
+            ("Auto", "try piper → edge-tts → espeak"),
+            ("piper", "offline, best quality (requires pip install piper-tts)"),
+            ("edge-tts", "cloud, free Microsoft TTS (requires pip install edge-tts)"),
+            ("espeak", "system package, lightweight"),
+        ]
+        eng_idx = _ask_choice(engine_options, default=0)
+        result["tts_engine"] = ["auto", "piper", "edge-tts", "espeak"][eng_idx]
+
+        # Ensure at least one engine is available
+        _ensure_tts_engine(result["tts_engine"], checks)
+
+        print(f"\n  {DIM}Speech speed:{RESET}\n")
+        speed_options = [
+            ("Normal", "1.0x"),
+            ("Slow", "0.8x"),
+            ("Fast", "1.3x"),
+        ]
+        sp_idx = _ask_choice(speed_options, default=0)
+        result["tts_speed"] = [1.0, 0.8, 1.3][sp_idx]
+    else:
+        result["tts_enabled"] = False
+
+    return result

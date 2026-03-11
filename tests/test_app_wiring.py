@@ -32,6 +32,19 @@ def _make_vio(mock_transcriber=None):
         return vio, mock_typer, mock_transcriber
 
 
+def _feed_audio(vio, chunks=20):
+    """Feed fake audio data into the recorder."""
+    for _ in range(chunks):
+        data = np.full((1024, 1), 0.3, dtype=np.float32)
+        vio.recorder._callback(data, 1024, None, None)
+
+
+def _allow_stop(vio):
+    """Set timestamps far back so debounce allows stop."""
+    vio._record_start = time.monotonic() - 5.0
+    vio._last_hotkey = time.monotonic() - 5.0
+
+
 class TestVoiceIOInit:
     def test_init_with_mocked_backends(self):
         vio, mock_typer, _ = _make_vio()
@@ -46,16 +59,10 @@ class TestVoiceIOInit:
         vio.on_hotkey()
         assert vio.recorder.is_recording
 
-        # Feed some audio
-        for _ in range(20):
-            data = np.full((1024, 1), 0.3, dtype=np.float32)
-            vio.recorder._callback(data, 1024, None, None)
+        _feed_audio(vio)
+        _allow_stop(vio)
 
-        # Set record_start far back so debounce allows stop
-        vio._record_start = time.monotonic() - 5.0
-        vio._last_hotkey = time.monotonic() - 5.0
-
-        # Stop recording
+        # Stop recording — recorder stops synchronously now
         vio.on_hotkey()
         assert not vio.recorder.is_recording
 
@@ -82,16 +89,11 @@ class TestHotkeyDebounce:
         vio.on_hotkey()
         assert vio.recorder.is_recording
 
-        # Feed audio
-        for _ in range(20):
-            data = np.full((1024, 1), 0.3, dtype=np.float32)
-            vio.recorder._callback(data, 1024, None, None)
-
-        # Move timestamps back so debounce allows through
-        vio._record_start = time.monotonic() - 2.0
-        vio._last_hotkey = time.monotonic() - 2.0
+        _feed_audio(vio)
+        _allow_stop(vio)
 
         vio.on_hotkey()
+        # Recorder stops synchronously in the new design
         assert not vio.recorder.is_recording
 
     def test_concurrent_hotkey_no_phantom_recording(self):
@@ -106,14 +108,8 @@ class TestHotkeyDebounce:
         vio.on_hotkey()
         assert vio.recorder.is_recording
 
-        # Feed audio
-        for _ in range(20):
-            data = np.full((1024, 1), 0.3, dtype=np.float32)
-            vio.recorder._callback(data, 1024, None, None)
-
-        # Allow stop
-        vio._record_start = time.monotonic() - 2.0
-        vio._last_hotkey = time.monotonic() - 2.0
+        _feed_audio(vio)
+        _allow_stop(vio)
 
         # Simulate: evdev thread stops recording, socket thread waits then fires
         results = []
@@ -137,3 +133,74 @@ class TestHotkeyDebounce:
         # Recording must be stopped and NOT restarted by socket
         assert not vio.recorder.is_recording, \
             f"Phantom recording started! results={results}"
+
+
+class TestStateMachine:
+    """Test the explicit state machine transitions."""
+
+    def test_idle_to_recording(self):
+        from voiceio.app import _State
+        vio, _, _ = _make_vio()
+        assert vio._state == _State.IDLE
+
+        vio.on_hotkey()
+        assert vio._state == _State.RECORDING
+        assert vio.recorder.is_recording
+
+    def test_recording_to_idle_batch(self):
+        """Non-streaming stop goes directly to IDLE."""
+        from voiceio.app import _State
+        vio, _, _ = _make_vio()
+        vio._streaming = False
+
+        vio.on_hotkey()
+        assert vio._state == _State.RECORDING
+
+        _feed_audio(vio)
+        _allow_stop(vio)
+
+        vio.on_hotkey()
+        assert vio._state == _State.IDLE
+        assert not vio.recorder.is_recording
+
+    def test_generation_increments_on_stop(self):
+        vio, _, _ = _make_vio()
+        gen_before = vio._generation
+
+        vio.on_hotkey()
+        _feed_audio(vio)
+        _allow_stop(vio)
+        vio.on_hotkey()
+
+        assert vio._generation == gen_before + 1
+
+    def test_can_start_during_finalizing(self):
+        """User can start a new recording while old one finalizes."""
+        from voiceio.app import _State
+        mock_trans = MagicMock()
+        mock_trans.transcribe.return_value = "hello"
+        vio, _, _ = _make_vio(mock_trans)
+
+        # Start and stop (enters FINALIZING for streaming mode)
+        vio.on_hotkey()
+        _feed_audio(vio)
+        _allow_stop(vio)
+        vio.on_hotkey()
+        assert not vio.recorder.is_recording
+
+        # Immediately start new recording (should work even if finalizing)
+        vio._last_hotkey = time.monotonic() - 5.0
+        vio.on_hotkey()
+        assert vio._state == _State.RECORDING
+        assert vio.recorder.is_recording
+
+    def test_auto_stop_never_starts_recording(self):
+        """_request_stop only stops, never starts."""
+        from voiceio.app import _State
+        vio, _, _ = _make_vio()
+        assert vio._state == _State.IDLE
+
+        # _request_stop when idle should do nothing
+        vio._request_stop()
+        assert vio._state == _State.IDLE
+        assert not vio.recorder.is_recording

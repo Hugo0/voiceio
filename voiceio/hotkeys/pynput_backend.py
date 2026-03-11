@@ -12,6 +12,21 @@ log = logging.getLogger(__name__)
 DEBOUNCE_SECS = 0.8
 
 
+def _check_macos_accessibility() -> bool:
+    """Check if the current process has macOS Accessibility permission."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to keystroke ""'],
+            capture_output=True, timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # Can't verify — assume it's fine and let pynput fail later
+        return True
+
+
 class PynputHotkey:
     """Hotkey detection via pynput (X11 + macOS)."""
 
@@ -25,10 +40,18 @@ class PynputHotkey:
                                fix_hint="pip install pynput")
 
         import os
+        import sys
         session = os.environ.get("XDG_SESSION_TYPE", "")
         if session == "wayland":
             return ProbeResult(ok=False, reason="pynput does not work on Wayland",
                                fix_hint="Use evdev or socket backend instead.")
+
+        if sys.platform == "darwin":
+            if not _check_macos_accessibility():
+                return ProbeResult(
+                    ok=False, reason="macOS Accessibility permission not granted",
+                    fix_hint="System Settings → Privacy & Security → Accessibility → enable your terminal/Python",
+                )
 
         return ProbeResult(ok=True)
 

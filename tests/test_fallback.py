@@ -38,6 +38,11 @@ class TestHotkeyChain:
         chain = hotkey_chain._get_chain(macos)
         assert chain == ["pynput"]
 
+    def test_windows_prefers_pynput(self, windows):
+        chain = hotkey_chain._get_chain(windows)
+        assert chain[0] == "pynput"
+        assert "socket" in chain
+
     def test_select_first_ok(self, linux_x11):
         backends = {
             "pynput": _mock_hotkey_backend("pynput", ok=False),
@@ -84,6 +89,11 @@ class TestTyperChain:
     def test_macos_prefers_pynput(self, macos):
         chain = typer_chain._get_chain(macos)
         assert chain[0] == "pynput"
+
+    def test_windows_prefers_pynput(self, windows):
+        chain = typer_chain._get_chain(windows)
+        assert chain[0] == "pynput"
+        assert "clipboard" in chain
 
     def test_select_falls_back(self, linux_wayland_gnome):
         backends = {

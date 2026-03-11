@@ -17,8 +17,9 @@ class WtypeTyper:
 
     def probe(self) -> ProbeResult:
         if not shutil.which("wtype"):
+            from voiceio.platform import pkg_install
             return ProbeResult(ok=False, reason="wtype not installed",
-                               fix_hint="sudo apt install wtype")
+                               fix_hint=pkg_install("wtype"))
 
         import os
         session = os.environ.get("XDG_SESSION_TYPE", "")

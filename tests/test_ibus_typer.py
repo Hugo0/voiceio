@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 import threading
 from unittest.mock import patch, MagicMock
 
@@ -9,10 +10,16 @@ import pytest
 
 from voiceio.typers.ibus import IBusTyper, SOCKET_PATH
 
+_needs_unix = pytest.mark.skipif(
+    sys.platform == "win32", reason="AF_UNIX not available on Windows",
+)
+
 
 @pytest.fixture
 def mock_socket(tmp_path):
     """Create a mock IBus engine socket that records received messages."""
+    if not hasattr(socket, "AF_UNIX"):
+        pytest.skip("AF_UNIX not available")
     # Use /tmp for short path - macOS has 104-char limit on AF_UNIX paths
     import tempfile
     sock_dir = tempfile.mkdtemp()
