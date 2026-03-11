@@ -46,13 +46,13 @@ jobs:
         shell: pwsh
 
       - name: Upload zip artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: voiceio-windows-x64
           path: dist/voiceio-windows-x64.zip
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: voiceio-windows-setup
           path: dist/VoiceIO-*-windows-setup.exe
