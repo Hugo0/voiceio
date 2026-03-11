@@ -21,6 +21,7 @@ _CHAINS: dict[tuple[str, str], list[str]] = {
     ("wayland", "hyprland"):    ["ibus", "wtype", "ydotool", "clipboard"],
     ("wayland", "*"):           ["ibus", "ydotool", "wtype", "clipboard"],
     ("quartz", "*"):            ["pynput", "clipboard"],
+    ("win32", "*"):             ["pynput", "clipboard"],
 }
 
 

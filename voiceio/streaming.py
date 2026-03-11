@@ -11,6 +11,10 @@ from voiceio.transcriber import TRANSCRIBE_TIMEOUT
 from voiceio.typers.base import StreamingTyper
 
 if TYPE_CHECKING:
+    import numpy as np
+    from voiceio.commands import CommandProcessor
+    from voiceio.corrections import CorrectionDict
+    from voiceio.llm import LLMProcessor
     from voiceio.recorder import AudioRecorder
     from voiceio.transcriber import Transcriber
     from voiceio.typers.base import TyperBackend
@@ -53,6 +57,10 @@ class StreamingSession:
     flip-flops on commas vs periods.
 
     On stop: one final char-level diff correction to fix accumulated drift.
+
+    The session holds a reference to the recorder only during active
+    recording. On stop(), the caller passes an audio snapshot and the
+    session releases the recorder reference.
     """
 
     def __init__(
@@ -60,14 +68,30 @@ class StreamingSession:
         transcriber: Transcriber,
         typer: TyperBackend,
         recorder: AudioRecorder,
+        generation: int = 0,
+        cleanup: bool = False,
+        number_conversion: bool = False,
+        language: str = "en",
+        commands: CommandProcessor | None = None,
+        corrections: CorrectionDict | None = None,
+        llm: LLMProcessor | None = None,
     ):
         self._transcriber = transcriber
         self._typer = typer
-        self._recorder = recorder
+        self._recorder: AudioRecorder | None = recorder
+        self._sample_rate = recorder.sample_rate
+        self._generation = generation
+        self._cleanup = cleanup
+        self._number_conversion = number_conversion
+        self._language = language
+        self._commands = commands
+        self._corrections = corrections
+        self._llm = llm
         self._typed_text = ""
         self._pending = threading.Event()
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._worker_thread: threading.Thread | None = None
+        self._final_audio: np.ndarray | None = None  # set on stop
 
     def start(self) -> None:
         """Begin streaming. Recorder must already be started by caller."""
@@ -76,15 +100,27 @@ class StreamingSession:
             target=self._worker_loop, daemon=True,
         )
         self._worker_thread.start()
-        log.debug("Streaming session started")
+        log.debug("Streaming session started (gen=%d)", self._generation)
 
-    def stop(self) -> str:
-        """Stop streaming, run final transcription, return full text."""
-        self._stop.set()
+    def stop(self, audio: np.ndarray | None = None) -> str:
+        """Stop streaming, run final transcription, return full text.
+
+        Args:
+            audio: Final audio snapshot from recorder.stop(). The session
+                   uses this for the final transcription instead of reading
+                   from the recorder (which may have been restarted).
+        """
+        self._final_audio = audio
+        self._stop_event.set()
         self._pending.set()  # wake worker for final pass
         if self._worker_thread is not None:
             self._worker_thread.join(timeout=TRANSCRIBE_TIMEOUT + 2)
-        self._recorder.set_on_speech_pause(None)
+            if self._worker_thread.is_alive():
+                log.warning("Streaming worker did not exit in time (gen=%d)", self._generation)
+        # Release recorder reference — session must not touch it after stop
+        if self._recorder is not None:
+            self._recorder.set_on_speech_pause(None)
+            self._recorder = None
         log.debug("Streaming session stopped, typed: '%s'", self._typed_text)
         return self._typed_text
 
@@ -94,24 +130,32 @@ class StreamingSession:
 
     def _worker_loop(self) -> None:
         """Worker thread: wake on Event, transcribe, apply diff."""
-        while not self._stop.is_set():
-            self._pending.wait(timeout=1.0)
+        while not self._stop_event.is_set():
             self._pending.clear()
-            if self._stop.is_set():
+            self._pending.wait(timeout=1.0)
+            if self._stop_event.is_set():
                 break
             self._transcribe_and_apply()
 
-        # Final transcription on stop: allow full correction
+        # Final transcription on stop using the audio snapshot
         self._transcribe_and_apply(min_seconds=0.5, final=True)
+        self._final_audio = None  # release memory
 
     def _transcribe_and_apply(
         self, min_seconds: float = 1.0, final: bool = False,
     ) -> None:
-        """Get all audio so far, transcribe, apply correction."""
-        audio = self._recorder.get_audio_so_far()
+        """Get audio, transcribe, apply correction."""
+        if final and self._final_audio is not None:
+            # Use the snapshot passed to stop() — recorder may be gone
+            audio = self._final_audio
+        elif self._recorder is not None:
+            audio = self._recorder.get_audio_so_far()
+        else:
+            return  # recorder released, nothing to do
+
         if audio is None:
             return
-        if len(audio) < self._recorder.sample_rate * min_seconds:
+        if len(audio) < self._sample_rate * min_seconds:
             return
 
         try:
@@ -120,8 +164,31 @@ class StreamingSession:
             log.exception("Streaming transcription failed")
             return
 
-        if text:
-            self._apply_correction(text, final=final)
+        if text and isinstance(text, str):
+            from voiceio.postprocess import apply_pipeline
+            text, abort = apply_pipeline(
+                text,
+                do_cleanup=self._cleanup,
+                number_conversion=self._number_conversion,
+                language=self._language,
+                commands=self._commands,
+                corrections=self._corrections,
+                llm=self._llm,
+                final=final,
+            )
+            if abort:
+                if isinstance(self._typer, StreamingTyper):
+                    self._typer.clear_preedit()
+                elif self._typed_text:
+                    self._typer.delete_chars(len(self._typed_text))
+                self._typed_text = ""
+                return
+
+            if text:
+                self._apply_correction(text, final=final)
+
+        if final and self._recorder is not None:
+            self._recorder.mark_transcribed(len(audio))
 
     def _apply_correction(self, new_text: str, final: bool = False) -> None:
         """Apply correction to typed text.
@@ -134,7 +201,6 @@ class StreamingSession:
         # Preedit path: trivial, just replace the preview text
         if isinstance(self._typer, StreamingTyper):
             if final:
-                # Always commit: preedit is just preview, clipboard paste is delivery
                 self._typer.commit_text(new_text)
                 self._typed_text = new_text
                 log.debug("Preedit commit: '%s'", new_text[:60])
@@ -173,7 +239,6 @@ class StreamingSession:
         matched = _word_match_len(old_words, new_words)
 
         if matched >= len(old_words) and len(new_words) > matched:
-            # All our typed words match, so append the new ones
             new_tail = " ".join(new_words[matched:])
             to_type = " " + new_tail
             self._typer.type_text(to_type)
@@ -195,7 +260,7 @@ class StreamingSession:
         if to_delete > 0:
             log.debug("Final correction: delete %d, type '%s'", to_delete, to_type)
             self._typer.delete_chars(to_delete)
-            time.sleep(DELETE_SETTLE_SECS)  # let deletions settle
+            time.sleep(DELETE_SETTLE_SECS)
         if to_type:
             self._typer.type_text(to_type)
 

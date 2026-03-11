@@ -1,6 +1,10 @@
 # voiceio configuration
-# Copy to ~/.config/voiceio/config.toml and edit as needed.
+# Copy to your config file and edit as needed.
 # All values shown are defaults. Only override what you want to change.
+#
+# Config file location:
+#   Linux/macOS: ~/.config/voiceio/config.toml
+#   Windows:     %LOCALAPPDATA%\voiceio\config\config.toml
 
 [hotkey]
 key = "ctrl+alt+v"       # Combo to toggle recording. Examples: alt+v, ctrl+shift+r, ctrl+alt+v
@@ -11,6 +15,7 @@ name = "base"            # Whisper model: tiny, base, small, medium, large-v3
 language = "en"          # ISO 639-1 code, or "auto" for auto-detection
 device = "auto"          # "cpu", "cuda", or "auto"
 compute_type = "int8"    # int8 (fastest), float16 (GPU), float32 (most accurate)
+vocabulary_file = ""     # Path to vocabulary.txt (one term per line), empty = check default location
 
 [audio]
 sample_rate = 16000      # 16kHz is what Whisper expects
@@ -18,21 +23,57 @@ device = "default"       # Audio input device name or index
 prebuffer_secs = 1.0     # Seconds of pre-buffer to capture (prevents clipping first syllable)
 silence_threshold = 0.01 # RMS threshold for silence detection (lower = more sensitive)
 silence_duration = 0.6   # Seconds of silence before triggering a streaming transcription pass
+auto_stop_silence_secs = 5.0  # Seconds of sustained silence before auto-stopping recording
+vad_backend = "silero"   # "silero" (neural net, recommended) or "rms" (simple amplitude)
+vad_threshold = 0.5      # Silero speech probability threshold (0.0-1.0)
 
 [output]
 method = "auto"          # "auto", "xdotool", "ydotool", "wtype", "clipboard", "pynput"
 streaming = true         # Stream text as you speak
 min_recording_secs = 1.5 # Minimum recording duration before stop is accepted
 cancel_window_secs = 0.5 # Double-press within this window cancels recording
+punctuation_cleanup = true  # Auto-capitalize and fix spacing in Whisper output
+number_conversion = true    # Convert spoken numbers to digits ("twenty five" → "25")
+
+[commands]
+enabled = true           # Recognize voice commands: "new line", "period", "scratch that", etc.
+                         # Also includes "correct that" — flags the last word for review.
+
+# Corrections dictionary: auto-replace misheard words in transcription.
+# Managed via CLI: voiceio correct "wrong" "right"
+# Stored in corrections.json alongside this config file.
+# Say "correct that" during dictation to flag the last word for review.
+# Run "voiceio correct --flagged" to see flagged words.
 
 [feedback]
 sound_enabled = true     # Play sounds on start/stop recording
+notify_clipboard = false # Show desktop notification with transcribed text
 
 [tray]
 enabled = false          # Show system tray icon (requires: pip install voiceio[tray])
 
 [daemon]
 log_level = "INFO"       # DEBUG, INFO, WARNING, ERROR
+
+[llm]
+enabled = false                          # Use local LLM for grammar/spelling cleanup (requires Ollama)
+model = ""                               # Model name (empty = auto). Examples: phi3:mini, llama3.2:1b, mistral
+base_url = "http://localhost:11434"      # Ollama API URL
+timeout_secs = 15.0                      # Max seconds to wait for LLM response
+
+[autocorrect]
+# api_key = ""                                   # API key (or set OPENROUTER_API_KEY / OPENAI_API_KEY env var)
+# base_url = "https://openrouter.ai/api/v1"      # OpenAI-compatible API base URL
+# model = "anthropic/claude-sonnet-4"             # Model for autocorrect analysis
+# timeout_secs = 30.0                             # Max seconds to wait for API response
+
+[tts]
+enabled = false          # Enable text-to-speech (select text + ctrl+alt+s to hear it)
+engine = "auto"          # "auto", "piper", "espeak", "edge-tts"
+# hotkey = "ctrl+alt+s"  # Hotkey to trigger TTS (press again to cancel)
+# voice = ""             # Engine-specific voice name (empty = default)
+speed = 1.0              # Speech speed multiplier (0.5–2.0)
+# model = ""             # Piper model name (empty = default en_US-lessac-medium)
 
 [health]
 auto_fallback = true     # Automatically switch to fallback backend on failure

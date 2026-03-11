@@ -10,6 +10,7 @@ import sounddevice as sd
 
 if TYPE_CHECKING:
     from voiceio.config import AudioConfig
+    from voiceio.vad import VadBackend
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +72,12 @@ class AudioRecorder:
     contents become the start of the recording, so no first syllable is lost.
     """
 
-    def __init__(self, cfg: AudioConfig, on_speech_pause: Callable[[], None] | None = None):
+    def __init__(
+        self,
+        cfg: AudioConfig,
+        on_speech_pause: Callable[[], None] | None = None,
+        vad: VadBackend | None = None,
+    ):
         self.sample_rate = cfg.sample_rate
         self.device = None if cfg.device == "default" else cfg.device
         self.prebuffer_secs = cfg.prebuffer_secs
@@ -82,13 +88,24 @@ class AudioRecorder:
         self._lock = threading.Lock()
         self._recording = False
 
+        # VAD backend (Silero or RMS fallback)
+        if vad is None:
+            from voiceio.vad import RmsVad
+            vad = RmsVad(threshold=cfg.silence_threshold)
+        self._vad = vad
+
         # Streaming VAD
         self._on_speech_pause = on_speech_pause
-        self._silence_threshold = cfg.silence_threshold
         self._silence_duration = cfg.silence_duration
         self._silent_chunks = 0.0
         self._last_transcribed_len = 0
         self._total_samples = 0
+
+        # Auto-stop on sustained silence
+        self._auto_stop_secs = cfg.auto_stop_silence_secs
+        self._sustained_silence = 0.0
+        self._heard_speech = False
+        self._on_auto_stop: Callable[[], None] | None = None
 
     def open_stream(self) -> None:
         """Start the always-on audio stream (feeds ring buffer)."""
@@ -120,11 +137,15 @@ class AudioRecorder:
             # Ensure stream is running
             if self._stream is None:
                 self.open_stream()
+            # Reset VAD state between sessions
+            self._vad.reset()
             # Grab pre-buffer
             prebuf = self._ring.get()
             self._chunks = [prebuf.reshape(-1, 1)] if len(prebuf) > 0 else []
             self._total_samples = sum(len(c) for c in self._chunks)
             self._silent_chunks = 0.0
+            self._sustained_silence = 0.0
+            self._heard_speech = False
             self._last_transcribed_len = 0
             self._recording = True
             prebuf_ms = len(prebuf) / self.sample_rate * 1000
@@ -152,6 +173,7 @@ class AudioRecorder:
                 return None
 
             log.info("Recording stopped, %.1fs audio", duration)
+            self._chunks = []
             return remaining
 
     def get_audio_so_far(self) -> np.ndarray | None:
@@ -164,6 +186,10 @@ class AudioRecorder:
     def set_on_speech_pause(self, callback: Callable[[], None] | None) -> None:
         """Set/clear the speech pause callback (used by streaming session)."""
         self._on_speech_pause = callback
+
+    def set_on_auto_stop(self, callback: Callable[[], None] | None) -> None:
+        """Set/clear the auto-stop callback (fires after sustained silence)."""
+        self._on_auto_stop = callback
 
     def mark_transcribed(self, num_samples: int) -> None:
         self._last_transcribed_len = num_samples
@@ -189,20 +215,34 @@ class AudioRecorder:
         self._chunks.append(chunk)
         self._total_samples += chunk.shape[0]
 
-        # Streaming VAD
+        # Silence detection via VAD backend
+        chunk_secs = frames / self.sample_rate
+        is_silent = not self._vad.is_speech(indata)
+
+        if is_silent:
+            self._silent_chunks += chunk_secs
+            self._sustained_silence += chunk_secs
+        else:
+            self._silent_chunks = 0.0
+            self._sustained_silence = 0.0
+            self._heard_speech = True
+
+        # Streaming VAD: trigger transcription on speech pause
         if self._on_speech_pause is not None:
-            flat = indata.ravel()
-            rms = float(np.sqrt(np.dot(flat, flat) / len(flat)))
-            chunk_secs = frames / self.sample_rate
-
-            if rms < self._silence_threshold:
-                self._silent_chunks += chunk_secs
-            else:
-                self._silent_chunks = 0.0
-
             has_new = self._total_samples > self._last_transcribed_len + self.sample_rate
-
             if self._silent_chunks >= self._silence_duration and has_new:
                 self._silent_chunks = 0.0
-                # Signal pause. Don't concatenate on the audio thread.
                 self._on_speech_pause()
+
+        # Auto-stop after sustained silence (only after hearing speech)
+        if (self._on_auto_stop is not None
+                and self._auto_stop_secs > 0
+                and self._heard_speech
+                and self._sustained_silence >= self._auto_stop_secs):
+            # Capture and clear callback before firing to prevent
+            # the next audio chunk from re-triggering (single-fire)
+            cb = self._on_auto_stop
+            self._on_auto_stop = None
+            self._sustained_silence = 0.0
+            log.info("Auto-stopping after %.0fs of silence", self._auto_stop_secs)
+            cb()

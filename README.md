@@ -43,6 +43,31 @@ voiceio setup
 </details>
 
 <details>
+<summary><strong>Windows</strong></summary>
+
+```powershell
+# Option A: Install with pip (requires Python 3.11+)
+pip install python-voiceio
+voiceio setup
+
+# Option B: Download the installer from GitHub Releases (no Python needed)
+# https://github.com/Hugo0/voiceio/releases
+# Also available as a portable .zip if you prefer no installation.
+```
+
+Windows uses pynput for hotkeys and text injection. No extra system dependencies required.
+</details>
+
+<details>
+<summary><strong>macOS</strong></summary>
+
+```bash
+pipx install python-voiceio
+voiceio setup
+```
+</details>
+
+<details>
 <summary><strong>Build from source</strong></summary>
 
 If you want the source code locally to hack on or customize for personal use. PRs are welcome!
@@ -50,9 +75,13 @@ If you want the source code locally to hack on or customize for personal use. PR
 ```bash
 git clone https://github.com/Hugo0/voiceio
 cd voiceio
-pip install -e ".[linux,dev]"
-voiceio setup
+uv pip install -e ".[linux,dev]"
+
+# Bootstrap CLI commands onto PATH (creates ~/.local/bin/voiceio)
+uv run voiceio setup
 ```
+
+> **Note:** Source installs live inside a virtualenv, so `voiceio` isn't on PATH until setup creates symlinks in `~/.local/bin/`. If `voiceio` isn't found after setup, restart your terminal or run `export PATH="$HOME/.local/bin:$PATH"`.
 </details>
 
 > You can also install with `uv tool install python-voiceio` or `pip install python-voiceio`.
@@ -64,11 +93,7 @@ hotkey → mic capture → whisper (local) → text at cursor
           pre-buffered   streaming        IBus / clipboard
 ```
 
-1. Press your hotkey: voiceio starts recording (with a 1-second pre-buffer, so it catches the beginning even if you start speaking before pressing)
-2. Speak naturally: text streams into the focused app in real-time as an underlined preview
-3. Press the hotkey again: the final transcription replaces the preview and is committed
-
-Transcription runs locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Text is injected through IBus (works in any GTK/Qt app: browsers, Telegram, editors) with an automatic clipboard fallback for terminals.
+Press your hotkey to start recording (1s pre-buffer catches the first syllable). Text streams into the focused app as an underlined preview. Press again to commit. Transcription runs locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), text is injected through IBus (any GTK/Qt app) with clipboard fallback for terminals.
 
 ## Features
 
@@ -101,14 +126,17 @@ voiceio doctor           Health check (--fix to auto-repair)
 voiceio test             Test microphone + live transcription
 voiceio toggle           Toggle recording on a running daemon
 voiceio update           Update to latest version
-voiceio service install  Autostart on login via systemd
+voiceio service install  Autostart on login (systemd / Windows Startup)
 voiceio logs             View recent logs
 voiceio uninstall        Remove all system integrations
 ```
 
 ## Configuration
 
-`voiceio setup` handles everything interactively. To tweak later, edit `~/.config/voiceio/config.toml` or override at runtime:
+`voiceio setup` handles everything interactively. To tweak later, edit the config file or override at runtime:
+
+- Linux/macOS: `~/.config/voiceio/config.toml`
+- Windows: `%LOCALAPPDATA%\voiceio\config\config.toml`
 
 ```bash
 voiceio --model large-v3 --language auto -v
@@ -130,7 +158,9 @@ voiceio logs             # check debug output
 | Hotkey doesn't work on Wayland | `sudo usermod -aG input $USER` then log out and back in |
 | Transcription too slow | Use a smaller model: `voiceio --model tiny` |
 | Want to start fresh | `voiceio uninstall` then `voiceio setup` |
-| Doesn't work on MacOS | I haven't added proper support for apple yet. either use https://aquavoice.com/ or make a PR |
+| Windows: antivirus blocks hotkeys | pynput uses global keyboard hooks — add an exception for voiceio |
+| Windows: no sound feedback | Check `voiceio logs` for audio device info |
+| macOS issues | Experimental — consider [aquavoice.com](https://aquavoice.com/) or contribute a PR |
 
 ## Platform support
 
@@ -141,6 +171,7 @@ voiceio logs             # check debug output
 | Fedora (GNOME) | Supported | IBus | evdev / GNOME shortcut | Yes |
 | Arch Linux | Supported | IBus | evdev | Yes |
 | KDE / Sway / Hyprland | Should work | IBus / ydotool / wtype | evdev | Yes |
+| Windows 10/11 | Experimental | pynput / clipboard | pynput | Type-and-correct (no preedit) |
 | macOS | Experimental | pynput / clipboard | pynput | Type-and-correct (no preedit) |
 
 voiceio auto-detects your platform and picks the best available backends. Run `voiceio doctor` to see what's working on your system.
@@ -152,50 +183,36 @@ voiceio uninstall        # removes service, IBus, shortcuts, symlinks
 pipx uninstall python-voiceio   # removes the package
 ```
 
-## Wishlist
+## Roadmap
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md). Open an issue to discuss before starting.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) and [open issues](https://github.com/Hugo0/voiceio/issues).
 
-**High impact**
-- [ ] **macOS support**: test and polish pynput hotkey + typer backends
-- [ ] **Silence filtering**: VAD-based trimming to prevent Whisper hallucinations on silence
-- [ ] **distil-whisper models**: better speed/accuracy tradeoffs
-- [ ] **IBus on non-GNOME desktops**: KDE, Sway, Hyprland activation (currently GNOME-only via gsettings)
-- [ ] **Text-to-speech (voice output)**: select text, press a hotkey, hear it spoken aloud. Completes the "io" in voiceio. Use a local TTS engine (Piper, Coqui, espeak-ng), same philosophy: no cloud, no API keys
-- [ ] **Wake word**: "Hey voiceio" hands-free activation (no hotkey needed). Use a small always-on keyword model (e.g. openWakeWord, Porcupine)
-- [ ] **Custom vocabulary / hot words**: user-defined word list for names, jargon, technical terms that Whisper gets wrong. Boost via `initial_prompt` or fine-tuned logit bias
-- [ ] **Per-app profiles**: different language/model/output settings per application (e.g. formal writing in docs, casual in chat)
-- [ ] **Voice commands**: "select all", "new line", "undo that", "delete last sentence". Parse transcribed text for command patterns before injecting
-- [ ] **Punctuation & formatting commands**: "period", "comma", "new paragraph", "capitalize that"
-- [ ] **Auto-punctuation model**: post-process Whisper output with a small punctuation/capitalization model for cleaner text
+**Now**
+- [ ] macOS polish (IMKit for native preedit, Accessibility API for text injection)
 
-**Platform expansion**
-- [ ] **macOS Input Method (IMKit)**: native streaming preedit on macOS, matching IBus quality on Linux
-- [ ] **Windows support**: Text Services Framework (TSF) for text injection, global hotkeys via win32api
-- [ ] **Flatpak / Snap packaging**: sandboxed distribution for Linux
-- [ ] **AUR package**: community package for Arch Linux
+**Soon**
+- [ ] Per-app context awareness (detect focused app, adapt formatting/behavior)
+- [ ] File/audio transcription mode (`voiceio transcribe recording.mp3`)
 
-**UX polish**
-- [ ] **System tray icon with recording animation**: pulsing/colored icon showing recording state, quick menu for model/language switching
-- [ ] **Desktop notifications with transcribed text**: show what was typed, with an undo button
-- [ ] **Confidence indicator**: visual hint when Whisper is uncertain (maybe highlight low-confidence words)
-- [ ] **Recording timeout**: auto-stop after N seconds of silence or max duration, preventing forgotten recordings
-- [ ] **Sound themes**: bundled sound packs (subtle, mechanical, sci-fi, none)
-- [ ] **First-run onboarding overlay**: lightweight "press Ctrl+Alt+V to start" hint on first launch
+**Backlog**
+- [ ] Multiple engine backends (whisper.cpp for Vulkan/AMD, VOSK for low-end hardware)
+- [ ] Echo cancellation (filter system audio for meeting use)
+- [ ] Wake word activation ("Hey voiceio")
+- [ ] Text-to-speech output (Piper/espeak-ng — completes the "io")
 
-**Power features**
-- [ ] **Multi-language in one session**: auto-detect language switches mid-dictation (Whisper supports this but needs tuning)
-- [ ] **Speaker diarization**: "Person 1: ... Person 2: ..." for meeting notes (via pyannote or whisperX)
-- [ ] **LLM post-processing**: pipe transcription through a local LLM (Ollama) for grammar correction, summarization, or reformatting
-- [ ] **Clipboard history**: keep last N transcriptions, quick-paste from history
-- [ ] **Transcription log / journal**: searchable history of everything you've dictated, with timestamps
-- [ ] **API / webhook**: expose a local API so other tools can trigger recording or receive transcriptions
-- [ ] **Browser extension**: inject text into web apps that don't work with IBus (e.g. some Electron apps)
-
-**Developer experience**
-- [ ] **Plugin system**: hooks for pre/post processing (e.g. custom formatters, translators, text transforms)
-- [ ] **Alternative STT backends**: support Whisper.cpp, Deepgram, AssemblyAI, OpenAI Whisper API as optional backends
-- [ ] **GPU acceleration docs**: CUDA/ROCm setup guide for faster transcription on large models
+**Done**
+- [x] LLM auto-audit dictionary (`voiceio correct --auto` — scan history with LLM, interactive correction)
+- [x] LLM post-processing via Ollama (grammar cleanup, spelling fixes on final pass)
+- [x] Corrections dictionary — auto-replace misheard words, "correct that" voice command
+- [x] Transcription history — searchable log of everything you've dictated
+- [x] Number-to-digit conversion ("three hundred forty two" → "342")
+- [x] VAD-based silence filtering (Silero VAD, prevents Whisper hallucinations)
+- [x] Voice commands — "new line", "new paragraph", "scratch that", punctuation by name
+- [x] Custom vocabulary / personal dictionary (bias Whisper via `initial_prompt`)
+- [x] Smart punctuation & capitalization post-processing
+- [x] Windows support
+- [x] System tray icon with animated states
+- [x] Auto-stop on silence
 
 ## License
 

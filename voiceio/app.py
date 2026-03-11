@@ -1,7 +1,7 @@
-"""Main VoiceIO engine: state machine, backend wiring, and self-healing."""
+"""Main VoiceIO engine: explicit state machine with generation-based cancellation."""
 from __future__ import annotations
 
-import fcntl
+import enum
 import logging
 import os
 import signal
@@ -11,15 +11,29 @@ import time
 
 import numpy as np
 
-from voiceio import config, platform as plat
+from voiceio import config, platform as plat, tray
+from voiceio.commands import CommandProcessor
+from voiceio.corrections import CorrectionDict
 from voiceio.hotkeys import chain as hotkey_chain
 from voiceio.hotkeys.socket_backend import SocketHotkey
 from voiceio.recorder import AudioRecorder
 from voiceio.streaming import StreamingSession
 from voiceio.transcriber import Transcriber
 from voiceio.typers import chain as typer_chain
+from voiceio.vad import load_vad
+from voiceio.vocabulary import load_vocabulary
 log = logging.getLogger("voiceio")
+_DEBOUNCE_SECS = 0.3
 
+
+_HEALTH_CHECK_INTERVAL = 10  # seconds between health checks
+
+
+class _State(enum.Enum):
+    IDLE = "idle"
+    RECORDING = "recording"
+    FINALIZING = "finalizing"
+    ERROR = "error"
 
 
 class VoiceIO:
@@ -41,13 +55,64 @@ class VoiceIO:
         t0 = time.monotonic()
         self.transcriber = Transcriber(cfg.model)
         print(f" ready ({time.monotonic() - t0:.1f}s)")
-        self.recorder = AudioRecorder(cfg.audio)
+
+        # VAD, vocabulary, commands
+        vad = load_vad(cfg.audio)
+        self.recorder = AudioRecorder(cfg.audio, vad=vad)
+
+        vocab = load_vocabulary(cfg.model)
+        self._corrections = CorrectionDict()
+        # Merge correction targets into vocabulary for Whisper conditioning
+        vocab_terms = self._corrections.vocabulary_terms()
+        if vocab_terms:
+            extra = ", ".join(vocab_terms)
+            vocab = f"{vocab}, {extra}" if vocab else extra
+        if vocab:
+            self.transcriber.set_initial_prompt(vocab)
+
+        self._command_processor = CommandProcessor(enabled=cfg.commands.enabled)
+        self._cleanup = cfg.output.punctuation_cleanup
+        self._number_conversion = cfg.output.number_conversion
         self._streaming = cfg.output.streaming
+
+        # LLM post-processing (optional, requires Ollama)
+        # Processor is kept even when unavailable — is_available() has a retry cooldown
+        self._llm = None
+        if cfg.llm.enabled:
+            from voiceio.llm import LLMProcessor
+            self._llm = LLMProcessor(cfg.llm)
+            if self._llm.is_available():
+                log.info("LLM: %s via %s", cfg.llm.model or "auto", cfg.llm.base_url)
+            else:
+                log.warning("LLM enabled but Ollama not available (will retry)")
+
+        # Explicit state machine
+        self._state = _State.IDLE
+        self._generation = 0          # incremented on every stop; leaked threads check this
         self._session: StreamingSession | None = None
-        self._processing = False
         self._record_start: float = 0
+
+        # Hotkey deduplication
         self._hotkey_lock = threading.Lock()
         self._last_hotkey: float = 0
+
+        # TTS (text-to-speech)
+        self._tts_engine = None
+        self._tts_player = None
+        self._tts_hotkey = None
+        if cfg.tts.enabled:
+            from voiceio.tts import select as tts_select
+            from voiceio.tts.player import TTSPlayer
+            self._tts_engine = tts_select(cfg.tts)
+            if self._tts_engine:
+                self._tts_player = TTSPlayer()
+                # Create a second hotkey backend for TTS
+                self._tts_hotkey = hotkey_chain.select(self.platform, cfg.hotkey.backend)
+                log.info("TTS: engine=%s, hotkey=%s", self._tts_engine.name, cfg.tts.hotkey)
+            else:
+                log.warning("TTS enabled but no engine available")
+
+        # IBus engine management
         self._prev_ibus_engine: str | None = None
         self._engine_proc: subprocess.Popen | None = None
         self._shutdown = threading.Event()
@@ -56,70 +121,206 @@ class VoiceIO:
         """Request graceful shutdown from an external signal handler."""
         self._shutdown.set()
 
+    # ── Hotkey entry points ─────────────────────────────────────────────
+
     def on_hotkey(self) -> None:
+        """Toggle recording. Called by hotkey backends (evdev, socket)."""
         with self._hotkey_lock:
             now = time.monotonic()
-            # Deduplicate: multiple backends (evdev + socket) may fire
-            # for the same physical keypress
-            if now - self._last_hotkey < 0.3:
+            if now - self._last_hotkey < _DEBOUNCE_SECS:
                 return
             self._last_hotkey = now
-            self._on_hotkey_inner()
-            # Update timestamp after completion so threads that waited
-            # behind the lock see a fresh timestamp and get debounced
-            self._last_hotkey = time.monotonic()
+            self._toggle()
 
-    def _on_hotkey_inner(self) -> None:
-        if self.recorder.is_recording:
-            elapsed = time.monotonic() - self._record_start
-            self._play_record_cue(start=False)
-            if self._streaming and self._session is not None:
-                final_text = self._session.stop()
-                self.recorder.stop()
-                self._session = None
-                if final_text:
-                    self._play_feedback(final_text)
-                log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
-            else:
-                self._play_record_cue(start=False)
-                audio = self.recorder.stop()
-                log.info("Stopped recording (%.1fs)", elapsed)
-                if audio is not None and not self._processing:
-                    threading.Thread(target=self._process, args=(audio,), daemon=True).start()
-            self._deactivate_ibus()
-        elif not self._processing:
-            # Activate IBus engine so preedit/commit can reach the focused app
-            self._activate_ibus()
-            self._record_start = time.monotonic()
-            self.recorder.start()
-            self._play_record_cue(start=True)
-            if self._streaming:
-                self._session = StreamingSession(
-                    self.transcriber, self._typer, self.recorder,
-                )
-                self._session.start()
-            log.info("Recording... press [%s] again to stop", self.cfg.hotkey.key)
+    def _on_auto_stop(self) -> None:
+        """Called from audio thread when sustained silence triggers auto-stop."""
+        threading.Thread(target=self._request_stop, daemon=True).start()
 
-    def _process(self, audio: np.ndarray) -> None:
-        self._processing = True
+    def _request_stop(self) -> None:
+        """Stop recording if active. Unlike on_hotkey, never starts."""
+        with self._hotkey_lock:
+            now = time.monotonic()
+            if now - self._last_hotkey < _DEBOUNCE_SECS:
+                return
+            self._last_hotkey = now
+            if self._state == _State.RECORDING:
+                self._do_stop()
+
+    # ── State machine ───────────────────────────────────────────────────
+
+    def _toggle(self) -> None:
+        """Central state transition: IDLE/FINALIZING/ERROR → RECORDING, RECORDING → stop."""
+        if self._state == _State.RECORDING:
+            self._do_stop()
+        elif self._state == _State.ERROR:
+            # Attempt recovery: try to restart worker, then start recording
+            log.info("Attempting recovery from error state")
+            try:
+                self.transcriber._ensure_worker()
+                self._state = _State.IDLE
+                tray.set_error(False)
+                self._do_start()
+            except Exception:
+                log.exception("Recovery failed")
+        elif self._state in (_State.IDLE, _State.FINALIZING):
+            # Allow starting a new recording even while old one finalizes.
+            # The generation counter ensures the old finalizer exits cleanly.
+            self._do_start()
+
+    def _do_start(self) -> None:
+        """Transition to RECORDING."""
+        self._state = _State.RECORDING
+        self._activate_ibus()
+        self._corrections.load()  # hot-reload corrections on each recording
+        self._record_start = time.monotonic()
+        self.recorder.start()
+        self.recorder.set_on_auto_stop(self._on_auto_stop)
+        self._play_record_cue(start=True)
+        tray.set_recording(True)
+        if self._streaming:
+            self._session = StreamingSession(
+                self.transcriber, self._typer, self.recorder,
+                generation=self._generation,
+                cleanup=self._cleanup,
+                number_conversion=self._number_conversion,
+                language=self.cfg.model.language,
+                commands=self._command_processor,
+                corrections=self._corrections,
+                llm=self._llm,
+            )
+            self._session.start()
+        log.info("Recording... press [%s] again to stop", self.cfg.hotkey.key)
+
+    def _do_stop(self) -> None:
+        """Transition from RECORDING to FINALIZING (or IDLE for batch)."""
+        elapsed = time.monotonic() - self._record_start
+        self._generation += 1
+        gen = self._generation
+
+        # Stop audio capture immediately — chime and recorder stop are synchronous
+        self._play_record_cue(start=False)
+        self.recorder.set_on_auto_stop(None)
+        audio = self.recorder.stop()
+        tray.set_recording(False)
+
+        if self._streaming and self._session is not None:
+            self._state = _State.FINALIZING
+            tray.set_processing(True)
+            session = self._session
+            self._session = None
+            # Finalize in background. Pass audio snapshot — session no longer
+            # touches the recorder. Generation check cancels if superseded.
+            threading.Thread(
+                target=self._finalize_streaming,
+                args=(session, audio, elapsed, gen),
+                daemon=True,
+            ).start()
+        elif not self._streaming:
+            self._state = _State.IDLE
+            log.info("Stopped recording (%.1fs)", elapsed)
+            if audio is not None:
+                threading.Thread(
+                    target=self._process,
+                    args=(audio, gen),
+                    daemon=True,
+                ).start()
+        else:
+            # Streaming mode but session already gone (race) — nothing to do
+            self._state = _State.IDLE
+            log.debug("Stop: streaming session already finalized")
+
+        self._deactivate_ibus()
+
+    # ── Background work ─────────────────────────────────────────────────
+
+    def _finalize_streaming(
+        self, session: StreamingSession, audio: np.ndarray | None,
+        elapsed: float, gen: int,
+    ) -> None:
+        """Run final transcription and commit in background thread."""
+        final_text = session.stop(audio)
+        if self._generation != gen:
+            log.debug("Finalize cancelled (gen %d, current %d)", gen, self._generation)
+            return
+        if final_text:
+            self._play_feedback(final_text)
+            from voiceio import history
+            history.append(final_text)
+        log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
+        # Transition to IDLE under lock to avoid racing with _toggle
+        with self._hotkey_lock:
+            if self._generation == gen and self._state == _State.FINALIZING:
+                self._state = _State.IDLE
+                tray.set_processing(False)
+
+    def _process(self, audio: np.ndarray, gen: int) -> None:
+        """Batch transcription (non-streaming mode)."""
         try:
+            if self._generation != gen:
+                return
             text = self.transcriber.transcribe(audio)
+            if self._generation != gen:
+                return
             if text:
-                self._type_with_fallback(text)
-                self._play_feedback(text)
-                log.info("Typed: '%s'", text)
+                from voiceio.postprocess import apply_pipeline
+                text, abort = apply_pipeline(
+                    text,
+                    do_cleanup=self._cleanup,
+                    number_conversion=self._number_conversion,
+                    language=self.cfg.model.language,
+                    commands=self._command_processor,
+                    corrections=self._corrections,
+                    llm=self._llm,
+                    final=True,
+                )
+                if abort:
+                    return
+                if text:
+                    self._type_with_fallback(text)
+                    self._play_feedback(text)
+                    from voiceio import history
+                    history.append(text)
+                    log.info("Typed: '%s'", text)
         except Exception:
             log.exception("Processing failed")
+
+    # ── Text-to-speech ─────────────────────────────────────────────
+
+    def on_tts_hotkey(self) -> None:
+        """Toggle TTS: if playing, cancel. Otherwise read clipboard and speak."""
+        if self._tts_player is None or self._tts_engine is None:
+            return
+        if self._tts_player.is_playing():
+            self._tts_player.cancel()
+            tray.set_processing(False)
+            log.info("TTS: cancelled")
+            return
+        from voiceio import clipboard_read
+        text = clipboard_read.read_text()
+        if not text:
+            log.info("TTS: no text selected")
+            return
+        if self._state == _State.RECORDING:
+            log.warning("TTS: speaking while recording — mic will pick up audio")
+        tray.set_processing(True)
+        threading.Thread(target=self._speak, args=(text,), daemon=True).start()
+
+    def _speak(self, text: str) -> None:
+        """Synthesize and play text (runs in background thread)."""
+        try:
+            audio, sample_rate = self._tts_engine.synthesize(
+                text, self.cfg.tts.voice, self.cfg.tts.speed,
+            )
+            self._tts_player.play(audio, sample_rate)
+        except Exception:
+            log.exception("TTS synthesis/playback failed")
         finally:
-            self._processing = False
-            self._deactivate_ibus()
+            tray.set_processing(False)
+
+    # ── IBus management ─────────────────────────────────────────────────
 
     def _activate_ibus(self) -> None:
-        """Switch GNOME input source to voiceio engine for text injection.
-
-        Done in a thread to avoid blocking the hotkey handler. The 0.5s
-        GNOME activation delay is fine since transcription takes ~1s anyway.
-        """
+        """Switch GNOME input source to voiceio engine for text injection."""
         if self._typer.name != "ibus":
             return
         threading.Thread(
@@ -131,11 +332,14 @@ class VoiceIO:
         """Switch GNOME input source back to normal keyboard."""
         if self._typer.name != "ibus":
             return
-        self._set_gnome_input_source_index(0)
-        log.debug("IBus engine deactivated, keyboard restored")
+        threading.Thread(
+            target=self._set_gnome_input_source_index,
+            args=(0,), daemon=True,
+        ).start()
+
+    # ── Feedback ────────────────────────────────────────────────────────
 
     def _play_record_cue(self, start: bool) -> None:
-        """Play a subtle click on record start/stop."""
         if not self.cfg.feedback.sound_enabled:
             return
         if start:
@@ -146,7 +350,6 @@ class VoiceIO:
             play_record_stop()
 
     def _play_feedback(self, text: str) -> None:
-        """Play sound and/or notification after committing text."""
         if self.cfg.feedback.sound_enabled:
             from voiceio.feedback import play_commit_sound
             play_commit_sound()
@@ -155,7 +358,6 @@ class VoiceIO:
             notify_clipboard(text)
 
     def _type_with_fallback(self, text: str) -> None:
-        """Type text, falling back to next backend on failure."""
         try:
             self._typer.type_text(text)
         except Exception as e:
@@ -172,12 +374,10 @@ class VoiceIO:
             except RuntimeError:
                 log.error("No working typer backend available")
 
-    def _ensure_ibus_engine(self) -> None:
-        """Start the VoiceIO IBus engine and activate it.
+    # ── IBus engine lifecycle ───────────────────────────────────────────
 
-        We spawn the engine process directly (bypassing `ibus engine` which
-        is unreliable), then switch the GNOME input source to voiceio.
-        """
+    def _ensure_ibus_engine(self) -> None:
+        """Start the VoiceIO IBus engine and activate it."""
         from voiceio.ibus import READY_PATH, SOCKET_PATH
         from voiceio.typers.ibus import LAUNCHER_PATH, _ibus_env
 
@@ -213,7 +413,7 @@ class VoiceIO:
             log.warning("Could not start IBus engine: %s", e)
             return
 
-        # Phase 1: wait for socket (engine process started, accepting commands)
+        # Phase 1: wait for socket
         for i in range(40):
             if SOCKET_PATH.exists():
                 log.info("VoiceIO IBus engine socket ready (%.1fs)", i * 0.1)
@@ -227,10 +427,7 @@ class VoiceIO:
                 log.warning("IBus engine started but socket not found, commands may fail")
             return
 
-        # Phase 2: activate via `ibus engine voiceio` to create engine instance.
-        # This triggers do_create_engine. We do NOT switch GNOME input source
-        # here. That only happens during active recording to avoid blocking
-        # keyboard input when voiceio is idle.
+        # Phase 2: activate via `ibus engine voiceio`
         log.info("Activating VoiceIO IBus engine...")
         activate_proc = subprocess.Popen(
             ["ibus", "engine", "voiceio"],
@@ -238,8 +435,8 @@ class VoiceIO:
             env=ibus_env,
         )
 
-        # Phase 3: wait for engine instance (created by IBus via factory)
-        for i in range(200):  # up to 20s
+        # Phase 3: wait for engine instance
+        for i in range(200):
             if READY_PATH.exists():
                 log.info("VoiceIO IBus engine instance ready (%.1fs)", i * 0.1)
                 break
@@ -247,21 +444,16 @@ class VoiceIO:
         else:
             log.warning("IBus engine instance not created, preedit may not work")
 
-        # Clean up the activation process (don't leave it dangling)
         try:
             activate_proc.wait(timeout=1)
         except subprocess.TimeoutExpired:
             activate_proc.kill()
 
-        # Switch back to normal keyboard. Engine is ready but stays dormant
-        # until recording starts
         self._set_gnome_input_source_index(0)
-
         log.info("VoiceIO IBus engine ready (dormant until recording)")
 
     @staticmethod
     def _kill_stale_engine(socket_path) -> None:
-        """Kill any orphaned voiceio-ibus-engine process and remove stale socket."""
         socket_path.unlink(missing_ok=True)
         try:
             result = subprocess.run(
@@ -274,12 +466,11 @@ class VoiceIO:
                     if pid:
                         log.debug("Killing stale engine process %s", pid)
                         subprocess.run(["kill", pid], capture_output=True, timeout=3)
-                time.sleep(0.3)  # let it die
+                time.sleep(0.3)
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
     def _switch_gnome_input_source(self, engine_name: str) -> None:
-        """Switch GNOME input source to the given IBus engine."""
         if not self.platform.is_gnome:
             return
         try:
@@ -290,11 +481,8 @@ class VoiceIO:
             if result.returncode != 0:
                 return
             sources = result.stdout.strip()
-            # Find index of ('ibus', 'voiceio') in the sources list
-            # and set current to that index
             if f"('ibus', '{engine_name}')" not in sources:
                 return
-            # Parse to find index. Sources format: [('xkb', 'us'), ('ibus', 'voiceio')]
             import ast
             try:
                 source_list = ast.literal_eval(sources)
@@ -308,18 +496,13 @@ class VoiceIO:
                         capture_output=True, timeout=3,
                     )
                     log.info("Switched GNOME input source to index %d (%s)", i, engine_name)
-                    # Give GNOME a moment to activate
                     time.sleep(0.5)
                     return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
     def _stop_ibus_engine(self) -> None:
-        """Stop the IBus engine process and restore previous input method."""
-        # Always restore normal keyboard first, the most critical step
         self._set_gnome_input_source_index(0)
-
-        # Terminate engine process we spawned
         if self._engine_proc is not None:
             self._engine_proc.terminate()
             try:
@@ -328,12 +511,8 @@ class VoiceIO:
                 self._engine_proc.kill()
             self._engine_proc = None
             log.debug("Stopped IBus engine process")
-
-        # Clean up socket
         from voiceio.ibus import SOCKET_PATH
         SOCKET_PATH.unlink(missing_ok=True)
-
-        # Restore previous IBus engine
         if self._prev_ibus_engine:
             from voiceio.typers.ibus import _ibus_env
             try:
@@ -347,7 +526,6 @@ class VoiceIO:
             self._prev_ibus_engine = None
 
     def _set_gnome_input_source_index(self, index: int) -> None:
-        """Set GNOME input source by index."""
         if not self.platform.is_gnome:
             return
         try:
@@ -359,15 +537,58 @@ class VoiceIO:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
+    # ── Health watchdog ─────────────────────────────────────────────
+
+    def _health_loop(self) -> None:
+        """Periodic health check: transcriber worker, IBus engine, audio stream."""
+        while not self._shutdown.is_set():
+            self._shutdown.wait(_HEALTH_CHECK_INTERVAL)
+            if self._shutdown.is_set():
+                break
+            try:
+                self._check_health()
+            except Exception:
+                log.debug("Health check error", exc_info=True)
+
+    def _check_health(self) -> None:
+        """Run one health check cycle."""
+        # Check transcriber worker
+        if not self.transcriber.is_worker_alive():
+            if self._state == _State.RECORDING:
+                log.warning("Transcriber worker died during recording")
+            try:
+                self.transcriber._ensure_worker()
+                log.info("Transcriber worker recovered")
+            except RuntimeError:
+                log.error("Transcriber worker permanently failed")
+                with self._hotkey_lock:
+                    if self._state != _State.RECORDING:
+                        self._state = _State.ERROR
+                        tray.set_error(True)
+
+        # Check IBus engine (restart if died)
+        if self._typer.name == "ibus" and self._engine_proc is not None:
+            if self._engine_proc.poll() is not None:
+                log.warning("IBus engine process died (rc=%d), restarting",
+                            self._engine_proc.returncode)
+                self._engine_proc = None
+                try:
+                    self._ensure_ibus_engine()
+                    log.info("IBus engine recovered")
+                except Exception:
+                    log.exception("IBus engine recovery failed")
+
+    # ── Main loop ───────────────────────────────────────────────────────
+
     def run(self) -> None:
         from voiceio.config import PID_PATH, LOG_DIR
 
-        # Single-instance guard via file lock (atomic, no TOCTOU race)
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self._pid_fd = open(PID_PATH, "w")
         try:
-            fcntl.flock(self._pid_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            from voiceio.pidlock import lock_pid_file
+            lock_pid_file(self._pid_fd)
+        except (BlockingIOError, OSError):
             self._pid_fd.close()
             log.error("Another voiceio instance is already running")
             print("voiceio is already running. Stop it first: voiceio service stop")
@@ -375,17 +596,30 @@ class VoiceIO:
         self._pid_fd.write(str(os.getpid()))
         self._pid_fd.flush()
 
-        # Start IBus engine if needed
         if self._typer.name == "ibus":
             self._ensure_ibus_engine()
 
-        # Open always-on audio stream for pre-buffering
         self.recorder.open_stream()
 
-        # Start hotkey backends
+        # Pre-open sound output stream so first cue plays instantly
+        if self.cfg.feedback.sound_enabled:
+            from voiceio.feedback import warm_up
+            warm_up()
+
+        if self.cfg.tray.enabled:
+            tray.start(self.request_shutdown, self.on_hotkey)
+
         self._hotkey.start(self.cfg.hotkey.key, self.on_hotkey)
         if self._socket is not None:
             self._socket.start(self.cfg.hotkey.key, self.on_hotkey)
+
+        if self._tts_hotkey:
+            self._tts_hotkey.start(self.cfg.tts.hotkey, self.on_tts_hotkey)
+
+        # Start health watchdog
+        threading.Thread(
+            target=self._health_loop, daemon=True, name="health-watchdog",
+        ).start()
 
         from voiceio import __version__
         log.info(
@@ -406,8 +640,15 @@ class VoiceIO:
             self._hotkey.stop()
             if self._socket is not None:
                 self._socket.stop()
+            if self._tts_hotkey:
+                self._tts_hotkey.stop()
+            if self._tts_player:
+                self._tts_player.cancel()
+            if self._tts_engine:
+                self._tts_engine.shutdown()
             self.recorder.close_stream()
             self.transcriber.shutdown()
+            tray.stop()
             self._stop_ibus_engine()
             self._pid_fd.close()
             PID_PATH.unlink(missing_ok=True)

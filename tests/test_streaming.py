@@ -421,7 +421,7 @@ class TestWorkerLoop:
         session._pending.set()
         time.sleep(0.3)
 
-        session._stop.set()
+        session._stop_event.set()
         session._pending.set()
         session._worker_thread.join(timeout=5)
 
@@ -474,7 +474,7 @@ class TestWorkerLoop:
             time.sleep(0.02)
 
         time.sleep(1.0)
-        session._stop.set()
+        session._stop_event.set()
         session._pending.set()
         session._worker_thread.join(timeout=5)
 

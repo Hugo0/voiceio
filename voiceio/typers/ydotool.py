@@ -58,8 +58,9 @@ class YdotoolTyper:
 
     def probe(self) -> ProbeResult:
         if not shutil.which("ydotool"):
+            from voiceio.platform import pkg_install
             return ProbeResult(ok=False, reason="ydotool not installed",
-                               fix_hint="sudo apt install ydotool")
+                               fix_hint=pkg_install("ydotool"))
 
         if _needs_daemon():
             # v1.x: needs ydotoold running

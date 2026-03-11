@@ -35,3 +35,8 @@ def linux_wayland_sway():
 @pytest.fixture
 def macos():
     return Platform(os="darwin", display_server="quartz", desktop="macos")
+
+
+@pytest.fixture
+def windows():
+    return Platform(os="windows", display_server="win32", desktop="windows")

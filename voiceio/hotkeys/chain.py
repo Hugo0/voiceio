@@ -18,6 +18,7 @@ _CHAINS: dict[tuple[str, str], list[str]] = {
     ("x11", "*"):       ["pynput", "evdev", "socket"],
     ("wayland", "*"):   ["evdev", "socket"],
     ("quartz", "*"):    ["pynput"],
+    ("win32", "*"):     ["pynput", "socket"],
 }
 
 
