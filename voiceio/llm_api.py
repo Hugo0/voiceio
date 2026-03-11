@@ -1,6 +1,6 @@
-"""OpenAI-compatible chat completions API client.
+"""Multi-provider chat completions API client.
 
-Supports any provider: OpenRouter, OpenAI, Anthropic, Together, Groq,
+Supports OpenRouter, OpenAI, Anthropic (native Messages API), Together, Groq,
 local Ollama (via /v1/chat/completions), etc. Zero dependencies beyond stdlib.
 """
 from __future__ import annotations
@@ -16,6 +16,11 @@ from voiceio.config import AutocorrectConfig
 log = logging.getLogger(__name__)
 
 
+def _is_anthropic(base_url: str) -> bool:
+    """Check if the base URL points to Anthropic's native API."""
+    return "api.anthropic.com" in base_url
+
+
 def resolve_api_key(cfg: AutocorrectConfig) -> str:
     """Resolve API key from config or environment variables."""
     if cfg.api_key:
@@ -28,6 +33,79 @@ def resolve_api_key(cfg: AutocorrectConfig) -> str:
     return ""
 
 
+def _anthropic_request(
+    base_url: str,
+    model: str,
+    system: str,
+    messages: list[dict],
+    api_key: str,
+    max_tokens: int,
+    timeout: float,
+) -> str | None:
+    """Send a request using Anthropic's native Messages API."""
+    url = f"{base_url}/messages"
+
+    body: dict = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": messages,
+    }
+    if system:
+        body["system"] = system
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(), headers=headers, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    # Anthropic returns content as a list of blocks
+    blocks = data.get("content", [])
+    text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+    return text.strip() or None
+
+
+def _openai_request(
+    base_url: str,
+    model: str,
+    system: str,
+    messages: list[dict],
+    api_key: str,
+    max_tokens: int,
+    timeout: float,
+) -> str | None:
+    """Send a request using the OpenAI chat completions format."""
+    url = f"{base_url}/chat/completions"
+
+    all_messages = []
+    if system:
+        all_messages.append({"role": "system", "content": system})
+    all_messages.extend(messages)
+
+    body = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": all_messages,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(), headers=headers, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    return data["choices"][0]["message"]["content"].strip()
+
+
 def chat(
     cfg: AutocorrectConfig,
     system: str,
@@ -38,36 +116,24 @@ def chat(
 ) -> str | None:
     """Send a chat completion request. Returns response text or None on failure.
 
-    Uses the OpenAI /v1/chat/completions format, which is supported by
-    OpenRouter, OpenAI, Anthropic, Together, Groq, Ollama, and others.
+    Automatically detects Anthropic's native API vs OpenAI-compatible format
+    based on the configured base_url.
     """
     key = api_key or resolve_api_key(cfg)
     if not key:
         return None
 
     base_url = cfg.base_url.rstrip("/")
-    url = f"{base_url}/chat/completions"
-
-    body = {
-        "model": cfg.model,
-        "max_tokens": max_tokens,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_message},
-        ],
-    }
-
-    payload = json.dumps(body).encode()
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {key}",
-    }
+    messages = [{"role": "user", "content": user_message}]
 
     try:
-        req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=cfg.timeout_secs) as resp:
-            data = json.loads(resp.read())
-        return data["choices"][0]["message"]["content"].strip()
+        if _is_anthropic(base_url):
+            return _anthropic_request(
+                base_url, cfg.model, system, messages, key, max_tokens, cfg.timeout_secs,
+            )
+        return _openai_request(
+            base_url, cfg.model, system, messages, key, max_tokens, cfg.timeout_secs,
+        )
     except urllib.error.HTTPError as e:
         body_text = ""
         try:
@@ -100,26 +166,13 @@ def check_api_key(cfg: AutocorrectConfig, api_key: str = "") -> bool:
         return False
 
     base_url = cfg.base_url.rstrip("/")
-    url = f"{base_url}/chat/completions"
-
-    body = {
-        "model": cfg.model,
-        "max_tokens": 1,
-        "messages": [{"role": "user", "content": "hi"}],
-    }
+    messages = [{"role": "user", "content": "hi"}]
 
     try:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            resp.read()
+        if _is_anthropic(base_url):
+            _anthropic_request(base_url, cfg.model, "", messages, key, 1, 10)
+        else:
+            _openai_request(base_url, cfg.model, "", messages, key, 1, 10)
         return True
     except urllib.error.HTTPError as e:
         if e.code == 401:

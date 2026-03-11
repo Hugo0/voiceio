@@ -6,7 +6,7 @@ import urllib.error
 from unittest.mock import MagicMock, patch
 
 from voiceio.config import AutocorrectConfig
-from voiceio.llm_api import chat, check_api_key, resolve_api_key
+from voiceio.llm_api import chat, check_api_key, detect_provider, resolve_api_key
 
 
 def _mock_response(data: dict) -> MagicMock:
@@ -116,3 +116,61 @@ def test_check_empty_key():
     cfg = _cfg(api_key="")
     with patch.dict("os.environ", {}, clear=True):
         assert check_api_key(cfg) is False
+
+
+# ── Anthropic native API ────────────────────────────────────────────────
+
+
+@patch("urllib.request.urlopen")
+def test_chat_anthropic_native(mock_urlopen):
+    mock_urlopen.return_value = _mock_response({
+        "content": [{"type": "text", "text": "Fixed text."}]
+    })
+    cfg = _cfg(base_url="https://api.anthropic.com/v1")
+    result = chat(cfg, "system prompt", "user message")
+    assert result == "Fixed text."
+
+    req = mock_urlopen.call_args[0][0]
+    assert req.get_header("X-api-key") == "test-key"
+    assert req.get_header("Anthropic-version") == "2023-06-01"
+    assert "Authorization" not in dict(req.header_items())
+    body = json.loads(req.data)
+    assert body["system"] == "system prompt"
+    assert body["messages"] == [{"role": "user", "content": "user message"}]
+    assert "/messages" in req.full_url
+
+
+@patch("urllib.request.urlopen")
+def test_check_api_key_anthropic(mock_urlopen):
+    mock_urlopen.return_value = _mock_response({
+        "content": [{"type": "text", "text": ""}]
+    })
+    cfg = _cfg(base_url="https://api.anthropic.com/v1")
+    assert check_api_key(cfg, "sk-ant-test") is True
+    req = mock_urlopen.call_args[0][0]
+    assert "/messages" in req.full_url
+
+
+# ── detect_provider ─────────────────────────────────────────────────────
+
+
+def test_detect_openrouter():
+    base_url, model = detect_provider("sk-or-abc123")
+    assert "openrouter" in base_url
+    assert "claude" in model
+
+
+def test_detect_anthropic():
+    base_url, model = detect_provider("sk-ant-abc123")
+    assert "anthropic.com" in base_url
+    assert "claude" in model
+
+
+def test_detect_openai():
+    base_url, model = detect_provider("sk-proj-abc123")
+    assert "openai.com" in base_url
+
+
+def test_detect_unknown_defaults_openrouter():
+    base_url, _ = detect_provider("unknown-key-format")
+    assert "openrouter" in base_url
