@@ -101,6 +101,10 @@ Press your hotkey to start recording (1s pre-buffer catches the first syllable).
 - **Works everywhere**: IBus input method for GUI apps, clipboard for terminals
 - **Wayland + X11**: evdev hotkeys work on both, no root required
 - **Pre-buffer**: never miss the first syllable
+- **Voice commands**: "new line", "comma", "scratch that", punctuation by name
+- **Autocorrect**: LLM-powered review of recurring Whisper mistakes (`voiceio correct`)
+- **Text-to-speech**: hear selected text spoken back (Piper, eSpeak, Edge TTS)
+- **Smart post-processing**: numbers ("twenty five" → "25"), punctuation, capitalization
 - **Auto-healing**: falls back to the next working backend if one fails
 - **Autostart**: optional systemd service, restarts on crash
 - **Self-diagnosing**: `voiceio doctor` checks everything, `--fix` repairs it
@@ -124,7 +128,10 @@ voiceio                  Start the daemon
 voiceio setup            Interactive setup wizard
 voiceio doctor           Health check (--fix to auto-repair)
 voiceio test             Test microphone + live transcription
+voiceio demo             Interactive guided tour of all features
 voiceio toggle           Toggle recording on a running daemon
+voiceio correct          Review and fix recurring transcription errors
+voiceio history          View transcription history
 voiceio update           Update to latest version
 voiceio service install  Autostart on login (systemd / Windows Startup)
 voiceio logs             View recent logs
@@ -198,9 +205,8 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) and [open issues](
 - [ ] Multiple engine backends (whisper.cpp for Vulkan/AMD, VOSK for low-end hardware)
 - [ ] Echo cancellation (filter system audio for meeting use)
 - [ ] Wake word activation ("Hey voiceio")
-- [ ] Text-to-speech output (Piper/espeak-ng — completes the "io")
-
 **Done**
+- [x] Text-to-speech output (Piper/eSpeak/Edge TTS — completes the "io")
 - [x] LLM auto-audit dictionary (`voiceio correct --auto` — scan history with LLM, interactive correction)
 - [x] LLM post-processing via Ollama (grammar cleanup, spelling fixes on final pass)
 - [x] Corrections dictionary — auto-replace misheard words, "correct that" voice command
