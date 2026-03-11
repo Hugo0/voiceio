@@ -34,7 +34,7 @@ def read_text() -> str | None:
     """
     p = detect()
 
-    if p.os == "windows":
+    if p.is_windows:
         try:
             import pyperclip
             text = pyperclip.paste()
@@ -43,7 +43,7 @@ def read_text() -> str | None:
             log.debug("pyperclip not available for clipboard read")
             return None
 
-    if p.os == "macos":
+    if p.is_mac:
         return _run(["pbpaste"])
 
     # Linux — use platform detection for Wayland vs X11
