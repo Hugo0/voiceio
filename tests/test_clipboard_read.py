@@ -12,6 +12,8 @@ def _mock_platform(os="linux", display_server="x11", desktop="gnome"):
     p.desktop = desktop
     p.is_wayland = display_server == "wayland"
     p.is_x11 = display_server == "x11"
+    p.is_windows = os == "windows"
+    p.is_mac = os == "darwin"
     return p
 
 
@@ -57,7 +59,7 @@ def test_read_text_returns_none_when_empty():
 
 def test_read_text_macos():
     """macOS uses pbpaste."""
-    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(os="macos", display_server="quartz")), \
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(os="darwin", display_server="quartz")), \
          patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="mac text")
         from voiceio.clipboard_read import read_text

@@ -1025,8 +1025,6 @@ def _save_api_key(cfg, key: str) -> None:
 
     CONFIG_PATH.write_text(content, encoding="utf-8")
 
-    CONFIG_PATH.write_text(content, encoding="utf-8")
-
 
 def _cmd_history(args: argparse.Namespace) -> None:
     """View or manage transcription history."""
