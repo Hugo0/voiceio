@@ -44,7 +44,7 @@ jobs:
 
           ### Linux / macOS
           \`\`\`bash
-          pip install python-voiceio
+          pipx install python-voiceio
           voiceio setup
           \`\`\`
 
