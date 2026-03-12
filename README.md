@@ -4,6 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Downloads](https://img.shields.io/pepy/dt/python-voiceio)](https://pepy.tech/projects/python-voiceio)
 
 Speak → text, locally, instantly.
 
