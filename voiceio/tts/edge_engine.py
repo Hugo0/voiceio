@@ -19,11 +19,24 @@ class EdgeEngine:
     def probe(self) -> ProbeResult:
         try:
             import edge_tts  # noqa: F401
-            return ProbeResult(ok=True)
         except ImportError:
             return ProbeResult(
                 ok=False, reason="edge-tts not installed",
                 fix_hint="pip install edge-tts",
+            )
+        try:
+            import soundfile  # noqa: F401
+            return ProbeResult(ok=True)
+        except ImportError:
+            pass
+        try:
+            import pydub  # noqa: F401
+            return ProbeResult(ok=True)
+        except ImportError:
+            return ProbeResult(
+                ok=False,
+                reason="edge-tts needs soundfile or pydub to decode audio",
+                fix_hint="pip install soundfile",
             )
 
     def synthesize(self, text: str, voice: str, speed: float) -> tuple[np.ndarray, int]:

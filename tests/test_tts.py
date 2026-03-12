@@ -142,7 +142,7 @@ def test_player_empty_audio():
 
 def test_tts_config_defaults():
     cfg = TTSConfig()
-    assert cfg.enabled is False
+    assert cfg.enabled is True
     assert cfg.engine == "auto"
     assert cfg.hotkey == "ctrl+alt+s"
     assert cfg.voice == ""
@@ -155,4 +155,4 @@ def test_tts_config_in_main_config():
     cfg = Config()
     assert hasattr(cfg, "tts")
     assert isinstance(cfg.tts, TTSConfig)
-    assert cfg.tts.enabled is False
+    assert cfg.tts.enabled is True
