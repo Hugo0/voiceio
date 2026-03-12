@@ -142,6 +142,7 @@ def convert_numbers(text: str, language: str = "en") -> str:
         # Collect consecutive number words
         if _is_number_word(low) and low != "a" and low != "and":
             num_words = []
+            last_category = None  # "ones", "tens", "scale"
             j = i
             while j < len(words):
                 w = words[j].lower().rstrip(".,;:?!")
@@ -153,6 +154,7 @@ def convert_numbers(text: str, language: str = "en") -> str:
                         # "a" at start: only if followed by scale word
                         if j + 1 < len(words) and words[j + 1].lower().rstrip(".,;:?!") in _SCALES:
                             num_words.append(w)
+                            last_category = "ones"
                             j += 1
                             continue
                         break
@@ -163,7 +165,14 @@ def convert_numbers(text: str, language: str = "en") -> str:
                             j += 1
                             continue
                         break
+                    # Two consecutive ones-words = separate numbers
+                    # e.g. "one two three" should NOT become 6
+                    # But "twenty three", "one hundred", "thirteen thousand" are valid
+                    cat = "scale" if w in _SCALES else ("tens" if w in _TENS else "ones")
+                    if cat == "ones" and last_category == "ones":
+                        break
                     num_words.append(w)
+                    last_category = cat
                     j += 1
                 else:
                     break
