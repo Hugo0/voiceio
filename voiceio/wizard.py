@@ -1,15 +1,19 @@
 """Interactive setup wizard for voiceio."""
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from voiceio.config import CONFIG_DIR, CONFIG_PATH
+
+log = logging.getLogger(__name__)
 
 # ── Colors ──────────────────────────────────────────────────────────────────
 
@@ -140,6 +144,15 @@ def _ask(prompt: str, default: str = "") -> str:
         print()
         sys.exit(0)
     return answer or default
+
+
+def _ask_yn(prompt: str, default: bool = True) -> bool:
+    """Yes/no prompt with arrow key toggle."""
+    options = [("Yes",), ("No",)]
+    default_idx = 0 if default else 1
+    print(f"  {CYAN}›{RESET} {prompt}\n")
+    idx = _ask_choice(options, default=default_idx)
+    return idx == 0
 
 
 class _MenuRenderer:
@@ -312,6 +325,72 @@ def _check_binary(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def _install_pip_package(package: str) -> bool:
+    """Offer to pip-install a package. Returns True if installed successfully."""
+    if not _ask_yn(f"Install {package}? (pip install {package})"):
+        return False
+    with Spinner(f"Installing {package}...") as sp:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", package],
+                capture_output=True, timeout=120,
+            )
+            if result.returncode == 0:
+                sp.ok(f"{package} installed!")
+                return True
+            sp.fail(f"pip install failed (exit {result.returncode})")
+            stderr = result.stderr.decode()[:200]
+            if stderr:
+                print(f"  {DIM}{stderr}{RESET}")
+            return False
+        except subprocess.TimeoutExpired:
+            sp.fail("Installation timed out")
+            return False
+
+
+def _satisfaction_loop(
+    options: list[tuple[str, ...]],
+    demo_fn: Callable[[int], bool],
+    prompt: str = "Are you satisfied?",
+    default: int = 0,
+) -> int | None:
+    """Reusable demo-then-ask loop.
+
+    Calls demo_fn(index) for the selected option. If the demo succeeds,
+    asks the user if they're satisfied. If not, offers to try a different
+    option. Returns the final selected index, or None if user skips all.
+    """
+    tried: set[int] = set()
+    last_ok: int | None = None
+    current = default
+
+    while True:
+        ok = demo_fn(current)
+        tried.add(current)
+        if ok:
+            last_ok = current
+            if _ask_yn(prompt):
+                return current
+
+        # Build list of remaining options
+        remaining = [(i, opt) for i, opt in enumerate(options) if i not in tried]
+        if not remaining:
+            print(f"  {DIM}All options tried.{RESET}")
+            return last_ok if last_ok is not None else current
+
+        print(f"\n  {DIM}Other options:{RESET}\n")
+        menu_options = [opt for _, opt in remaining]
+        # Only show "Keep current" if we have a working option
+        if last_ok is not None:
+            keep_label = options[last_ok][0]
+            menu_options.append((f"Keep {keep_label}",))
+        choice = _ask_choice(menu_options, default=0)
+
+        if last_ok is not None and choice == len(menu_options) - 1:
+            return last_ok
+        current = remaining[choice][0]
+
+
 def _wait_for_service_ready(timeout: float = 30) -> bool:
     """Wait for the voiceio service to finish loading by checking for its socket/PID file."""
     from voiceio.config import PID_PATH
@@ -469,7 +548,7 @@ def _write_config(
     autocorrect_api_key: str = "",
     autocorrect_base_url: str = "",
     autocorrect_model: str = "",
-    tts_enabled: bool = False,
+    tts_enabled: bool = True,
     tts_engine: str = "auto",
     tts_speed: float = 1.0,
 ) -> None:
@@ -587,10 +666,12 @@ def _setup_gnome_shortcut(hotkey: str) -> bool:
         return False
 
 
-def _streaming_test(model=None) -> None:
-    """Record audio and stream transcription results in real-time."""
+def _streaming_test(model=None, language: str | None = None) -> str:
+    """Record audio and stream transcription results in real-time. Returns transcribed text."""
     import numpy as np
     import sounddevice as sd
+
+    from voiceio.postprocess import cleanup
 
     sample_rate = 16000
     chunk_secs = 0.5
@@ -603,9 +684,13 @@ def _streaming_test(model=None) -> None:
             model = _get_or_load_model()
             sp.ok("Model loaded")
 
-    from voiceio.config import load
-    cfg = load()
-    lang = cfg.model.language if cfg.model.language != "auto" else None
+    if language is None:
+        from voiceio.config import load
+        cfg = load()
+        language = cfg.model.language
+
+    lang = language if language != "auto" else None
+    lang_str = lang or "en"
 
     print(f"\n  {YELLOW}Speak now!{RESET} (up to {max_duration}s, stops on 1.5s silence)")
     print(f"  {DIM}{'─' * 40}{RESET}")
@@ -660,6 +745,8 @@ def _streaming_test(model=None) -> None:
             # Transcribe everything so far
             segments, _ = model.transcribe(audio, language=lang, beam_size=5, vad_filter=True)
             text = " ".join(seg.text.strip() for seg in segments).strip()
+            # Light cleanup for streaming preview (capitalization, punctuation spacing)
+            text = cleanup(text, lang_str)
 
             if text and text != last_text:
                 # Clear previous text and rewrite
@@ -675,12 +762,13 @@ def _streaming_test(model=None) -> None:
         stream.stop()
         stream.close()
 
-    # Final transcription of complete audio
+    # Final transcription with cleanup (capitalization, punctuation spacing)
     if audio_chunks:
         audio = np.concatenate(audio_chunks, axis=0).flatten()
         if len(audio) >= sample_rate * 0.3:
             segments, _ = model.transcribe(audio, language=lang, beam_size=5, vad_filter=True)
             final_text = " ".join(seg.text.strip() for seg in segments).strip()
+            final_text = cleanup(final_text, lang_str)
             if final_text and final_text != last_text:
                 if last_text_len > 0:
                     sys.stdout.write("\b" * last_text_len + " " * last_text_len + "\b" * last_text_len)
@@ -694,6 +782,8 @@ def _streaming_test(model=None) -> None:
         print(f"  {GREEN}✓{RESET} Transcribed successfully!")
     else:
         print(f"  {YELLOW}⚠{RESET}  No speech detected. Check your microphone.")
+
+    return last_text
 
 
 def _test_hotkey(hotkey: str, backend: str) -> bool:
@@ -906,17 +996,43 @@ def run_wizard() -> None:
             print(f"  {DIM}Install one: {pkg_install('ibus', 'gir1.2-ibus-1.0')}{RESET}")
             sys.exit(1)
 
-    # ── Step 2: Choose model ────────────────────────────────────────────
-    _print_step(2, 8, "Choose a Whisper model")
+    # ── Step 2: Language ────────────────────────────────────────────────
+    _print_step(2, 8, "Language")
+    print(f"  {DIM}Pick your primary language, or auto-detect.{RESET}\n")
+    lang_idx = _ask_choice(LANGUAGES, default=0)
+    language = LANGUAGES[lang_idx][0]
+
+    # ── Step 3: Speech recognition model ────────────────────────────────
+    _print_step(3, 8, "Speech recognition model")
     print(f"  {DIM}Larger models are more accurate but slower and use more RAM.{RESET}\n")
     model_idx = _ask_choice(MODELS, default=1)
     model_name = MODELS[model_idx][0]
 
-    # ── Step 3: Language ────────────────────────────────────────────────
-    _print_step(3, 8, "Language")
-    print(f"  {DIM}Pick your primary language, or auto-detect.{RESET}\n")
-    lang_idx = _ask_choice(LANGUAGES, default=0)
-    language = LANGUAGES[lang_idx][0]
+    # Download immediately
+    if not _download_model(model_name):
+        sys.exit(1)
+
+    # Quick mic test + satisfaction loop to try different models
+    if _ask_yn("Test it with your microphone?"):
+        current_idx = model_idx
+
+        def _stt_demo_fn(idx: int) -> bool:
+            name = MODELS[idx][0]
+            # Already-downloaded models are cached; only download new ones
+            if _cached_model_name != name:
+                if not _download_model(name):
+                    return False
+            result = _streaming_test(model=_get_or_load_model(name), language=language)
+            return bool(result)
+
+        selected = _satisfaction_loop(
+            options=MODELS,
+            demo_fn=_stt_demo_fn,
+            prompt="Happy with the transcription quality?",
+            default=current_idx,
+        )
+        if selected is not None:
+            model_name = MODELS[selected][0]
 
     # ── Step 4: Hotkey ──────────────────────────────────────────────────
     _print_step(4, 8, "Keyboard shortcut")
@@ -967,30 +1083,54 @@ def run_wizard() -> None:
     number_conversion = True
     llm_enabled = False
     llm_model = ""
-    tts_enabled = False
+    tts_enabled = True
     tts_engine = "auto"
     tts_speed = 1.0
 
-    # ── Step 5: Advanced options (optional) ─────────────────────────────
-    _print_step(5, 8, "Advanced options")
-    print(f"  {DIM}Sensible defaults are already set. Customize if you want.{RESET}\n")
-    advanced_options = [
-        ("Skip", "use defaults (recommended)"),
-        ("Customize", "feedback, notifications, and more"),
+    # ── Step 5: Text-to-speech ──────────────────────────────────────────
+    _print_step(5, 8, "Text-to-speech")
+    print(f"  {DIM}Select text and press ctrl+alt+s to hear it spoken.{RESET}")
+    print(f"  {DIM}Engines: piper (offline), edge-tts (cloud), espeak-ng (system).{RESET}\n")
+    tts_top_options = [
+        ("Enabled", "auto-select best available engine"),
+        ("Choose engine", "hear a demo and pick"),
+        ("Disabled",),
     ]
-    if _ask_choice(advanced_options, default=0) == 1:
-        adv = _run_advanced_options(checks, tray_ok)
-        sound_enabled = adv.get("sound_enabled", True)
-        notify_clipboard = adv.get("notify_clipboard", False)
-        commands_enabled = adv.get("commands_enabled", True)
-        punctuation_cleanup = adv.get("punctuation_cleanup", True)
-        number_conversion = adv.get("number_conversion", True)
-        tts_enabled = adv.get("tts_enabled", False)
-        tts_engine = adv.get("tts_engine", "auto")
-        tts_speed = adv.get("tts_speed", 1.0)
+    tts_choice = _ask_choice(tts_top_options, default=0)
+    if tts_choice == 2:
+        tts_enabled = False
+    elif tts_choice == 1:
+        # Let user pick an engine first, then demo it
+        engine_options = [
+            ("piper", "offline, best quality"),
+            ("edge-tts", "cloud, free Microsoft TTS"),
+            ("espeak", "system package, lightweight"),
+        ]
+        print(f"\n  {DIM}Pick an engine to hear a demo:{RESET}\n")
+        first_pick = _ask_choice(engine_options, default=0)
 
-    # ── Step 6: LLM post-processing ─────────────────────────────────────
-    _print_step(6, 8, "LLM post-processing (Ollama)")
+        def _tts_demo_fn(idx: int) -> bool:
+            return _tts_demo(engine_options[idx][0])
+
+        selected = _satisfaction_loop(
+            options=engine_options,
+            demo_fn=_tts_demo_fn,
+            prompt="Happy with this voice?",
+            default=first_pick,
+        )
+        tts_engine = engine_options[selected][0] if selected is not None else "auto"
+
+        print(f"\n  {DIM}Speech speed:{RESET}\n")
+        speed_options = [
+            ("Normal", "1.0x"),
+            ("Slow", "0.8x"),
+            ("Fast", "1.3x"),
+        ]
+        sp_idx = _ask_choice(speed_options, default=0)
+        tts_speed = [1.0, 0.8, 1.3][sp_idx]
+
+    # ── Step 6: LLM & autocorrect ───────────────────────────────────────
+    _print_step(6, 8, "LLM & autocorrect")
     print(f"  {DIM}Use a local LLM to fix grammar and spelling in your dictation.{RESET}")
     print(f"  {DIM}Runs only on the final pass — streaming preview is unaffected.{RESET}")
 
@@ -1064,54 +1204,75 @@ def run_wizard() -> None:
         llm_enabled = False
         llm_model = ""
 
-    # ── Step 6b: Autocorrect API key (optional) ────────────────────────
+    # Autocorrect (cloud LLM)
     autocorrect_api_key = ""
     autocorrect_base_url = ""
     autocorrect_model = ""
-    print(f"\n  {DIM}Autocorrect: 'voiceio correct --auto' can use a cloud LLM to find Whisper mistakes.{RESET}")
-    print(f"  {DIM}Paste any API key — OpenRouter, OpenAI, or Anthropic.{RESET}\n")
-    api_input = _ask("API key (or Enter to skip)", "")
-    if api_input:
-        from voiceio.config import AutocorrectConfig
-        from voiceio.llm_api import check_api_key, detect_provider
-        det_url, det_model = detect_provider(api_input)
-        # Show which provider was detected
-        provider_name = "OpenRouter"
-        if "openai.com" in det_url:
-            provider_name = "OpenAI"
-        elif "anthropic.com" in det_url:
-            provider_name = "Anthropic"
-        print(f"  {DIM}Detected: {provider_name}{RESET}")
-        cfg_check = AutocorrectConfig(
-            api_key=api_input, base_url=det_url, model=det_model,
-        )
-        if check_api_key(cfg_check):
-            print(f"  {GREEN}✓{RESET} API key validated ({provider_name})")
-            autocorrect_api_key = api_input
-            autocorrect_base_url = det_url
-            autocorrect_model = det_model
-        else:
-            print(f"  {YELLOW}⚠{RESET}  Validation failed. You can set it later in config.toml.")
+    print(f"\n  {BOLD}Autocorrect{RESET}")
+    print(f"  {DIM}'voiceio correct --auto' uses a cloud LLM to find and fix Whisper mistakes.{RESET}\n")
+    ac_options = [
+        ("Skip", "no cloud API key"),
+        ("Enable", "paste an API key (OpenRouter, OpenAI, or Anthropic)"),
+    ]
+    if _ask_choice(ac_options, default=0) == 1:
+        api_input = _ask("API key", "")
+        if api_input:
+            from voiceio.config import AutocorrectConfig
+            from voiceio.llm_api import check_api_key, detect_provider
+            det_url, det_model = detect_provider(api_input)
+            provider_name = "OpenRouter"
+            if "openai.com" in det_url:
+                provider_name = "OpenAI"
+            elif "anthropic.com" in det_url:
+                provider_name = "Anthropic"
+            print(f"  {DIM}Detected: {provider_name}{RESET}")
+            cfg_check = AutocorrectConfig(
+                api_key=api_input, base_url=det_url, model=det_model,
+            )
+            if check_api_key(cfg_check):
+                print(f"  {GREEN}✓{RESET} API key validated ({provider_name})")
+                autocorrect_api_key = api_input
+                autocorrect_base_url = det_url
+                autocorrect_model = det_model
+            else:
+                print(f"  {YELLOW}⚠{RESET}  Validation failed. You can set it later in config.toml.")
 
-    # ── Step 7: Download & configure ────────────────────────────────────
-    _print_step(7, 8, "Download & configure")
+    # ── Step 7: Advanced options (optional) ─────────────────────────────
+    _print_step(7, 8, "Advanced options")
+    print(f"  {DIM}Sensible defaults are already set. Customize if you want.{RESET}\n")
+    advanced_options = [
+        ("Skip", "use defaults (recommended)"),
+        ("Customize", "feedback, voice commands, punctuation, numbers"),
+    ]
+    if _ask_choice(advanced_options, default=0) == 1:
+        adv = _run_advanced_options(checks, tray_ok)
+        sound_enabled = adv.get("sound_enabled", True)
+        notify_clipboard = adv.get("notify_clipboard", False)
+        commands_enabled = adv.get("commands_enabled", True)
+        punctuation_cleanup = adv.get("punctuation_cleanup", True)
+        number_conversion = adv.get("number_conversion", True)
 
-    # Download model
-    if not _download_model(model_name):
-        sys.exit(1)
+    # ── Step 8: Finalize ────────────────────────────────────────────────
+    _print_step(8, 8, "Finalize")
+
+    # Build config kwargs once — shared by initial save and later updates
+    config_kwargs = dict(
+        model=model_name, language=language, hotkey=hotkey, method=method,
+        streaming=True, backend=backend,
+        sound_enabled=sound_enabled, notify_clipboard=notify_clipboard,
+        tray_enabled=tray_ok,
+        commands_enabled=commands_enabled,
+        punctuation_cleanup=punctuation_cleanup,
+        number_conversion=number_conversion,
+        llm_enabled=llm_enabled, llm_model=llm_model,
+        autocorrect_api_key=autocorrect_api_key,
+        autocorrect_base_url=autocorrect_base_url,
+        autocorrect_model=autocorrect_model,
+        tts_enabled=tts_enabled, tts_engine=tts_engine, tts_speed=tts_speed,
+    )
 
     # Save config
-    _write_config(model_name, language, hotkey, method, streaming=True, backend=backend,
-                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard,
-                  tray_enabled=tray_ok,
-                  commands_enabled=commands_enabled,
-                  punctuation_cleanup=punctuation_cleanup,
-                  number_conversion=number_conversion,
-                  llm_enabled=llm_enabled, llm_model=llm_model,
-                  autocorrect_api_key=autocorrect_api_key,
-                  autocorrect_base_url=autocorrect_base_url,
-                  autocorrect_model=autocorrect_model,
-                  tts_enabled=tts_enabled, tts_engine=tts_engine, tts_speed=tts_speed)
+    _write_config(**config_kwargs)
 
     # Set up DE shortcut if on GNOME + socket backend (Linux only)
     desktop = ""
@@ -1162,8 +1323,7 @@ def run_wizard() -> None:
             print(f"  {DIM}• The GNOME shortcut may need a moment to register.{RESET}")
             print(f"  {DIM}• Try: Settings → Keyboard → Custom Shortcuts to verify.{RESET}")
             print(f"  {DIM}• Shortcut command should be: {BOLD}voiceio-toggle{RESET}")
-        retry = _ask("Try a different shortcut? (y/n)", "y")
-        if retry.lower() in ("y", "yes"):
+        if _ask_yn("Try a different shortcut?"):
             print()
             hk_idx = _ask_choice(hotkey_options, default=1)
             if hk_idx == len(hotkey_options) - 1:
@@ -1171,28 +1331,12 @@ def run_wizard() -> None:
             else:
                 hotkey = hotkey_options[hk_idx][0]
 
-            _write_config(model_name, language, hotkey, method, streaming=True, backend=backend,
-                  sound_enabled=sound_enabled, notify_clipboard=notify_clipboard,
-                  tray_enabled=tray_ok,
-                  commands_enabled=commands_enabled,
-                  punctuation_cleanup=punctuation_cleanup,
-                  number_conversion=number_conversion,
-                  llm_enabled=llm_enabled, llm_model=llm_model,
-                  autocorrect_api_key=autocorrect_api_key,
-                  autocorrect_base_url=autocorrect_base_url,
-                  autocorrect_model=autocorrect_model,
-                  tts_enabled=tts_enabled, tts_engine=tts_engine, tts_speed=tts_speed)
+            config_kwargs["hotkey"] = hotkey
+            _write_config(**config_kwargs)
             if "GNOME" in desktop and backend == "socket":
                 _setup_gnome_shortcut(hotkey)
 
             hotkey_ok = _test_hotkey(hotkey, backend)
-
-    # ── Step 7: Test ────────────────────────────────────────────────────
-    _print_step(8, 8, "Try it out")
-    print(f"  {DIM}Speak into your microphone and see the transcription live.{RESET}")
-    test = _ask("Run a streaming mic test? (y/n)", "y")
-    if test.lower() in ("y", "yes", ""):
-        _streaming_test(model=_get_or_load_model())
 
     # Start (or restart) the service so it's immediately usable
     if autostart_idx == 0:
@@ -1278,7 +1422,7 @@ def _setup_ollama(status=None, models=None) -> str:
     if status == OllamaStatus.NOT_INSTALLED:
         print(f"\n  {YELLOW}⚠{RESET}  Ollama is not installed.")
         if sys.platform == "linux":
-            if _ask("Install Ollama now? (y/n)", "y").lower() in ("y", "yes", ""):
+            if _ask_yn("Install Ollama now?"):
                 from voiceio.llm import _has_gpu
                 if _has_gpu():
                     print(f"\n  {CYAN}Installing Ollama (with GPU support)...{RESET}\n")
@@ -1300,7 +1444,7 @@ def _setup_ollama(status=None, models=None) -> str:
     # Step 2: Start daemon if not running
     if status == OllamaStatus.NOT_RUNNING:
         print(f"\n  {YELLOW}⚠{RESET}  Ollama is installed but not responding.")
-        if _ask("Start Ollama now? (y/n)", "y").lower() in ("y", "yes", ""):
+        if _ask_yn("Start Ollama now?"):
             with Spinner("Starting Ollama...") as sp:
                 if start_ollama():
                     sp.ok("Ollama is running!")
@@ -1341,46 +1485,79 @@ def _setup_ollama(status=None, models=None) -> str:
 
 # ── Advanced options (shown only when user opts in) ──────────────────────
 
-def _ensure_tts_engine(engine: str, checks: dict) -> None:
-    """Ensure a TTS engine is available, installing espeak-ng if needed."""
+_TTS_DEMO_PHRASE = "Hello! This is a preview of the voiceio text to speech engine."
+
+_TTS_PIP_PACKAGES = {
+    "piper": ["piper-tts"],
+    "edge-tts": ["edge-tts", "soundfile"],
+}
+
+
+def _tts_demo(engine_name: str) -> bool:
+    """Install engine if needed, synthesize a phrase, play it. Returns True on success."""
+    import importlib
+
     from voiceio.config import TTSConfig
-    from voiceio.tts.chain import probe_all
+    from voiceio.tts.chain import _create
 
-    cfg = TTSConfig(enabled=True, engine=engine)
-    results = probe_all(cfg)
+    cfg = TTSConfig(enabled=True, engine=engine_name)
 
-    if any(probe.ok for _, probe in results):
-        active = next(name for name, probe in results if probe.ok)
-        print(f"\n  {GREEN}✓{RESET} TTS engine available: {BOLD}{active}{RESET}")
-        return
-
-    # No engine available — offer to install espeak-ng
-    if not checks.get("is_linux", False):
-        print(f"\n  {YELLOW}⚠{RESET}  No TTS engine found. Install one of:")
-        print(f"  {DIM}  pip install piper-tts     (offline, recommended){RESET}")
-        print(f"  {DIM}  pip install edge-tts      (cloud, free){RESET}")
-        return
-
-    print(f"\n  {YELLOW}⚠{RESET}  No TTS engine found.")
-    from voiceio.platform import pkg_install
-    install_cmd = pkg_install("espeak-ng")
-    print(f"  {DIM}espeak-ng is a lightweight system package (~2 MB).{RESET}\n")
-    if _ask(f"Install espeak-ng? ({install_cmd})", "y").lower() in ("y", "yes", ""):
-        import subprocess as _sp
-        parts = install_cmd.split()
-        print(f"\n  {CYAN}Running: {install_cmd}{RESET}\n")
+    # Install if needed
+    pip_pkgs = _TTS_PIP_PACKAGES.get(engine_name)
+    if pip_pkgs:
         try:
-            result = _sp.run(parts, timeout=120)
-            if result.returncode == 0:
-                print(f"\n  {GREEN}✓{RESET} espeak-ng installed!")
-            else:
-                print(f"\n  {RED}✗{RESET} Installation failed (exit {result.returncode})")
-                print(f"  {DIM}Install manually: {install_cmd}{RESET}")
-        except (FileNotFoundError, _sp.TimeoutExpired) as e:
-            print(f"\n  {RED}✗{RESET} Installation failed: {e}")
-            print(f"  {DIM}Install manually: {install_cmd}{RESET}")
+            engine = _create(engine_name, cfg)
+            probe = engine.probe()
+        except Exception as exc:
+            log.debug("TTS probe failed for %s: %s", engine_name, exc)
+            probe = None
+
+        if not probe or not probe.ok:
+            for pkg in pip_pkgs:
+                if not _install_pip_package(pkg):
+                    print(f"  {YELLOW}⚠{RESET}  Skipped — {pkg} not installed.")
+                    return False
+            importlib.invalidate_caches()
+            engine = _create(engine_name, cfg)
+            probe = engine.probe()
+            if not probe.ok:
+                print(f"  {RED}✗{RESET} {engine_name} still unavailable after install: {probe.reason}")
+                return False
+    elif engine_name == "espeak":
+        if not shutil.which("espeak-ng"):
+            from voiceio.platform import pkg_install
+            install_cmd = pkg_install("espeak-ng")
+            print(f"  {DIM}espeak-ng is a lightweight system package (~2 MB).{RESET}")
+            if not _ask_yn(f"Install espeak-ng? ({install_cmd})"):
+                return False
+            parts = install_cmd.split()
+            try:
+                result = subprocess.run(parts, timeout=120)
+                if result.returncode != 0:
+                    print(f"  {RED}✗{RESET} Installation failed")
+                    return False
+                print(f"  {GREEN}✓{RESET} espeak-ng installed!")
+            except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+                print(f"  {RED}✗{RESET} Installation failed: {e}")
+                return False
+        engine = _create(engine_name, cfg)
     else:
-        print(f"  {DIM}Install later: {install_cmd}{RESET}")
+        engine = _create(engine_name, cfg)
+
+    # Synthesize and play
+    try:
+        with Spinner(f"Synthesizing with {engine_name}...") as sp:
+            audio, sr = engine.synthesize(_TTS_DEMO_PHRASE, voice="", speed=1.0)
+            sp.ok(f"Playing {engine_name} demo")
+
+        from voiceio.tts.player import TTSPlayer
+        player = TTSPlayer()
+        player.play(audio, sr)
+        engine.shutdown()
+        return True
+    except Exception as e:
+        print(f"  {RED}✗{RESET} Demo failed: {e}")
+        return False
 
 
 def _run_advanced_options(checks: dict, tray_ok: bool) -> dict:
@@ -1425,39 +1602,5 @@ def _run_advanced_options(checks: dict, tray_ok: bool) -> dict:
         ("Disabled", "keep number words as text"),
     ]
     result["number_conversion"] = _ask_choice(num_options, default=0) == 0
-
-    # Text-to-speech
-    print(f"\n  {BOLD}Text-to-speech{RESET}")
-    print(f"  {DIM}Select text and press ctrl+alt+s to hear it spoken.{RESET}")
-    print(f"  {DIM}Engines: piper (offline), edge-tts (cloud), espeak-ng (system).{RESET}\n")
-    tts_options = [
-        ("Disabled", "default"),
-        ("Enabled", "auto-select best available engine"),
-    ]
-    if _ask_choice(tts_options, default=0) == 1:
-        result["tts_enabled"] = True
-        print(f"\n  {DIM}Engine:{RESET}\n")
-        engine_options = [
-            ("Auto", "try piper → edge-tts → espeak"),
-            ("piper", "offline, best quality (requires pip install piper-tts)"),
-            ("edge-tts", "cloud, free Microsoft TTS (requires pip install edge-tts)"),
-            ("espeak", "system package, lightweight"),
-        ]
-        eng_idx = _ask_choice(engine_options, default=0)
-        result["tts_engine"] = ["auto", "piper", "edge-tts", "espeak"][eng_idx]
-
-        # Ensure at least one engine is available
-        _ensure_tts_engine(result["tts_engine"], checks)
-
-        print(f"\n  {DIM}Speech speed:{RESET}\n")
-        speed_options = [
-            ("Normal", "1.0x"),
-            ("Slow", "0.8x"),
-            ("Fast", "1.3x"),
-        ]
-        sp_idx = _ask_choice(speed_options, default=0)
-        result["tts_speed"] = [1.0, 0.8, 1.3][sp_idx]
-    else:
-        result["tts_enabled"] = False
 
     return result

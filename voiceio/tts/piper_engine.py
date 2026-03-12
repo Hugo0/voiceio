@@ -22,10 +22,11 @@ class PiperEngine:
     def probe(self) -> ProbeResult:
         try:
             import piper  # noqa: F401
+            from piper.download import ensure_voice_exists, get_voices  # noqa: F401
             return ProbeResult(ok=True)
-        except ImportError:
+        except ImportError as e:
             return ProbeResult(
-                ok=False, reason="piper-tts not installed",
+                ok=False, reason=f"piper-tts not fully installed: {e}",
                 fix_hint="pip install piper-tts",
             )
 

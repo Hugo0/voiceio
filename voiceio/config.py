@@ -105,7 +105,7 @@ class AutocorrectConfig:
 
 @dataclass
 class TTSConfig:
-    enabled: bool = False
+    enabled: bool = True
     engine: str = "auto"         # "auto" | "piper" | "espeak" | "edge-tts"
     hotkey: str = "ctrl+alt+s"   # "s" for speak
     voice: str = ""              # empty = engine default
