@@ -28,7 +28,12 @@ def _make_vio(mock_transcriber=None):
 
         from voiceio.app import VoiceIO
         vio = VoiceIO(Config())
-        vio.recorder._stream = MagicMock()  # skip real audio
+        mock_stream = MagicMock()
+        mock_stream.active = True
+        mock_stream.closed = False
+        mock_stream.stopped = False
+        vio.recorder._stream = mock_stream  # skip real audio
+        vio.recorder._last_callback_time = time.monotonic()  # healthy heartbeat
         return vio, mock_typer, mock_transcriber
 
 

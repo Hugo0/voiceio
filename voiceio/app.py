@@ -8,6 +8,7 @@ import signal
 import subprocess
 import threading
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -22,6 +23,9 @@ from voiceio.transcriber import Transcriber
 from voiceio.typers import chain as typer_chain
 from voiceio.vad import load_vad
 from voiceio.vocabulary import load_vocabulary
+
+if TYPE_CHECKING:
+    from voiceio.typers.base import TyperBackend
 log = logging.getLogger("voiceio")
 _DEBOUNCE_SECS = 0.3
 
@@ -117,6 +121,10 @@ class VoiceIO:
         self._engine_proc: subprocess.Popen | None = None
         self._shutdown = threading.Event()
 
+        # Audio stream recovery backoff
+        self._stream_fail_count = 0
+        self._next_stream_retry: float = 0
+
     def request_shutdown(self) -> None:
         """Request graceful shutdown from an external signal handler."""
         self._shutdown.set()
@@ -169,6 +177,19 @@ class VoiceIO:
 
     def _do_start(self) -> None:
         """Transition to RECORDING."""
+        # Pre-flight: ensure audio stream is healthy before recording
+        ok, reason = self.recorder.stream_health()
+        if not ok:
+            log.warning("Audio stream unhealthy before recording: %s — reopening", reason)
+            try:
+                self.recorder.reopen_stream()
+            except Exception:
+                log.exception("Cannot reopen audio stream, aborting recording")
+                return
+
+        if not self.recorder.has_signal():
+            log.warning("Mic appears silent or muted (pre-buffer is all zeros)")
+
         self._state = _State.RECORDING
         self._activate_ibus()
         self._corrections.load()  # hot-reload corrections on each recording
@@ -452,6 +473,30 @@ class VoiceIO:
         self._set_gnome_input_source_index(0)
         log.info("VoiceIO IBus engine ready (dormant until recording)")
 
+    def _wait_for_ibus(self, chain: list[str]) -> TyperBackend | None:
+        """Wait for IBus daemon to become available and switch to IBus typer.
+
+        At session startup, voiceio may start before ibus-daemon is ready.
+        This polls briefly so we can use IBus instead of a broken fallback.
+        """
+        from voiceio.typers.ibus import _ibus_daemon_running
+
+        log.info("IBus preferred but not available yet, waiting for ibus-daemon...")
+        for i in range(30):  # up to ~15 seconds
+            time.sleep(0.5)
+            if _ibus_daemon_running():
+                log.info("IBus daemon ready after %.1fs, re-probing typers", (i + 1) * 0.5)
+                try:
+                    typer = typer_chain.select(self.platform, self.cfg.output.method)
+                    if typer.name == "ibus":
+                        self._ensure_ibus_engine()
+                        return typer
+                except RuntimeError:
+                    pass
+                break
+        log.warning("IBus daemon did not start in time, using fallback typer: %s", self._typer.name)
+        return None
+
     @staticmethod
     def _kill_stale_engine(socket_path) -> None:
         socket_path.unlink(missing_ok=True)
@@ -566,6 +611,39 @@ class VoiceIO:
                         self._state = _State.ERROR
                         tray.set_error(True)
 
+        # Check audio stream (covers ALSA underrun, PulseAudio/PipeWire
+        # restart, device disconnect, stale callback heartbeat)
+        ok, reason = self.recorder.stream_health()
+        if not ok:
+            now = time.monotonic()
+            if now < self._next_stream_retry:
+                return  # backoff: skip this cycle
+            log.warning("Audio stream unhealthy: %s — reopening (attempt %d)",
+                        reason, self._stream_fail_count + 1)
+            try:
+                self.recorder.reopen_stream()
+                self._stream_fail_count = 0
+                self._next_stream_retry = 0
+                tray.set_error(False)
+                log.info("Audio stream recovered")
+            except Exception:
+                self._stream_fail_count += 1
+                # Backoff: 10s, 20s, 40s, 80s, max 5min
+                delay = min(10 * (2 ** (self._stream_fail_count - 1)), 300)
+                self._next_stream_retry = now + delay
+                tray.set_error(True)
+                log.error("Audio stream recovery failed (retry in %ds)", delay)
+        elif self._stream_fail_count > 0:
+            # Stream recovered externally (e.g. device plugged back in)
+            self._stream_fail_count = 0
+            self._next_stream_retry = 0
+            tray.set_error(False)
+
+        # Check tray subprocess (restart if died / lost D-Bus registration)
+        if self.cfg.tray.enabled and not tray.is_alive():
+            log.warning("Tray subprocess died, restarting")
+            tray.restart(self.on_hotkey)
+
         # Check IBus engine (restart if died)
         if self._typer.name == "ibus" and self._engine_proc is not None:
             if self._engine_proc.poll() is not None:
@@ -598,6 +676,13 @@ class VoiceIO:
 
         if self._typer.name == "ibus":
             self._ensure_ibus_engine()
+        else:
+            # IBus daemon may not be ready at startup (race with graphical
+            # session). If IBus is in the preferred chain but wasn't selected,
+            # wait briefly and re-probe.
+            chain = typer_chain._get_chain(self.platform)
+            if "ibus" in chain and self._typer.name != "ibus":
+                self._typer = self._wait_for_ibus(chain) or self._typer
 
         self.recorder.open_stream()
 

@@ -274,13 +274,17 @@ class IBusTyper:
     """IBus preedit for streaming preview, IBus commit for final text.
 
     Also copies committed text to clipboard so terminal users (where IBus
-    doesn't reach) can Ctrl+Shift+V to paste.
+    doesn't reach) can Ctrl+Shift+V to paste.  When the IBus engine reports
+    that no client has focus (e.g. terminal emulators), we auto-paste via
+    ydotool/wtype so the user doesn't have to paste manually.
     """
 
     name = "ibus"
 
     def __init__(self, platform=None, **kwargs):
         self._wl_copy = shutil.which("wl-copy")
+        self._ydotool = shutil.which("ydotool")
+        self._wtype = shutil.which("wtype")
         self._sock: socket.socket | None = None
         self._wl_copy_proc: subprocess.Popen | None = None
 
@@ -331,6 +335,8 @@ class IBusTyper:
             return
         self._send(f"commit:{text}")
         self._copy_to_clipboard(text)
+        if not self._engine_has_focus():
+            self._simulate_paste()
 
     def delete_chars(self, n: int) -> None:
         pass  # Not needed: preedit handles corrections atomically
@@ -346,6 +352,8 @@ class IBusTyper:
         log.debug("Committing via IBus (%d chars)", len(text))
         self._send(f"commit:{text}")
         self._copy_to_clipboard(text)
+        if not self._engine_has_focus():
+            self._simulate_paste()
 
     def clear_preedit(self) -> None:
         self._send("clear")
@@ -362,6 +370,38 @@ class IBusTyper:
             if self._sock is not None:
                 self._sock.close()
                 self._sock = None
+
+    def _engine_has_focus(self) -> bool:
+        """Ask the IBus engine whether it has input focus in the active window."""
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            sock.settimeout(0.3)
+            sock.bind("")  # autobind for receiving reply
+            sock.sendto(b"focus?", str(SOCKET_PATH))
+            data, _ = sock.recvfrom(64)
+            sock.close()
+            return data == b"focused"
+        except (OSError, socket.timeout):
+            return True  # assume focused on error (safe default: no extra paste)
+
+    def _simulate_paste(self) -> None:
+        """Simulate Ctrl+V to paste clipboard into non-IBus apps (terminals)."""
+        try:
+            if self._ydotool:
+                # ydotool key scancodes: 29=LCtrl, 47=V
+                subprocess.run(
+                    [self._ydotool, "key", "29:1", "47:1", "47:0", "29:0"],
+                    capture_output=True, timeout=3,
+                )
+            elif self._wtype:
+                subprocess.run(
+                    [self._wtype, "-M", "ctrl", "-k", "v", "-m", "ctrl"],
+                    capture_output=True, timeout=3,
+                )
+            else:
+                log.debug("No paste tool available (ydotool/wtype)")
+        except (subprocess.TimeoutExpired, OSError) as e:
+            log.debug("Paste simulation failed: %s", e)
 
     def _copy_to_clipboard(self, text: str) -> None:
         """Copy text to clipboard as backup for non-IBus apps (terminals).
