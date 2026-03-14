@@ -57,6 +57,7 @@ Type=simple
 ExecStart={bin_path}
 Restart=on-failure
 RestartSec=3
+Environment=PYTHONUNBUFFERED=1
 PassEnvironment=DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_RUNTIME_DIR
 
 [Install]
