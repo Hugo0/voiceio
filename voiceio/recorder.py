@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
@@ -107,6 +108,9 @@ class AudioRecorder:
         self._heard_speech = False
         self._on_auto_stop: Callable[[], None] | None = None
 
+        # Heartbeat: updated by _callback, checked by health watchdog
+        self._last_callback_time: float = 0.0
+
     def open_stream(self) -> None:
         """Start the always-on audio stream (feeds ring buffer)."""
         if self._stream is not None:
@@ -120,6 +124,54 @@ class AudioRecorder:
         )
         self._stream.start()
         log.debug("Audio stream opened (prebuffer=%.1fs)", self.prebuffer_secs)
+
+    # Maximum seconds between callbacks before we consider the stream dead.
+    # PortAudio typically fires every ~50-100ms; 5s covers long system sleeps.
+    _HEARTBEAT_TIMEOUT = 5.0
+
+    def stream_health(self) -> tuple[bool, str]:
+        """Check audio stream health.  Returns (ok, reason).
+
+        Failure modes detected:
+        1. Stream object gone or closed     — device removed, close_stream() bug
+        2. stream.active is False           — ALSA underrun, PulseAudio restart
+        3. stream.stopped is True           — PortAudio callback abort/error
+        4. Callback heartbeat stale         — stream "active" but no callbacks
+           (device silently disconnected, PipeWire graph change, driver bug)
+        """
+        if self._stream is None:
+            return False, "stream is None"
+        if self._stream.closed:
+            return False, "stream closed"
+        if not self._stream.active:
+            return False, "stream not active"
+        if self._stream.stopped:
+            return False, "stream stopped"
+        if self._last_callback_time > 0:
+            stale = time.monotonic() - self._last_callback_time
+            if stale > self._HEARTBEAT_TIMEOUT:
+                return False, f"no audio callback for {stale:.1f}s"
+        return True, ""
+
+    def has_signal(self) -> bool:
+        """Check if the pre-buffer ring contains non-silence audio.
+
+        Returns False if the ring is all zeros (mic muted, wrong device,
+        or stream not delivering real data).
+        """
+        buf = self._ring.get()
+        if len(buf) == 0:
+            return False
+        # Check if peak amplitude is above a very low floor (~-80 dB).
+        # Even "silence" from a working mic has some noise > 1e-4.
+        return float(np.max(np.abs(buf))) > 1e-4
+
+    def reopen_stream(self) -> None:
+        """Close and reopen the audio stream (recovery from audio errors)."""
+        log.info("Reopening audio stream")
+        self.close_stream()
+        self._last_callback_time = 0.0
+        self.open_stream()
 
     def close_stream(self) -> None:
         """Stop the always-on audio stream."""
@@ -201,6 +253,8 @@ class AudioRecorder:
     def _callback(
         self, indata: np.ndarray, frames: int, time_info: object, status: object
     ) -> None:
+        self._last_callback_time = time.monotonic()
+
         if status:
             log.warning("Audio stream status: %s", status)
 

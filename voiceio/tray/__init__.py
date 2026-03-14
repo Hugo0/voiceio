@@ -257,6 +257,54 @@ def set_error(error: bool) -> None:
         set_title("voiceio - error" if error else "voiceio - idle")
 
 
+def is_alive() -> bool:
+    """Check if the tray subprocess is still running (indicator backend only)."""
+    if _backend == "indicator":
+        return _proc is not None and _proc.poll() is None
+    # pystray runs in-process, assume alive if backend is set
+    return _backend is not None
+
+
+def restart(toggle_callback: Callable[[], None] | None = None) -> bool:
+    """Restart a dead indicator subprocess. Returns True on success."""
+    global _proc, _stdout_thread
+
+    if _backend != "indicator":
+        return False
+    if _proc is not None and _proc.poll() is None:
+        return True  # still alive
+
+    system_python = _find_system_python()
+    if not system_python or _theme_dir is None:
+        return False
+
+    from voiceio.tray._icons import ANIM_INTERVAL_MS
+    # Read icon names from existing theme dir
+    apps_dir = _theme_dir / "hicolor"
+    icon_names: list[str] = []
+    for d in apps_dir.rglob("apps"):
+        icon_names = sorted(
+            p.stem for p in d.glob("*.png")
+        )
+        break
+    if not icon_names:
+        return False
+
+    log.info("Restarting tray indicator subprocess")
+    _proc = _start_indicator(
+        _theme_dir, icon_names, ANIM_INTERVAL_MS, system_python,
+    )
+    if toggle_callback is not None:
+        _stdout_thread = threading.Thread(
+            target=_read_stdout,
+            args=(_proc, toggle_callback),
+            daemon=True,
+            name="tray-stdout",
+        )
+        _stdout_thread.start()
+    return True
+
+
 def stop() -> None:
     """Stop the tray icon and clean up."""
     global _proc, _backend, _stdout_thread
