@@ -135,10 +135,16 @@ class StreamingSession:
             self._pending.wait(timeout=1.0)
             if self._stop_event.is_set():
                 break
-            self._transcribe_and_apply()
+            try:
+                self._transcribe_and_apply()
+            except Exception:
+                log.exception("Streaming transcribe/apply error (non-fatal)")
 
         # Final transcription on stop using the audio snapshot
-        self._transcribe_and_apply(min_seconds=0.5, final=True)
+        try:
+            self._transcribe_and_apply(min_seconds=0.5, final=True)
+        except Exception:
+            log.exception("Final transcribe/apply error")
         self._final_audio = None  # release memory
 
     def _transcribe_and_apply(

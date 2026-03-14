@@ -147,6 +147,16 @@ def _socket_listener(mainloop: GLib.MainLoop) -> None:
                     pass
             continue
 
+        if msg == "focus?":
+            # Quick focus query — no need to go through GLib
+            if addr and _engine is not None:
+                reply = b"focused" if _engine._focused else b"unfocused"
+                try:
+                    sock.sendto(reply, addr)
+                except OSError:
+                    pass
+            continue
+
         # Dispatch to engine on GLib main thread
         GLib.idle_add(_handle_command, msg)
 
