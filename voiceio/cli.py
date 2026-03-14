@@ -142,12 +142,12 @@ def _cmd_run(args: argparse.Namespace) -> None:
     elif args.no_notify_clipboard:
         cfg.feedback.notify_clipboard = False
 
-    # Console: show voiceio messages at configured level
+    # Console: show voiceio messages at configured level (visible in journalctl)
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter(
         "%(asctime)s %(name)s %(levelname)s %(message)s", datefmt="%H:%M:%S",
     ))
-    console.setLevel(logging.WARNING)
+    console.setLevel(getattr(logging, cfg.daemon.log_level))
 
     # File: always log DEBUG to rotating file
     from voiceio.config import LOG_DIR, LOG_PATH
