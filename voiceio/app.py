@@ -473,6 +473,34 @@ class VoiceIO:
         self._set_gnome_input_source_index(0)
         log.info("VoiceIO IBus engine ready (dormant until recording)")
 
+    def _reactivate_ibus_if_stale(self) -> None:
+        """Re-activate IBus engine if it lost registration (e.g. after hibernate).
+
+        After suspend/hibernate, the IBus daemon may forget about our engine.
+        Check by querying the current active engine; if it's not 'voiceio',
+        re-run ``ibus engine voiceio`` to re-register.
+        """
+        from voiceio.typers.ibus import _ibus_env
+        try:
+            result = subprocess.run(
+                ["ibus", "engine"], capture_output=True, text=True,
+                timeout=3, env=_ibus_env(),
+            )
+            current = result.stdout.strip() if result.returncode == 0 else ""
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return
+        if current == "voiceio":
+            return  # still registered, nothing to do
+        log.warning("IBus engine stale (current=%r), re-activating", current)
+        try:
+            subprocess.run(
+                ["ibus", "engine", "voiceio"],
+                capture_output=True, timeout=5, env=_ibus_env(),
+            )
+            log.info("IBus engine re-activated")
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            log.warning("IBus re-activation failed: %s", e)
+
     def _wait_for_ibus(self, chain: list[str]) -> TyperBackend | None:
         """Wait for IBus daemon to become available and switch to IBus typer.
 
@@ -584,16 +612,69 @@ class VoiceIO:
 
     # ── Health watchdog ─────────────────────────────────────────────
 
+    # If the gap between health checks exceeds this, we probably resumed
+    # from suspend/hibernate and should re-probe everything.
+    _RESUME_THRESHOLD = 30  # seconds
+
     def _health_loop(self) -> None:
         """Periodic health check: transcriber worker, IBus engine, audio stream."""
+        last_check = time.monotonic()
         while not self._shutdown.is_set():
             self._shutdown.wait(_HEALTH_CHECK_INTERVAL)
             if self._shutdown.is_set():
                 break
+
+            now = time.monotonic()
+            gap = now - last_check
+            last_check = now
+
             try:
+                if gap > self._RESUME_THRESHOLD:
+                    log.info("System resume detected (%.0fs gap), re-probing all backends", gap)
+                    self._on_resume()
                 self._check_health()
             except Exception:
                 log.debug("Health check error", exc_info=True)
+
+    def _on_resume(self) -> None:
+        """Re-probe all backends after system suspend/hibernate.
+
+        Sleep/hibernate breaks connections to system services (IBus, audio,
+        tray D-Bus, ydotoold) across all platforms. Instead of catching each
+        failure individually, do a single sweep to restore everything.
+        """
+        # Audio: reopen stream (device may have changed or died)
+        try:
+            self.recorder.reopen_stream()
+            log.info("Resume: audio stream reopened")
+        except Exception:
+            log.warning("Resume: audio stream reopen failed", exc_info=True)
+
+        # IBus: re-activate engine registration
+        if self._typer.name == "ibus" and self._engine_proc is not None:
+            if self._engine_proc.poll() is not None:
+                # Engine process died during sleep
+                self._engine_proc = None
+                try:
+                    self._ensure_ibus_engine()
+                    log.info("Resume: IBus engine restarted")
+                except Exception:
+                    log.exception("Resume: IBus engine restart failed")
+            else:
+                self._reactivate_ibus_if_stale()
+
+        # Tray: restart if subprocess died
+        if self.cfg.tray.enabled and not tray.is_alive():
+            log.info("Resume: restarting tray")
+            tray.restart(self.on_hotkey)
+
+        # Transcriber: ensure worker is alive
+        if not self.transcriber.is_worker_alive():
+            try:
+                self.transcriber._ensure_worker()
+                log.info("Resume: transcriber worker restarted")
+            except RuntimeError:
+                log.error("Resume: transcriber worker failed")
 
     def _check_health(self) -> None:
         """Run one health check cycle."""
@@ -644,7 +725,7 @@ class VoiceIO:
             log.warning("Tray subprocess died, restarting")
             tray.restart(self.on_hotkey)
 
-        # Check IBus engine (restart if died)
+        # Check IBus engine (restart if died, re-activate if stale after resume)
         if self._typer.name == "ibus" and self._engine_proc is not None:
             if self._engine_proc.poll() is not None:
                 log.warning("IBus engine process died (rc=%d), restarting",
@@ -655,6 +736,10 @@ class VoiceIO:
                     log.info("IBus engine recovered")
                 except Exception:
                     log.exception("IBus engine recovery failed")
+            elif self._state == _State.IDLE:
+                # Engine alive but may have lost IBus registration after
+                # hibernate/suspend. Re-activate so preedit works next time.
+                self._reactivate_ibus_if_stale()
 
     # ── Main loop ───────────────────────────────────────────────────────
 
