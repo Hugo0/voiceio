@@ -384,10 +384,22 @@ class IBusTyper:
         except (OSError, socket.timeout):
             return True  # assume focused on error (safe default: no extra paste)
 
+    @staticmethod
+    def _ydotoold_running() -> bool:
+        """Check if ydotoold daemon is running (required for reliable ydotool)."""
+        try:
+            result = subprocess.run(
+                ["pgrep", "-x", "ydotoold"],
+                capture_output=True, timeout=2,
+            )
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
     def _simulate_paste(self) -> None:
         """Simulate Ctrl+V to paste clipboard into non-IBus apps (terminals)."""
         try:
-            if self._ydotool:
+            if self._ydotool and self._ydotoold_running():
                 # ydotool key scancodes: 29=LCtrl, 47=V
                 subprocess.run(
                     [self._ydotool, "key", "29:1", "47:1", "47:0", "29:0"],
@@ -399,7 +411,7 @@ class IBusTyper:
                     capture_output=True, timeout=3,
                 )
             else:
-                log.debug("No paste tool available (ydotool/wtype)")
+                log.debug("No paste tool available (ydotoold not running, wtype not found)")
         except (subprocess.TimeoutExpired, OSError) as e:
             log.debug("Paste simulation failed: %s", e)
 
