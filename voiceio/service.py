@@ -264,24 +264,37 @@ def install_symlinks() -> list[str]:
 
 
 def _add_local_bin_to_path() -> None:
-    """Add ~/.local/bin to PATH via shell profile (for macOS etc.)."""
+    """Add ~/.local/bin to PATH in the user's active shell rc file."""
     global _PATH_HINT_ADDED
     line = '\nexport PATH="$HOME/.local/bin:$PATH"\n'
-    # Try .zshrc first (macOS default), then .bashrc
-    for rc_name in (".zshrc", ".bashrc", ".profile"):
+
+    # Detect the user's actual shell and target its rc file.
+    # .profile is sourced by login shells only — interactive terminals
+    # (especially zsh on Ubuntu) may never read it.
+    shell = os.environ.get("SHELL", "")
+    if "zsh" in shell:
+        targets = [".zshrc", ".profile"]
+    elif "bash" in shell:
+        targets = [".bashrc", ".profile"]
+    else:
+        targets = [".zshrc", ".bashrc", ".profile"]
+
+    for rc_name in targets:
         rc = Path.home() / rc_name
         if rc.exists():
             content = rc.read_text()
             if ".local/bin" in content:
-                return  # already there
+                continue  # already in this file, check next
             rc.write_text(content + line)
             log.info("Added ~/.local/bin to PATH in %s", rc)
             _PATH_HINT_ADDED = True
             return
-    # No shell rc found, create .profile
-    rc = Path.home() / ".profile"
+
+    # No existing rc found — create the shell-appropriate one
+    rc = Path.home() / (targets[0] if targets else ".profile")
     rc.write_text(line)
     log.info("Created %s with PATH entry", rc)
+    _PATH_HINT_ADDED = True
     _PATH_HINT_ADDED = True
 
 
