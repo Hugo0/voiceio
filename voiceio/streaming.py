@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from voiceio.transcriber import TRANSCRIBE_TIMEOUT
 from voiceio.typers.base import StreamingTyper
@@ -48,6 +49,9 @@ def _word_match_len(old_words: list[str], new_words: list[str]) -> int:
     return count
 
 
+_TYPER_FAIL_THRESHOLD = 3  # consecutive failures before signalling re-probe
+
+
 class StreamingSession:
     """Manages one streaming transcription cycle.
 
@@ -75,6 +79,7 @@ class StreamingSession:
         commands: CommandProcessor | None = None,
         corrections: CorrectionDict | None = None,
         llm: LLMProcessor | None = None,
+        on_typer_broken: Callable[[], None] | None = None,
     ):
         self._transcriber = transcriber
         self._typer = typer
@@ -87,6 +92,9 @@ class StreamingSession:
         self._commands = commands
         self._corrections = corrections
         self._llm = llm
+        self._on_typer_broken = on_typer_broken
+        self._typer_fail_count = 0
+        self._typer_broken_signalled = False
         self._typed_text = ""
         self._pending = threading.Event()
         self._stop_event = threading.Event()
@@ -137,6 +145,20 @@ class StreamingSession:
                 break
             try:
                 self._transcribe_and_apply()
+            except subprocess.CalledProcessError:
+                self._typer_fail_count += 1
+                if (self._typer_fail_count >= _TYPER_FAIL_THRESHOLD
+                        and not self._typer_broken_signalled):
+                    self._typer_broken_signalled = True
+                    log.warning(
+                        "Typer '%s' failed %d times in streaming, requesting re-probe",
+                        self._typer.name, self._typer_fail_count,
+                    )
+                    if self._on_typer_broken:
+                        self._on_typer_broken()
+                elif self._typer_fail_count < _TYPER_FAIL_THRESHOLD:
+                    log.exception("Streaming typer error (%d/%d)",
+                                  self._typer_fail_count, _TYPER_FAIL_THRESHOLD)
             except Exception:
                 log.exception("Streaming transcribe/apply error (non-fatal)")
 

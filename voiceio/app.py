@@ -29,6 +29,66 @@ if TYPE_CHECKING:
 log = logging.getLogger("voiceio")
 _DEBOUNCE_SECS = 0.3
 
+# Env vars needed for clipboard/tray/typing on graphical sessions.
+# XDG_CURRENT_DESKTOP is required for is_gnome() detection, which gates
+# IBus input source configuration.
+_GRAPHICAL_ENV_VARS = (
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XDG_SESSION_TYPE",
+    "XDG_CURRENT_DESKTOP",
+    "XDG_SESSION_DESKTOP",
+)
+
+
+def _redetect_platform():
+    """Clear the cached Platform and re-run detection.
+
+    plat.detect() is @lru_cache'd, so the first call freezes the result.
+    When voiceio starts before the desktop session has exported its env
+    vars, that first call returns display='unknown' and we'd be stuck
+    with that forever. Always clear the cache before re-detecting.
+    """
+    plat.detect.cache_clear()
+    return plat.detect()
+
+
+_graphical_env_complete = False
+
+
+def _import_graphical_env() -> None:
+    """Pull graphical session env vars from the systemd user manager.
+
+    When started as a systemd user service, the process may launch before
+    the desktop session imports DISPLAY/WAYLAND_DISPLAY. This queries
+    ``systemctl --user show-environment`` to pick them up after the fact.
+
+    Once all expected vars are present, sets ``_graphical_env_complete``
+    and becomes a free no-op so callers in the health loop don't spawn
+    a subprocess every 10s.
+    """
+    global _graphical_env_complete
+    if _graphical_env_complete:
+        return
+    missing = [v for v in _GRAPHICAL_ENV_VARS if v not in os.environ]
+    if not missing:
+        _graphical_env_complete = True
+        return
+    try:
+        out = subprocess.check_output(
+            ["systemctl", "--user", "show-environment"],
+            text=True, timeout=3,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return
+    for line in out.splitlines():
+        key, _, val = line.partition("=")
+        if key in missing and val:
+            os.environ[key] = val
+            log.info("Imported %s=%s from systemd user env", key, val)
+    if not [v for v in _GRAPHICAL_ENV_VARS if v not in os.environ]:
+        _graphical_env_complete = True
+
 
 _HEALTH_CHECK_INTERVAL = 10  # seconds between health checks
 
@@ -43,7 +103,19 @@ class _State(enum.Enum):
 class VoiceIO:
     def __init__(self, cfg: config.Config):
         self.cfg = cfg
-        self.platform = plat.detect()
+
+        # Import graphical env vars early so typer/platform detection
+        # sees DISPLAY, WAYLAND_DISPLAY, XDG_SESSION_TYPE, XDG_CURRENT_DESKTOP
+        # even when started as a systemd user service before the desktop
+        # session has exported them.
+        _import_graphical_env()
+
+        # Fresh detection (clears lru_cache in case anything warmed it)
+        self.platform = _redetect_platform()
+        log.info(
+            "Platform: display=%s desktop=%s",
+            self.platform.display_server, self.platform.desktop,
+        )
 
         # Select backends
         self._hotkey = hotkey_chain.select(self.platform, cfg.hotkey.backend)
@@ -208,6 +280,7 @@ class VoiceIO:
                 commands=self._command_processor,
                 corrections=self._corrections,
                 llm=self._llm,
+                on_typer_broken=self._on_typer_broken,
             )
             self._session.start()
         log.info("Recording... press [%s] again to stop", self.cfg.hotkey.key)
@@ -394,6 +467,108 @@ class VoiceIO:
                 self._typer.type_text(text)
             except RuntimeError:
                 log.error("No working typer backend available")
+
+    def _on_typer_broken(self) -> None:
+        """Called by streaming session when typer fails repeatedly.
+
+        Defers the re-probe+upgrade to a background thread that waits
+        for the state to reach IDLE. We cannot hot-swap mid-recording:
+        the streaming session tracks ``_typed_text`` in terms of the old
+        typer's behavior (char-level for clipboard vs preedit for ibus),
+        and mid-stream swapping would leave stale or duplicated chars.
+        The current recording is already broken — accept that, fix it
+        before the next one.
+        """
+        threading.Thread(
+            target=self._deferred_typer_upgrade,
+            daemon=True, name="typer-upgrade",
+        ).start()
+
+    def _deferred_typer_upgrade(self) -> None:
+        """Wait for IDLE state, then re-detect platform and upgrade typer."""
+        # Wait up to 30s for recording/finalizing to complete
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if self._state == _State.IDLE or self._shutdown.is_set():
+                break
+            time.sleep(0.5)
+        if self._shutdown.is_set():
+            return
+        with self._hotkey_lock:
+            if self._state != _State.IDLE:
+                log.debug("Typer upgrade abandoned: state=%s after 30s", self._state)
+                return
+            _import_graphical_env()
+            self.platform = _redetect_platform()
+            log.info(
+                "Typer broken: re-detected platform: display=%s desktop=%s",
+                self.platform.display_server, self.platform.desktop,
+            )
+            self._try_upgrade_typer(reason="streaming-failure")
+
+    def _try_upgrade_typer(self, reason: str = "") -> bool:
+        """Try to switch to a better typer backend.
+
+        Called on resume, after env import, or after repeated typer failures.
+        If the current typer is a fallback (e.g. clipboard) and a preferred
+        backend (e.g. ibus) is now available, switch to it.
+
+        Returns True if typer was upgraded.
+        """
+        chain = typer_chain._get_chain(self.platform)
+        current_idx = chain.index(self._typer.name) if self._typer.name in chain else len(chain)
+        log.debug(
+            "Upgrade attempt (%s): current=%s (idx %d) chain=%s",
+            reason, self._typer.name, current_idx, chain,
+        )
+        if current_idx == 0:
+            log.debug("Upgrade (%s) skipped: already on best backend in chain", reason)
+            return False  # already on the best backend
+
+        # Reset clipboard tool cache so re-probe sees updated env
+        from voiceio.typers.clipboard import ClipboardTyper
+        if isinstance(self._typer, ClipboardTyper):
+            self._typer.reset_tools()
+
+        # Log all probe results so we can diagnose why upgrade failed
+        try:
+            results = typer_chain.resolve(self.platform, self.cfg.output.method)
+        except Exception:
+            log.exception("Upgrade (%s): typer resolve failed", reason)
+            return False
+        for name, _backend, probe in results:
+            status = "OK" if probe.ok else f"FAIL: {probe.reason}"
+            log.info("Upgrade (%s): probe %s -> %s", reason, name, status)
+
+        try:
+            new_typer = typer_chain.select(self.platform, self.cfg.output.method)
+        except RuntimeError as e:
+            log.warning("Upgrade (%s) select failed: %s", reason, e)
+            return False
+
+        new_idx = chain.index(new_typer.name) if new_typer.name in chain else len(chain)
+        if new_idx < current_idx:
+            old_name = self._typer.name
+            self._typer = new_typer
+            log.info("Typer upgraded: %s -> %s (%s)", old_name, new_typer.name, reason)
+            if new_typer.name == "ibus" and self._engine_proc is None:
+                try:
+                    self._ensure_ibus_engine()
+                except Exception:
+                    log.exception("Upgrade (%s): failed to start IBus engine", reason)
+            return True
+
+        log.info(
+            "Upgrade (%s): no better backend available (stayed on %s)",
+            reason, new_typer.name,
+        )
+        # Even if same backend, re-resolve tools (e.g. clipboard switching
+        # from xclip to wl-copy after env vars change)
+        if isinstance(self._typer, ClipboardTyper):
+            self._typer._resolve_tools()
+            log.debug("Clipboard typer tools re-resolved (%s)", reason)
+
+        return False
 
     # ── IBus engine lifecycle ───────────────────────────────────────────
 
@@ -643,12 +818,21 @@ class VoiceIO:
         tray D-Bus, ydotoold) across all platforms. Instead of catching each
         failure individually, do a single sweep to restore everything.
         """
+        _import_graphical_env()
+
+        # Re-detect platform now that env vars may have been refreshed
+        self.platform = _redetect_platform()
+
         # Audio: reopen stream (device may have changed or died)
         try:
             self.recorder.reopen_stream()
             log.info("Resume: audio stream reopened")
         except Exception:
             log.warning("Resume: audio stream reopen failed", exc_info=True)
+
+        # Typer: re-probe if on a fallback backend (e.g. clipboard instead
+        # of ibus) — the preferred backend may be available now.
+        self._try_upgrade_typer(reason="resume")
 
         # IBus: re-activate engine registration
         if self._typer.name == "ibus" and self._engine_proc is not None:
@@ -725,6 +909,30 @@ class VoiceIO:
             log.warning("Tray subprocess died, restarting")
             tray.restart(self.on_hotkey)
 
+        # Check typer: if on a fallback, try to upgrade to preferred backend.
+        # Refresh env + platform first in case we started before the desktop
+        # session had exported DISPLAY/WAYLAND_DISPLAY/XDG_CURRENT_DESKTOP.
+        _import_graphical_env()
+        old_desktop = self.platform.desktop
+        self.platform = _redetect_platform()
+        if self.platform.desktop != old_desktop:
+            log.info(
+                "Platform refreshed: display=%s desktop=%s (was desktop=%s)",
+                self.platform.display_server, self.platform.desktop, old_desktop,
+            )
+        chain = typer_chain._get_chain(self.platform)
+        current_idx = chain.index(self._typer.name) if self._typer.name in chain else len(chain)
+        if current_idx > 0:
+            self._try_upgrade_typer(reason="health-check")
+
+        # Check typer: re-probe if current backend is broken
+        probe = self._typer.probe()
+        if not probe.ok:
+            log.warning("Typer '%s' probe failed: %s — re-selecting", self._typer.name, probe.reason)
+            _import_graphical_env()
+            self.platform = _redetect_platform()
+            self._try_upgrade_typer(reason="probe-failed")
+
         # Check IBus engine (restart if died, re-activate if stale after resume)
         if self._typer.name == "ibus" and self._engine_proc is not None:
             if self._engine_proc.poll() is not None:
@@ -746,6 +954,20 @@ class VoiceIO:
     def run(self) -> None:
         from voiceio.config import PID_PATH, LOG_DIR
 
+        # Refresh env and platform in case the desktop session exported
+        # vars between __init__ and run() (e.g. boot race with user@.service).
+        _import_graphical_env()
+        old_platform = self.platform
+        self.platform = _redetect_platform()
+        if (self.platform.display_server != old_platform.display_server
+                or self.platform.desktop != old_platform.desktop):
+            log.info(
+                "Platform changed since init: display=%s desktop=%s (was %s/%s), re-selecting typer",
+                self.platform.display_server, self.platform.desktop,
+                old_platform.display_server, old_platform.desktop,
+            )
+            self._try_upgrade_typer(reason="run-init")
+
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self._pid_fd = open(PID_PATH, "w")
         try:
@@ -764,7 +986,9 @@ class VoiceIO:
         else:
             # IBus daemon may not be ready at startup (race with graphical
             # session). If IBus is in the preferred chain but wasn't selected,
-            # wait briefly and re-probe.
+            # wait briefly and re-probe. Re-fetch the chain after env refresh
+            # above so we don't use a stale "clipboard-only" chain from when
+            # platform=unknown.
             chain = typer_chain._get_chain(self.platform)
             if "ibus" in chain and self._typer.name != "ibus":
                 self._typer = self._wait_for_ibus(chain) or self._typer
