@@ -1092,3 +1092,62 @@ def _cmd_doctor_legacy() -> None:
     parser = argparse.ArgumentParser(prog="voiceio-doctor")
     parser.add_argument("--fix", action="store_true", help="Attempt to auto-fix issues")
     _cmd_doctor(parser.parse_args())
+
+
+def _entry_point() -> None:
+    """PyInstaller entry point.
+
+    On Linux/macOS the console_scripts wrapper that setuptools generates
+    from ``project.scripts`` calls ``main()`` directly, so module-level
+    code here never runs. On Windows we ship a PyInstaller bundle that
+    runs ``cli.py`` as ``__main__`` — without this wrapper, the exe would
+    load all definitions and exit silently (which is exactly what users
+    reported: "installed, clicked, nothing happened").
+
+    This wrapper also catches any unhandled exception and writes it to
+    ``crash.log`` before exiting, so a crash before logging is configured
+    still leaves a diagnostic trail. On Windows consoles we pause so the
+    cmd.exe window stays open long enough to read the error.
+    """
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        import traceback
+        tb = traceback.format_exc()
+        # Best-effort crash log: write to the standard log dir, and also
+        # stderr. Use a fresh import path in case config import itself
+        # was the thing that crashed.
+        try:
+            import os
+            from pathlib import Path
+            if sys.platform == "win32":
+                log_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "voiceio" / "logs"
+            else:
+                log_dir = Path.home() / ".local" / "state" / "voiceio"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            crash_path = log_dir / "crash.log"
+            with open(crash_path, "a", encoding="utf-8") as f:
+                import datetime
+                f.write(f"\n===== {datetime.datetime.now().isoformat()} =====\n")
+                f.write(f"argv: {sys.argv}\n")
+                f.write(f"platform: {sys.platform}\n")
+                f.write(tb)
+            print(f"\n[voiceio crashed — wrote traceback to {crash_path}]",
+                  file=sys.stderr)
+        except Exception:
+            pass  # absolute last-resort: nothing we can do
+        print(tb, file=sys.stderr)
+        # On Windows, keep the console window open so the user can read
+        # the error instead of watching cmd.exe flash and close.
+        if sys.platform == "win32" and sys.stdin is not None and sys.stdin.isatty():
+            try:
+                input("\nPress Enter to close...")
+            except (EOFError, KeyboardInterrupt):
+                pass
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    _entry_point()

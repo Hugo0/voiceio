@@ -27,8 +27,42 @@ jobs:
       - name: Build executable
         run: pyinstaller voiceio.spec
 
-      - name: Verify executable runs
-        run: dist\voiceio\voiceio.exe --version
+      - name: Verify executable runs (version smoke test)
+        shell: pwsh
+        run: |
+          # Must print a non-empty version string. Catches the class of
+          # bugs where the exe exits 0 silently (e.g. missing
+          # `if __name__ == "__main__": main()` entry point).
+          $out = & dist\voiceio\voiceio.exe --version 2>&1
+          Write-Host "Output: $out"
+          if (-not $out) {
+            Write-Error "voiceio.exe --version produced no output"
+            exit 1
+          }
+          if ($out -notmatch "voiceio") {
+            Write-Error "voiceio.exe --version did not print 'voiceio': $out"
+            exit 1
+          }
+
+      - name: Verify full import chain (doctor)
+        shell: pwsh
+        run: |
+          # `doctor` imports every backend and probes them. This catches
+          # missing hidden imports, missing bundled data files, and
+          # missing DLLs that wouldn't show up in `--version`. Doctor
+          # exits non-zero when some backends are broken (expected in
+          # a headless CI), so we just check it produced output without
+          # a Python traceback.
+          $out = & dist\voiceio\voiceio.exe doctor 2>&1 | Out-String
+          Write-Host $out
+          if ($out -match "Traceback") {
+            Write-Error "voiceio.exe doctor raised a Python traceback"
+            exit 1
+          }
+          if (-not ($out -match "voiceio")) {
+            Write-Error "voiceio.exe doctor produced unexpected output"
+            exit 1
+          }
 
       - name: Create zip archive (portable)
         run: Compress-Archive -Path dist\voiceio -DestinationPath dist\voiceio-windows-x64.zip
