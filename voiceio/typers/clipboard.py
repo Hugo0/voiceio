@@ -65,6 +65,13 @@ class ClipboardTyper:
             self._pynput_kb = Controller()
         return self._pynput_kb
 
+    def reset_tools(self) -> None:
+        """Clear cached tool resolution so next probe re-detects."""
+        self._copy_cmd = None
+        self._paste_tool = None
+        self._delete_tool = None
+        self._tools_resolved = False
+
     def probe(self) -> ProbeResult:
         self._resolve_tools()
         if self._copy_cmd is None or (
