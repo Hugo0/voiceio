@@ -1,11 +1,13 @@
 """Tests for robustness features: stream health, tray watchdog, audio backoff."""
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 from voiceio.config import Config
 
 
@@ -530,10 +532,18 @@ class TestTrayWatchdog:
 # 9. Boot-race and typer re-probe (regression tests for 0.3.6 fix)
 # ===========================================================================
 
+_linux_only = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="Boot-race scenario is Linux-specific "
+           "(macOS/Windows detect display server from sys.platform)",
+)
+
+
 class TestBootRaceAndReProbe:
     """Tests for the fix where platform.detect's lru_cache froze a stale
     display=unknown result at boot, defeating all re-probe logic."""
 
+    @_linux_only
     def test_redetect_clears_lru_cache(self):
         """_redetect_platform must call cache_clear so env changes take effect."""
         from voiceio.app import _redetect_platform
