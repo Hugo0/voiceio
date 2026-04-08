@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-voiceio"
-version = "0.3.6"
+version = "0.3.7"
 description = "Speak → text, locally, instantly."
 readme = "README.md"
 license = "MIT"
@@ -50,7 +50,7 @@ Issues = "https://github.com/Hugo0/voiceio/issues"
 Changelog = "https://github.com/Hugo0/voiceio/releases"
 
 [project.scripts]
-voiceio = "voiceio.cli:main"
+voiceio = "voiceio.cli:_entry_point"
 # Legacy aliases (prefer: voiceio toggle/doctor/setup/test)
 voiceio-toggle = "voiceio.cli:_cmd_toggle"
 voiceio-doctor = "voiceio.cli:_cmd_doctor_legacy"

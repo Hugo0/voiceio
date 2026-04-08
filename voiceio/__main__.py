@@ -1,3 +1,3 @@
-from voiceio.cli import main
+from voiceio.cli import _entry_point
 
-main()
+_entry_point()

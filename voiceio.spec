@@ -49,10 +49,25 @@ hidden_imports = [
     "voiceio.tray",
     "voiceio.tray._icons",
     "voiceio.tray._pystray",
+    # VAD + audio processing
+    "voiceio.vad",
+    "voiceio.numbers",
+    "voiceio.postprocess",
+    "voiceio.commands",
+    "voiceio.corrections",
+    "voiceio.history",
+    "voiceio.vocabulary",
+    "voiceio.llm",
+    "voiceio.llm_api",
+    "voiceio.hints",
+    "voiceio.clipboard_read",
+    "voiceio.autocorrect",
+    "voiceio.worker",
     # faster-whisper / ctranslate2 internals
     "faster_whisper",
     "ctranslate2",
     "huggingface_hub",
+    "onnxruntime",
     # pynput backends
     "pynput.keyboard._win32",
     "pynput.mouse._win32",
@@ -69,6 +84,9 @@ hidden_imports = [
 datas = [
     # WAV sound files
     ("voiceio/sounds/*.wav", "voiceio/sounds"),
+    # Silero VAD ONNX model — ships with the source tree, must be bundled
+    # or load_vad() falls back to the less-accurate RMS detector.
+    ("voiceio/models/*.onnx", "voiceio/models"),
 ]
 
 # Add ctranslate2 shared libraries if found
