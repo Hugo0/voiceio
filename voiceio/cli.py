@@ -1109,6 +1109,16 @@ def _entry_point() -> None:
     still leaves a diagnostic trail. On Windows consoles we pause so the
     cmd.exe window stays open long enough to read the error.
     """
+    # Force UTF-8 on Windows stdout/stderr so we can print Unicode
+    # symbols (✓ / ✗ / emoji in doctor output, foreign characters in
+    # transcriptions) without hitting UnicodeEncodeError on the default
+    # cp1252 code page. Python 3.7+ has PYTHONUTF8 / reconfigure.
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     try:
         main()
     except SystemExit:
