@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-voiceio"
-version = "0.3.7"
+version = "0.3.8"
 description = "Speak → text, locally, instantly."
 readme = "README.md"
 license = "MIT"
