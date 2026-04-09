@@ -48,21 +48,25 @@ jobs:
         shell: pwsh
         run: |
           # `doctor` imports every backend and probes them. This catches
-          # missing hidden imports, missing bundled data files, and
-          # missing DLLs that wouldn't show up in `--version`. Doctor
-          # exits non-zero when some backends are broken (expected in
-          # a headless CI), so we just check it produced output without
-          # a Python traceback.
+          # missing hidden imports, missing bundled data files, missing
+          # DLLs, and Unicode / encoding issues that wouldn't show up in
+          # `--version`. Doctor itself exits non-zero when some backends
+          # are broken (expected in a headless CI with no audio device),
+          # so we ignore its exit code and validate by content: no Python
+          # traceback, and the report header is present.
           $out = & dist\voiceio\voiceio.exe doctor 2>&1 | Out-String
+          $global:LASTEXITCODE = 0  # swallow doctor's non-zero exit
           Write-Host $out
           if ($out -match "Traceback") {
             Write-Error "voiceio.exe doctor raised a Python traceback"
             exit 1
           }
-          if (-not ($out -match "voiceio")) {
-            Write-Error "voiceio.exe doctor produced unexpected output"
+          if (-not ($out -match "System")) {
+            Write-Error "voiceio.exe doctor produced unexpected output (missing 'System' section header)"
             exit 1
           }
+          Write-Host "doctor smoke test passed"
+          exit 0
 
       - name: Create zip archive (portable)
         run: Compress-Archive -Path dist\voiceio -DestinationPath dist\voiceio-windows-x64.zip
