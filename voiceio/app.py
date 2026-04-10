@@ -648,6 +648,26 @@ class VoiceIO:
         self._set_gnome_input_source_index(0)
         log.info("VoiceIO IBus engine ready (dormant until recording)")
 
+    def _ping_ibus_engine(self) -> bool:
+        """Check if the IBus engine's socket listener is alive.
+
+        Returns True if the engine responds to a ping within 1 second.
+        A False result means the engine process is alive but its socket
+        listener / GLib loop is dead (zombie engine).
+        """
+        import socket as _socket
+        from voiceio.ibus import SOCKET_PATH
+        try:
+            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_DGRAM)
+            sock.settimeout(1.0)
+            sock.bind("")
+            sock.sendto(b"ping", str(SOCKET_PATH))
+            data, _ = sock.recvfrom(64)
+            sock.close()
+            return data == b"pong"
+        except (OSError, _socket.timeout):
+            return False
+
     def _reactivate_ibus_if_stale(self) -> None:
         """Re-activate IBus engine if it lost registration (e.g. after hibernate).
 
@@ -933,7 +953,7 @@ class VoiceIO:
             self.platform = _redetect_platform()
             self._try_upgrade_typer(reason="probe-failed")
 
-        # Check IBus engine (restart if died, re-activate if stale after resume)
+        # Check IBus engine (restart if died, zombie, or stale after resume)
         if self._typer.name == "ibus" and self._engine_proc is not None:
             if self._engine_proc.poll() is not None:
                 log.warning("IBus engine process died (rc=%d), restarting",
@@ -945,9 +965,27 @@ class VoiceIO:
                 except Exception:
                     log.exception("IBus engine recovery failed")
             elif self._state == _State.IDLE:
-                # Engine alive but may have lost IBus registration after
-                # hibernate/suspend. Re-activate so preedit works next time.
-                self._reactivate_ibus_if_stale()
+                # Engine process alive — check if its socket listener is
+                # actually responding. A zombie engine (process alive but
+                # GLib loop stuck / socket thread dead) silently drops all
+                # preedit and commit messages, causing the "transcription
+                # works but no text appears" symptom.
+                if not self._ping_ibus_engine():
+                    log.warning("IBus engine not responding to ping, restarting")
+                    self._engine_proc.kill()
+                    try:
+                        self._engine_proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    self._engine_proc = None
+                    try:
+                        self._ensure_ibus_engine()
+                        log.info("IBus engine recovered (was zombie)")
+                    except Exception:
+                        log.exception("IBus engine recovery failed")
+                else:
+                    # Engine alive and responding — check IBus registration
+                    self._reactivate_ibus_if_stale()
 
     # ── Main loop ───────────────────────────────────────────────────────
 
