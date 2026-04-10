@@ -108,7 +108,8 @@ class TestIBusTyper:
         typer._wl_copy = "/usr/bin/wl-copy"
         mock_proc = MagicMock()
         mock_proc.stdin = MagicMock()
-        with patch("voiceio.typers.ibus.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.typers.ibus.subprocess.Popen", return_value=mock_proc), \
+             patch("voiceio.typers.ibus.subprocess.run"):
             typer.commit_text("Hello")
             mock_proc.stdin.write.assert_called_once_with(b"Hello")
             mock_proc.stdin.close.assert_called_once()

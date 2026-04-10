@@ -375,14 +375,21 @@ class IBusTyper:
         """Ask the IBus engine whether it has input focus in the active window."""
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-            sock.settimeout(0.3)
+            sock.settimeout(0.5)
             sock.bind("")  # autobind for receiving reply
             sock.sendto(b"focus?", str(SOCKET_PATH))
             data, _ = sock.recvfrom(64)
             sock.close()
-            return data == b"focused"
+            focused = data == b"focused"
+            log.debug("IBus engine focus: %s", data.decode(errors="replace"))
+            return focused
         except (OSError, socket.timeout):
-            return True  # assume focused on error (safe default: no extra paste)
+            # Engine not responding — assume NOT focused so we fall back
+            # to clipboard paste. Worst case: a redundant Ctrl+V that
+            # pastes over IBus-committed text. Better than silently losing
+            # the text entirely.
+            log.warning("IBus engine not responding to focus query, assuming unfocused")
+            return False
 
     @staticmethod
     def _ydotoold_running() -> bool:
@@ -401,19 +408,29 @@ class IBusTyper:
         try:
             if self._ydotool and self._ydotoold_running():
                 # ydotool key scancodes: 29=LCtrl, 47=V
-                subprocess.run(
+                result = subprocess.run(
                     [self._ydotool, "key", "29:1", "47:1", "47:0", "29:0"],
                     capture_output=True, timeout=3,
                 )
+                if result.returncode != 0:
+                    log.warning("ydotool paste failed (rc=%d): %s",
+                                result.returncode, result.stderr.decode(errors="replace").strip())
+                else:
+                    log.debug("Pasted via ydotool")
             elif self._wtype:
-                subprocess.run(
+                result = subprocess.run(
                     [self._wtype, "-M", "ctrl", "-k", "v", "-m", "ctrl"],
                     capture_output=True, timeout=3,
                 )
+                if result.returncode != 0:
+                    log.warning("wtype paste failed (rc=%d): %s",
+                                result.returncode, result.stderr.decode(errors="replace").strip())
+                else:
+                    log.debug("Pasted via wtype")
             else:
-                log.debug("No paste tool available (ydotoold not running, wtype not found)")
+                log.warning("No paste tool available (ydotoold not running, wtype not found)")
         except (subprocess.TimeoutExpired, OSError) as e:
-            log.debug("Paste simulation failed: %s", e)
+            log.warning("Paste simulation failed: %s", e)
 
     def _copy_to_clipboard(self, text: str) -> None:
         """Copy text to clipboard as backup for non-IBus apps (terminals).
