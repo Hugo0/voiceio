@@ -83,9 +83,12 @@ def _normalize_spacing(text: str) -> str:
 class CommandProcessor:
     """Detects and replaces voice commands in transcribed text."""
 
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, editing: bool = False):
         self._enabled = enabled
-        self._commands = DEFAULT_COMMANDS
+        self._commands = {
+            k: v for k, v in DEFAULT_COMMANDS.items()
+            if editing or v not in (_UNDO_SENTINEL, _FLAG_SENTINEL)
+        }
         self._max_words = max(len(k) for k in self._commands) if self._commands else 1
         self.undo_requested = False
         self.flag_requested = False
