@@ -59,28 +59,34 @@ class TestFormatting:
 
 class TestUndo:
     def test_scratch_that(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         result = cp.process("hello world scratch that")
         assert result == "hello world"
         assert cp.undo_requested is True
 
     def test_undo_that(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         result = cp.process("hello world undo that")
         assert result == "hello world"
         assert cp.undo_requested is True
 
     def test_scratch_that_only(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         result = cp.process("scratch that")
         assert result == ""
         assert cp.undo_requested is True
 
     def test_undo_resets_between_calls(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         cp.process("scratch that")
         assert cp.undo_requested is True
         cp.process("hello world")
+        assert cp.undo_requested is False
+
+    def test_editing_off_ignores_scratch(self):
+        cp = CommandProcessor(editing=False)
+        result = cp.process("hello world scratch that")
+        assert result == "hello world scratch that"
         assert cp.undo_requested is False
 
 
@@ -127,27 +133,27 @@ class TestEdgeCases:
 
 class TestCorrectThat:
     def test_correct_that_sets_flag(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         result = cp.process("hello world correct that")
         assert cp.flag_requested is True
         assert cp.flagged_word == "world"
         assert result == "hello"
 
     def test_correct_that_no_preceding_word(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         result = cp.process("correct that")
         assert cp.flag_requested is True
         assert cp.flagged_word == ""
         assert result == ""
 
     def test_correct_that_returns_text_before(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         result = cp.process("one two three correct that")
         assert result == "one two"
         assert cp.flagged_word == "three"
 
     def test_flag_resets_between_calls(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         cp.process("hello correct that")
         assert cp.flag_requested is True
         cp.process("hello world")
@@ -155,10 +161,16 @@ class TestCorrectThat:
         assert cp.flagged_word == ""
 
     def test_undo_not_set_on_flag(self):
-        cp = CommandProcessor()
+        cp = CommandProcessor(editing=True)
         cp.process("hello correct that")
         assert cp.flag_requested is True
         assert cp.undo_requested is False
+
+    def test_editing_off_ignores_correct(self):
+        cp = CommandProcessor(editing=False)
+        result = cp.process("hello world correct that")
+        assert result == "hello world correct that"
+        assert cp.flag_requested is False
 
 
 class TestSpacing:

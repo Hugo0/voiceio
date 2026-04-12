@@ -84,7 +84,8 @@ class DaemonConfig:
 
 @dataclass
 class CommandsConfig:
-    enabled: bool = False
+    enabled: bool = True
+    editing: bool = False
 
 
 @dataclass
