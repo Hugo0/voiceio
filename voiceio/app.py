@@ -126,6 +126,24 @@ class VoiceIO:
         self._socket: SocketHotkey | None = None
         if self._hotkey.name != "socket":
             self._socket = SocketHotkey()
+        elif self.platform.desktop not in ("GNOME", "KDE"):
+            # Socket backend has no physical hotkey listener — user must bind
+            # `voiceio toggle` to a key in their WM config.
+            log.warning(
+                "Hotkey backend is 'socket' on desktop '%s'. "
+                "Physical hotkey capture is not available. "
+                "Bind 'voiceio toggle' to a key in your window manager config "
+                "(e.g. i3: bindsym Ctrl+Alt+v exec voiceio toggle). "
+                "Or: sudo usermod -aG input $USER && log out/in to enable evdev.",
+                self.platform.desktop,
+            )
+            print(
+                f"\n  NOTE: No physical hotkey listener available on '{self.platform.desktop}'.\n"
+                f"  Bind 'voiceio toggle' to a key in your WM config, e.g.:\n"
+                f"    i3/sway:  bindsym Ctrl+Alt+v exec voiceio toggle\n"
+                f"    hyprland: bind = CTRL ALT, V, exec, voiceio toggle\n"
+                f"  Or fix evdev: sudo usermod -aG input $USER (then log out/in)\n",
+            )
 
         print(f"Loading model '{cfg.model.name}'...", end="", flush=True)
         t0 = time.monotonic()
@@ -146,7 +164,7 @@ class VoiceIO:
         if vocab:
             self.transcriber.set_initial_prompt(vocab)
 
-        self._command_processor = CommandProcessor(enabled=cfg.commands.enabled)
+        self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._cleanup = cfg.output.punctuation_cleanup
         self._number_conversion = cfg.output.number_conversion
         self._streaming = cfg.output.streaming

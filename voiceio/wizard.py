@@ -945,10 +945,11 @@ def run_wizard() -> None:
                  "will use GPU" if checks["cuda"] else "will use CPU (still fast)",
                  optional=True)
 
-    if checks["display"] == "wayland":
+    if checks["is_linux"]:
         _print_check("Input group (evdev)", checks["input_group"],
-                     "" if checks["input_group"] else "optional: sudo usermod -aG input $USER",
-                     optional=True)
+                     "evdev hotkeys available" if checks["input_group"]
+                     else "sudo usermod -aG input $USER (then log out/in)",
+                     optional=checks["input_group"])
 
     # Tray icon
     from voiceio.tray import probe_availability
@@ -1067,13 +1068,12 @@ def run_wizard() -> None:
             else:
                 print(f"  {YELLOW}⚠{RESET}  {DIM}Could not install IBus component, will use fallback{RESET}")
 
-        if checks["display"] == "wayland":
-            if checks["input_group"]:
-                backend = "evdev"
-            else:
-                backend = "socket"
+        if checks["input_group"]:
+            backend = "evdev"
+        elif checks["pynput"] and checks["display"] != "wayland":
+            backend = "auto"  # pynput works on X11
         else:
-            backend = "auto"
+            backend = "socket"
 
     # ── Defaults for optional settings ──────────────────────────────────
     sound_enabled = True
@@ -1286,9 +1286,12 @@ def run_wizard() -> None:
                 print(f"  {YELLOW}⚠{RESET}  Auto-setup failed. Add manually in Settings → Keyboard → Shortcuts:")
                 print("    Command: voiceio-toggle")
         elif backend == "socket":
-            print(f"\n  {YELLOW}ℹ{RESET}  Add a keyboard shortcut manually in your DE settings:")
-            print(f"    Shortcut: {BOLD}{hotkey}{RESET}")
-            print(f"    Command:  {BOLD}voiceio-toggle{RESET}")
+            print(f"\n  {YELLOW}ℹ{RESET}  Add a keyboard shortcut in your window manager config:")
+            print(f"    {DIM}i3/sway:{RESET}   bindsym Ctrl+Alt+v exec voiceio toggle")
+            print(f"    {DIM}hyprland:{RESET}  bind = CTRL ALT, V, exec, voiceio toggle")
+            print(f"    {DIM}other:{RESET}     bind {BOLD}{hotkey}{RESET} → {BOLD}voiceio toggle{RESET}")
+            print(f"\n    {DIM}Or enable evdev (no WM config needed):{RESET}")
+            print(f"    sudo usermod -aG input $USER  {DIM}(then log out and back in){RESET}")
 
     # Autostart
     from voiceio.service import install_service

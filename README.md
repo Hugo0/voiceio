@@ -1,5 +1,14 @@
 # voiceio
 
+```
+ ██╗   ██╗ ██████╗ ██╗ ██████╗███████╗██╗ ██████╗
+ ██║   ██║██╔═══██╗██║██╔════╝██╔════╝██║██╔═══██╗
+ ██║   ██║██║   ██║██║██║     █████╗  ██║██║   ██║
+ ╚██╗ ██╔╝██║   ██║██║██║     ██╔══╝  ██║██║   ██║
+  ╚████╔╝ ╚██████╔╝██║╚██████╗███████╗██║╚██████╔╝
+   ╚═══╝   ╚═════╝ ╚═╝ ╚═════╝╚══════╝╚═╝ ╚═════╝
+```
+
 [![CI](https://github.com/Hugo0/voiceio/actions/workflows/ci.yml/badge.svg)](https://github.com/Hugo0/voiceio/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
@@ -8,11 +17,13 @@
 
 Speak → text, locally, instantly.
 
+https://github.com/user-attachments/assets/9cf5d1ac-b4bb-4cf8-b775-7a66dc16b376
+
 ## Quick start
 
 ```bash
 # 1. Install system dependencies (Ubuntu/Debian)
-sudo apt install pipx ibus gir1.2-ibus-1.0 python3-gi portaudio19-dev
+sudo apt install pipx ibus gir1.2-ibus-1.0 python3-gi python3-dev portaudio19-dev
 
 # 2. Install voiceio
 pipx install python-voiceio
@@ -27,7 +38,7 @@ That's it. Press **Ctrl+Alt+V** (or your chosen hotkey) to start dictating.
 <summary><strong>Fedora</strong></summary>
 
 ```bash
-sudo dnf install pipx ibus python3-gobject portaudio-devel
+sudo dnf install pipx ibus python3-gobject python3-devel portaudio-devel
 pipx install python-voiceio
 voiceio setup
 ```
@@ -38,6 +49,7 @@ voiceio setup
 
 ```bash
 sudo pacman -S python-pipx ibus python-gobject portaudio
+# Note: Arch includes Python headers by default with the python package
 pipx install python-voiceio
 voiceio setup
 ```

@@ -80,7 +80,7 @@ class ClipboardTyper:
             return ProbeResult(
                 ok=False,
                 reason="No clipboard tool found",
-                fix_hint="Install xclip (X11), wl-copy (Wayland), or pbcopy (macOS).",
+                fix_hint="Install xclip + xdotool (X11), wl-copy + ydotool/wtype (Wayland), or pbcopy (macOS).",
             )
         if sys.platform == "win32":
             try:
