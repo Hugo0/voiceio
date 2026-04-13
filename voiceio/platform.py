@@ -234,6 +234,10 @@ def open_in_terminal(cmd: list[str]) -> bool:
     _TERMINALS = [
         (["gnome-terminal", "--"], "gnome-terminal"),
         (["konsole", "-e"], "konsole"),
+        (["alacritty", "-e"], "alacritty"),
+        (["kitty", "--"], "kitty"),
+        (["foot", "--"], "foot"),
+        (["wezterm", "start", "--"], "wezterm"),
         (["xfce4-terminal", "-e"], "xfce4-terminal"),
         (["xterm", "-e"], "xterm"),
     ]
