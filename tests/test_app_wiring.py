@@ -76,7 +76,7 @@ class TestHotkeyDebounce:
     """Verify that duplicate hotkey events are properly debounced."""
 
     def test_rapid_duplicate_ignored(self):
-        """Two on_hotkey calls within 0.3s should only trigger once."""
+        """Two on_hotkey calls within the debounce window should only trigger once."""
         vio, _, _ = _make_vio()
 
         vio.on_hotkey()

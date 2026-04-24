@@ -27,7 +27,7 @@ from voiceio.vocabulary import load_vocabulary
 if TYPE_CHECKING:
     from voiceio.typers.base import TyperBackend
 log = logging.getLogger("voiceio")
-_DEBOUNCE_SECS = 0.3
+_DEBOUNCE_SECS = 0.8
 
 # Env vars needed for clipboard/tray/typing on graphical sessions.
 # XDG_CURRENT_DESKTOP is required for is_gnome() detection, which gates
