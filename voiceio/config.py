@@ -64,6 +64,7 @@ class OutputConfig:
     cancel_window_secs: float = 0.5
     punctuation_cleanup: bool = True
     number_conversion: bool = True
+    voice_input_prefix: str = ""           # e.g. "[voice]" — empty disables
 
 
 @dataclass
@@ -100,7 +101,7 @@ class LLMConfig:
 class AutocorrectConfig:
     api_key: str = ""                      # API key, or set OPENROUTER_API_KEY env var
     base_url: str = "https://openrouter.ai/api/v1"  # Any OpenAI-compatible endpoint
-    model: str = "anthropic/claude-sonnet-4"   # Model ID (OpenRouter format)
+    model: str = "moonshotai/kimi-k2-0905"   # Model ID (OpenRouter format) — fast, cheap, non-thinking
     timeout_secs: float = 30.0
 
 

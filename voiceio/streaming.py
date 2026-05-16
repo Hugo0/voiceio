@@ -79,6 +79,7 @@ class StreamingSession:
         commands: CommandProcessor | None = None,
         corrections: CorrectionDict | None = None,
         llm: LLMProcessor | None = None,
+        voice_input_prefix: str = "",
         on_typer_broken: Callable[[], None] | None = None,
     ):
         self._transcriber = transcriber
@@ -92,6 +93,7 @@ class StreamingSession:
         self._commands = commands
         self._corrections = corrections
         self._llm = llm
+        self._voice_input_prefix = voice_input_prefix
         self._on_typer_broken = on_typer_broken
         self._typer_fail_count = 0
         self._typer_broken_signalled = False
@@ -202,6 +204,7 @@ class StreamingSession:
                 commands=self._commands,
                 corrections=self._corrections,
                 llm=self._llm,
+                voice_input_prefix=self._voice_input_prefix,
                 final=final,
             )
             if abort:

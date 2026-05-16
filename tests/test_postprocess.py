@@ -1,7 +1,7 @@
 """Tests for text post-processing (punctuation, capitalization)."""
 from __future__ import annotations
 
-from voiceio.postprocess import cleanup
+from voiceio.postprocess import apply_pipeline, cleanup
 from voiceio.streaming import _word_match_len
 
 
@@ -105,3 +105,50 @@ class TestWordMatchCompatibility:
         raw = ["testing,", "testing,", "hello"]
         cleaned = ["Testing,", "testing", "hello"]
         assert _word_match_len(raw, cleaned) == 3
+
+
+class TestVoiceInputPrefix:
+    """The prefix marker is prepended only when configured + text is non-empty."""
+
+    def test_disabled_by_default(self):
+        text, abort = apply_pipeline("hello world", final=True)
+        assert text == "hello world"
+        assert abort is False
+
+    def test_applied_when_set_final(self):
+        text, abort = apply_pipeline(
+            "hello world", voice_input_prefix="[voice]", final=True,
+        )
+        assert text == "[voice] hello world"
+        assert abort is False
+
+    def test_applied_during_streaming(self):
+        # Streaming passes (final=False) must also carry the prefix so the
+        # marker appears from the first chunk, not only at the very end.
+        text, _ = apply_pipeline(
+            "partial", voice_input_prefix="[voice]", final=False,
+        )
+        assert text == "[voice] partial"
+
+    def test_not_applied_to_empty_text(self):
+        text, abort = apply_pipeline(
+            "", voice_input_prefix="[voice]", final=True,
+        )
+        assert text == ""
+        assert abort is False
+
+    def test_custom_prefix(self):
+        text, _ = apply_pipeline(
+            "ok", voice_input_prefix="[v]", final=True,
+        )
+        assert text == "[v] ok"
+
+    def test_with_cleanup_chain(self):
+        # Cleanup capitalizes, then prefix is prepended verbatim.
+        text, _ = apply_pipeline(
+            "hello world",
+            do_cleanup=True,
+            voice_input_prefix="[voice]",
+            final=True,
+        )
+        assert text == "[voice] Hello world"
