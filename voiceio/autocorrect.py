@@ -157,14 +157,19 @@ _REVIEW_SYSTEM_PROMPT = """\
 You are an expert at identifying speech-to-text (Whisper) transcription errors.
 
 I'll give you suspicious words from dictation history with context and similar common words.
-Classify each word into exactly one of three buckets:
 
+CRITICAL: Every input word MUST appear in exactly one of the three buckets below. \
+Do not omit any word. If you have no opinion, put it in `ask_user` with an empty \
+`right` string and a short reason like "unclear".
+
+Buckets:
 1. auto_fix — Clearly a Whisper transcription error. You are confident in the correction.
-2. ask_user — Might be an error, but you're not sure. Give your best guess and explain why.
+2. ask_user — Might be an error, or you can't decide. Provide your best guess in `right` \
+   (or "" if no guess) and a short `reason`.
 3. vocabulary — A real proper noun, brand name, or technical term. Not an error.
 
 Return ONLY a JSON object with three arrays:
-{"auto_fix": [{"wrong": "olamma", "right": "Ollama"}], "ask_user": [{"wrong": "pinat", "right": "Peanut", "reason": "Could be brand name"}], "vocabulary": ["grafana", "postgres"]}"""
+{"auto_fix": [{"wrong": "olamma", "right": "Ollama"}], "ask_user": [{"wrong": "pinat", "right": "Peanut", "reason": "Could be brand name"}, {"wrong": "tridle", "right": "", "reason": "unclear"}], "vocabulary": ["grafana", "postgres"]}"""
 
 
 def _build_review_prompt(suspicious: list[SuspiciousWord]) -> str:
@@ -181,36 +186,42 @@ def _build_review_prompt(suspicious: list[SuspiciousWord]) -> str:
     return "\n\n".join(parts)
 
 
-def review_suspicious(cfg, suspicious: list[SuspiciousWord]) -> ReviewResult:
+# Each entry takes ~30-50 output tokens. Smaller batches mean shorter
+# responses (faster) and less wall-clock impact when one batch is slow.
+_REVIEW_BATCH_SIZE = 25
+
+
+def review_suspicious(
+    cfg, suspicious: list[SuspiciousWord],
+    *, on_progress=None,
+) -> ReviewResult:
     """Send suspicious words to an LLM for 3-bucket classification.
 
     Uses the OpenAI-compatible API (OpenRouter/Anthropic/OpenAI) if an API key
-    is available, otherwise falls back to local Ollama.
+    is available, otherwise falls back to local Ollama. Cloud requests are
+    batched so the JSON response can't be truncated by max_tokens.
+
+    `on_progress(done, total)` is called after each batch finishes.
     """
     if not suspicious:
         return ReviewResult()
 
-    prompt = _build_review_prompt(suspicious)
-
-    # Try cloud API first
     from voiceio.llm_api import resolve_api_key
     api_key = resolve_api_key(cfg.autocorrect)
     if api_key:
-        from voiceio.llm_api import chat
-        response = chat(
-            cfg.autocorrect, _REVIEW_SYSTEM_PROMPT, prompt, api_key=api_key,
-        )
-        if response:
-            return _parse_review_response(response)
-        log.warning("Cloud API call failed, falling back to Ollama")
+        result = _review_cloud_batched(cfg, suspicious, api_key, on_progress)
+        if result.auto_fix or result.ask_user or result.vocabulary:
+            return result
+        log.warning("Cloud API returned nothing usable, falling back to Ollama")
 
-    # Fall back to local Ollama
+    # Ollama is single-shot — local models are too weak for this task to benefit from batching.
     if cfg.llm.enabled:
         try:
             from voiceio.llm import LLMProcessor
             proc = LLMProcessor(cfg.llm)
             response = proc.generate(
-                prompt, system=_REVIEW_SYSTEM_PROMPT,
+                _build_review_prompt(suspicious),
+                system=_REVIEW_SYSTEM_PROMPT,
                 timeout=cfg.llm.timeout_secs * 3,
             )
             if response:
@@ -219,6 +230,144 @@ def review_suspicious(cfg, suspicious: list[SuspiciousWord]) -> ReviewResult:
             log.warning("Ollama review failed: %s", e)
 
     return ReviewResult()
+
+
+_REVIEW_MAX_WORKERS = 4  # cap on concurrent API calls — balances speed vs rate limits
+_REVIEW_OVERALL_TIMEOUT_PER_BATCH = 20.0  # seconds — used to compute overall deadline
+
+
+def _review_cloud_batched(
+    cfg, suspicious: list[SuspiciousWord], api_key: str, on_progress,
+) -> ReviewResult:
+    """Send `suspicious` to the cloud LLM in fixed-size batches, in parallel.
+
+    Enforces a wall-clock deadline so a single hung request can't stall the
+    entire review. Implemented with daemon threads + Queue so abandoned
+    stragglers don't block this function from returning (a stuck urllib
+    request inside ThreadPoolExecutor would otherwise hold up its `__exit__`).
+    """
+    import queue
+    import threading
+    import time
+
+    from voiceio.llm_api import chat
+
+    total = len(suspicious)
+    batches = [
+        (start, suspicious[start:start + _REVIEW_BATCH_SIZE])
+        for start in range(0, total, _REVIEW_BATCH_SIZE)
+    ]
+    if not batches:
+        return ReviewResult()
+
+    workers = min(_REVIEW_MAX_WORKERS, len(batches))
+    rounds = max(1, (len(batches) + workers - 1) // workers)
+    # ×2 slack so a slow-but-eventually-finishing first round doesn't kill us.
+    overall_timeout = rounds * _REVIEW_OVERALL_TIMEOUT_PER_BATCH * 2
+
+    results_q: queue.Queue = queue.Queue()
+    sem = threading.Semaphore(workers)
+
+    def runner(start_batch):
+        start, batch = start_batch
+        with sem:
+            try:
+                response = chat(
+                    cfg.autocorrect, _REVIEW_SYSTEM_PROMPT,
+                    _build_review_prompt(batch),
+                    api_key=api_key,
+                )
+                if not response:
+                    log.warning(
+                        "Cloud API empty response for batch %d-%d (size %d)",
+                        start, start + len(batch), len(batch),
+                    )
+                    results_q.put((batch, ReviewResult()))
+                    return
+                results_q.put((batch, _parse_review_response(response)))
+            except Exception as e:
+                log.warning("Batch %d raised: %s", start, e)
+                results_q.put((batch, ReviewResult()))
+
+    for b in batches:
+        threading.Thread(target=runner, args=(b,), daemon=True).start()
+
+    merged = ReviewResult()
+    done_count = 0
+    deadline = time.monotonic() + overall_timeout
+    received = 0
+    while received < len(batches):
+        remaining = deadline - time.monotonic()
+        try:
+            batch, r = results_q.get(timeout=max(remaining, 0))
+        except queue.Empty:
+            log.warning(
+                "Review hit overall deadline (%.0fs) — %d batch(es) abandoned",
+                overall_timeout, len(batches) - received,
+            )
+            break
+        merged.auto_fix.extend(r.auto_fix)
+        merged.ask_user.extend(r.ask_user)
+        merged.vocabulary.extend(r.vocabulary)
+        classified = (
+            {f["wrong"].lower() for f in r.auto_fix}
+            | {f["wrong"].lower() for f in r.ask_user}
+            | {v.lower() for v in r.vocabulary}
+        )
+        omitted = [sw.word for sw in batch if sw.word.lower() not in classified]
+        if omitted and (r.auto_fix or r.ask_user or r.vocabulary):
+            log.info(
+                "Batch returned %d/%d classifications; LLM omitted: %s",
+                len(batch) - len(omitted), len(batch), omitted[:10],
+            )
+        done_count += len(batch)
+        received += 1
+        if on_progress:
+            try:
+                on_progress(min(done_count, total), total)
+            except Exception:
+                pass
+    return merged
+
+
+def rank_review_score(
+    item: dict, sw: SuspiciousWord | None,
+) -> float:
+    """Score how likely a `to_review` item is a real Whisper error.
+
+    Higher = more likely a misheard real word that needs correcting.
+    Lower (incl. negative) = more likely a tech term / acronym / proper noun.
+    """
+    score = 0.0
+    # An LLM-suggested correction is the strongest signal.
+    if item.get("right"):
+        score += 100.0
+    if sw:
+        # Words near a common dictionary word are likely Whisper mishearings.
+        if sw.similar_common:
+            score += 30.0 + min(len(sw.similar_common), 5) * 5.0
+        # Higher count = more impactful when fixed (capped to avoid swamping).
+        score += min(sw.count, 20)
+        # Short all-lowercase ASCII with no similar word = probably an acronym.
+        if (not sw.similar_common
+                and len(sw.word) <= 5
+                and sw.word.islower()
+                and sw.word.isascii()):
+            score -= 50.0
+    return score
+
+
+def rank_review_items(
+    items: list[dict], sw_by_word: dict[str, SuspiciousWord],
+) -> list[dict]:
+    """Sort review items so most-likely-error words come first.
+
+    Stable: ties preserve LLM-provided order.
+    """
+    return sorted(
+        items,
+        key=lambda it: -rank_review_score(it, sw_by_word.get(it.get("wrong", ""))),
+    )
 
 
 def _parse_review_response(response: str) -> ReviewResult:
@@ -236,13 +385,13 @@ def _parse_review_response(response: str) -> ReviewResult:
     if isinstance(parsed, dict):
         return ReviewResult(
             auto_fix=_validate_fixes(parsed.get("auto_fix", [])),
-            ask_user=_validate_fixes(parsed.get("ask_user", [])),
+            ask_user=_validate_ask_user(parsed.get("ask_user", [])),
             vocabulary=[v for v in parsed.get("vocabulary", []) if isinstance(v, str)],
         )
 
     # Fallback: try old-style flat array (for Ollama compatibility)
     if isinstance(parsed, list):
-        fixes = _validate_fixes(parsed)
+        fixes = _validate_ask_user(parsed)
         return ReviewResult(ask_user=fixes)
 
     return ReviewResult()
@@ -266,7 +415,7 @@ def _try_parse_json(text: str):
 
 
 def _validate_fixes(items) -> list[dict]:
-    """Validate a list of fix entries, filtering out garbage."""
+    """Validate auto_fix entries: must have a different `right` to apply."""
     if not isinstance(items, list):
         return []
     valid = []
@@ -281,4 +430,31 @@ def _validate_fixes(items) -> list[dict]:
                 "right": right,
                 "reason": item.get("reason", ""),
             })
+    return valid
+
+
+def _validate_ask_user(items) -> list[dict]:
+    """Validate ask_user entries: keep anything with a `wrong` word.
+
+    Unlike auto_fix, ask_user entries are useful even without a clean
+    correction — the LLM's `reason` still tells the user what to look at.
+    Items where `right == wrong` are normalized to empty `right`.
+    """
+    if not isinstance(items, list):
+        return []
+    valid = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        wrong = item.get("wrong", "").strip()
+        if not wrong:
+            continue
+        right = item.get("right", "").strip()
+        if right.lower() == wrong.lower():
+            right = ""  # no useful suggestion
+        valid.append({
+            "wrong": wrong,
+            "right": right,
+            "reason": item.get("reason", ""),
+        })
     return valid

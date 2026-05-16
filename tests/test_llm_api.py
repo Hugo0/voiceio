@@ -95,6 +95,50 @@ def test_chat_malformed_response(mock_urlopen):
     assert chat(cfg, "sys", "msg") is None
 
 
+@patch("urllib.request.urlopen")
+def test_chat_null_content_returns_none(mock_urlopen):
+    """Thinking models (Kimi K2.6 etc.) can return content=None — must not crash."""
+    mock_urlopen.return_value = _mock_response({
+        "choices": [{"message": {"content": None}}],
+    })
+    cfg = _cfg()
+    assert chat(cfg, "sys", "msg") is None
+
+
+@patch("urllib.request.urlopen")
+def test_chat_falls_back_to_reasoning_field(mock_urlopen):
+    """When content is null but reasoning is present, use reasoning text."""
+    mock_urlopen.return_value = _mock_response({
+        "choices": [{"message": {
+            "content": None,
+            "reasoning": "the answer",
+        }}],
+    })
+    cfg = _cfg()
+    assert chat(cfg, "sys", "msg") == "the answer"
+
+
+@patch("urllib.request.urlopen")
+def test_chat_falls_back_to_reasoning_content_field(mock_urlopen):
+    """Some providers expose `reasoning_content` instead of `reasoning`."""
+    mock_urlopen.return_value = _mock_response({
+        "choices": [{"message": {
+            "content": None,
+            "reasoning_content": "thought-through answer",
+        }}],
+    })
+    cfg = _cfg()
+    assert chat(cfg, "sys", "msg") == "thought-through answer"
+
+
+@patch("urllib.request.urlopen")
+def test_chat_anthropic_null_content_array(mock_urlopen):
+    """Anthropic native API: content=null shouldn't crash."""
+    mock_urlopen.return_value = _mock_response({"content": None})
+    cfg = _cfg(base_url="https://api.anthropic.com/v1")
+    assert chat(cfg, "sys", "msg") is None
+
+
 # ── check_api_key ────────────────────────────────────────────────────────
 
 
@@ -157,7 +201,7 @@ def test_check_api_key_anthropic(mock_urlopen):
 def test_detect_openrouter():
     base_url, model = detect_provider("sk-or-abc123")
     assert "openrouter" in base_url
-    assert "claude" in model
+    assert "kimi" in model
 
 
 def test_detect_anthropic():

@@ -650,7 +650,8 @@ def _cmd_correct_auto(cd) -> None:
     """Scan history for Whisper mistakes, auto-fix with LLM or review manually."""
     from voiceio import history
     from voiceio.autocorrect import (
-        ReviewResult, find_suspicious_words, review_suspicious,
+        ReviewResult, find_suspicious_words, rank_review_items,
+        review_suspicious,
     )
     from voiceio.config import load as load_cfg
     from voiceio.llm_api import resolve_api_key
@@ -711,8 +712,17 @@ def _cmd_correct_auto(cd) -> None:
     if has_api or has_ollama:
         provider = cfg.autocorrect.model if has_api else "Ollama"
         with Spinner(f"Analyzing with {provider}...") as sp:
-            result = review_suspicious(cfg, suspicious)
-            sp.ok(f"Analyzed {len(suspicious)} word(s) with {provider}")
+            def _progress(done: int, total: int) -> None:
+                sp.set_message(f"Analyzing with {provider}... ({done}/{total})")
+            result = review_suspicious(cfg, suspicious, on_progress=_progress)
+            classified_n = (len(result.auto_fix) + len(result.ask_user)
+                            + len(result.vocabulary))
+            if classified_n == 0:
+                sp.warn("LLM returned no classifications "
+                        "(check 'voiceio logs'). Falling back to manual review.")
+            else:
+                sp.ok(f"Analyzed {len(suspicious)} word(s) with {provider} "
+                      f"— {classified_n} classified")
     else:
         result = ReviewResult()
 
@@ -766,6 +776,11 @@ def _cmd_correct_auto(cd) -> None:
                     "right": "",
                     "reason": "not classified by LLM",
                 })
+
+    # Rank: most-likely-error words first (LLM-suggested fixes, words near
+    # common dictionary words, high-frequency entries) — push acronyms / tech
+    # terms toward the end where the user can quickly skip or quit.
+    to_review = rank_review_items(to_review, sw_by_word)
 
     reviewed = 0
     skipped = 0
@@ -910,10 +925,70 @@ def _cmd_correct_auto(cd) -> None:
                         print()
                         quit_requested = True
                         break
-                    if key:
-                        _save_api_key(cfg, key)
-                        has_api = True
-                        print(f"  {GREEN}✓{RESET} API key saved to config")
+                    if not key:
+                        continue
+                    _save_api_key(cfg, key)
+                    has_api = True
+                    cfg = load_cfg()  # reload so resolve_api_key sees the new key
+                    print(f"  {GREEN}✓{RESET} API key saved to config")
+
+                    # Drop [k]ey from the legend now that we have one.
+                    legend_actions = [_key("a", "ccept"), _key("v", "ocab"),
+                                      _key("s", "kip"), _key("c", "ontext"),
+                                      _key("q", "uit"),
+                                      f"{DIM}or type correction{RESET}"]
+                    legend = f"  {' '.join(legend_actions)}"
+
+                    # Re-run LLM analysis on words not yet reviewed (skip current).
+                    remaining_words = {to_review[j]["wrong"] for j in range(i, len(to_review))}
+                    remaining_sw = [sw for sw in suspicious if sw.word in remaining_words]
+                    if remaining_sw:
+                        try:
+                            with Spinner(f"Analyzing with {cfg.autocorrect.model}...") as sp:
+                                def _resume_progress(done: int, total: int) -> None:
+                                    sp.set_message(
+                                        f"Analyzing with {cfg.autocorrect.model}... ({done}/{total})",
+                                    )
+                                new_result = review_suspicious(
+                                    cfg, remaining_sw, on_progress=_resume_progress,
+                                )
+                                sp.ok(f"Analyzed {len(remaining_sw)} word(s) with {cfg.autocorrect.model}")
+                        except Exception as exc:
+                            print(f"  {YELLOW}⚠{RESET}  LLM analysis failed: {exc}")
+                            continue
+
+                        if new_result.auto_fix:
+                            print(f"\n{BOLD}Auto-corrected{RESET} {DIM}({len(new_result.auto_fix)}){RESET}")
+                            for fix in new_result.auto_fix:
+                                sw = sw_by_word.get(fix["wrong"])
+                                count = f" {DIM}({sw.count}x){RESET}" if sw else ""
+                                cd.add(fix["wrong"], fix["right"])
+                                auto_fixed += 1
+                                print(f"  {GREEN}✓{RESET} {fix['wrong']} → {BOLD}{fix['right']}{RESET}{count}")
+
+                        if new_result.vocabulary:
+                            print(f"\n{BOLD}Added to vocabulary{RESET} {DIM}({len(new_result.vocabulary)}){RESET}")
+                            for word in new_result.vocabulary:
+                                _add_to_vocabulary(cfg, word)
+                                vocab_added += 1
+                                print(f"  {CYAN}+{RESET} {word}")
+
+                        classified = ({f["wrong"].lower() for f in new_result.auto_fix}
+                                      | {v.lower() for v in new_result.vocabulary})
+                        new_remaining = list(new_result.ask_user)
+                        seen_lc = {a["wrong"].lower() for a in new_remaining}
+                        for sw in remaining_sw:
+                            wlow = sw.word.lower()
+                            if wlow not in classified and wlow not in seen_lc:
+                                new_remaining.append({
+                                    "wrong": sw.word, "right": "",
+                                    "reason": "not classified by LLM",
+                                })
+                                seen_lc.add(wlow)
+                        new_remaining = rank_review_items(new_remaining, sw_by_word)
+                        to_review[i:] = new_remaining
+                        if new_remaining:
+                            print(f"\n{DIM}Continuing review with smart suggestions ({len(new_remaining)} remaining)...{RESET}")
                     continue
 
                 if cl in ("q", "quit"):
@@ -923,6 +998,9 @@ def _cmd_correct_auto(cd) -> None:
                     cd.add(wrong, right)
                     print(f"  {GREEN}✓{RESET} {wrong} → {BOLD}{right}{RESET}")
                     reviewed += 1
+                    reviewed += _offer_cluster_apply(
+                        cd, wrong, right, to_review, i, sw_by_word, _rl_prompt,
+                    )
                 elif cl in ("v", "vocab"):
                     _add_to_vocabulary(cfg, wrong)
                     vocab_added += 1
@@ -934,6 +1012,9 @@ def _cmd_correct_auto(cd) -> None:
                     cd.add(wrong, choice)
                     print(f"  {GREEN}✓{RESET} {wrong} → {BOLD}{choice}{RESET}")
                     reviewed += 1
+                    reviewed += _offer_cluster_apply(
+                        cd, wrong, choice, to_review, i, sw_by_word, _rl_prompt,
+                    )
                 break
 
             if quit_requested:
@@ -958,6 +1039,58 @@ def _cmd_correct_auto(cd) -> None:
     if auto_fixed or reviewed or vocab_added:
         from voiceio.hints import hint
         hint("correct_list", "Run 'voiceio correct --list' to see all corrections")
+
+
+def _offer_cluster_apply(
+    cd, wrong: str, right: str, to_review: list, current_i: int,
+    sw_by_word: dict, rl_prompt,
+) -> int:
+    """After a correction, offer to apply it to Levenshtein-close remaining items.
+
+    Returns the number of additional corrections applied. Mutates `to_review`
+    in place by removing items the user batch-accepted.
+    """
+    from voiceio.autocorrect import _levenshtein
+    from voiceio.wizard import BOLD, CYAN, DIM, GREEN, RESET
+
+    threshold = 2
+    matches: list[tuple[int, str]] = []
+    wrong_lc = wrong.lower()
+    for j in range(current_i, len(to_review)):
+        other = to_review[j].get("wrong", "")
+        if not other or other.lower() == wrong_lc:
+            continue
+        if _levenshtein(wrong_lc, other.lower()) <= threshold:
+            matches.append((j, other))
+
+    if not matches:
+        return 0
+
+    preview_n = 5
+    shown = ", ".join(m[1] for m in matches[:preview_n])
+    if len(matches) > preview_n:
+        shown += f", +{len(matches) - preview_n} more"
+    print(f"  {DIM}→ Found {len(matches)} similar variant(s): {shown}{RESET}")
+    try:
+        yn = input(rl_prompt(
+            f"  {CYAN}›{RESET} Apply '{BOLD}{right}{RESET}' to all? [Y/n] ",
+        )).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return 0
+    if yn not in ("", "y", "yes"):
+        return 0
+
+    # Remove back-to-front so earlier indices stay valid
+    applied = 0
+    for j, other in reversed(matches):
+        cd.add(other, right)
+        sw = sw_by_word.get(other)
+        count = f" {DIM}({sw.count}x){RESET}" if sw else ""
+        print(f"  {GREEN}✓{RESET} {other} → {BOLD}{right}{RESET}{count}")
+        del to_review[j]
+        applied += 1
+    return applied
 
 
 def _add_to_vocabulary(cfg, word: str) -> None:

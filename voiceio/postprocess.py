@@ -54,6 +54,7 @@ def apply_pipeline(
     commands: CommandProcessor | None = None,
     corrections: CorrectionDict | None = None,
     llm: LLMProcessor | None = None,
+    voice_input_prefix: str = "",
     final: bool = False,
 ) -> tuple[str, bool]:
     """Shared post-processing pipeline used by both streaming and batch modes.
@@ -80,5 +81,9 @@ def apply_pipeline(
 
     if final and llm and text:
         text = llm.process(text)
+
+    # Applied on every pass so the marker appears from the first streaming chunk.
+    if voice_input_prefix and text:
+        text = f"{voice_input_prefix} {text}"
 
     return text, False

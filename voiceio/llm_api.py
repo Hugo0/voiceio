@@ -64,8 +64,12 @@ def _anthropic_request(
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read())
-    # Anthropic returns content as a list of blocks
-    blocks = data.get("content", [])
+    # Anthropic returns content as a list of blocks; some thinking models
+    # may also include `thinking` blocks which we ignore.
+    blocks = data.get("content") or []
+    if not isinstance(blocks, list):
+        log.warning("Unexpected Anthropic response shape: %s", str(data)[:200])
+        return None
     text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
     return text.strip() or None
 
@@ -103,7 +107,21 @@ def _openai_request(
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read())
-    return data["choices"][0]["message"]["content"].strip()
+    # Be defensive: thinking models (Kimi K2.6, GPT reasoning, etc.) can
+    # return content=None when the answer is in `reasoning` / `reasoning_content`
+    # instead. Also some malformed responses lack `choices` entirely.
+    try:
+        msg = data["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError):
+        log.warning("Unexpected response shape: %s", str(data)[:200])
+        return None
+    text = (
+        msg.get("content")
+        or msg.get("reasoning_content")
+        or msg.get("reasoning")
+        or ""
+    )
+    return text.strip() or None
 
 
 def chat(
@@ -112,7 +130,7 @@ def chat(
     user_message: str,
     *,
     api_key: str = "",
-    max_tokens: int = 2048,
+    max_tokens: int = 4096,
 ) -> str | None:
     """Send a chat completion request. Returns response text or None on failure.
 
@@ -150,13 +168,13 @@ def chat(
 def detect_provider(api_key: str) -> tuple[str, str]:
     """Detect provider from API key prefix. Returns (base_url, model)."""
     if api_key.startswith("sk-or-"):
-        return "https://openrouter.ai/api/v1", "anthropic/claude-sonnet-4"
+        return "https://openrouter.ai/api/v1", "moonshotai/kimi-k2-0905"
     if api_key.startswith("sk-ant-"):
         return "https://api.anthropic.com/v1", "claude-sonnet-4-20250514"
     if api_key.startswith(("sk-proj-", "sk-")):
         return "https://api.openai.com/v1", "gpt-4o-mini"
     # Default to OpenRouter (works with most keys)
-    return "https://openrouter.ai/api/v1", "anthropic/claude-sonnet-4"
+    return "https://openrouter.ai/api/v1", "moonshotai/kimi-k2-0905"
 
 
 def check_api_key(cfg: AutocorrectConfig, api_key: str = "") -> bool:

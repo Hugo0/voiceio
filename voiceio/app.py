@@ -167,6 +167,7 @@ class VoiceIO:
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._cleanup = cfg.output.punctuation_cleanup
         self._number_conversion = cfg.output.number_conversion
+        self._voice_input_prefix = cfg.output.voice_input_prefix
         self._streaming = cfg.output.streaming
 
         # LLM post-processing (optional, requires Ollama)
@@ -298,6 +299,7 @@ class VoiceIO:
                 commands=self._command_processor,
                 corrections=self._corrections,
                 llm=self._llm,
+                voice_input_prefix=self._voice_input_prefix,
                 on_typer_broken=self._on_typer_broken,
             )
             self._session.start()
@@ -383,6 +385,7 @@ class VoiceIO:
                     commands=self._command_processor,
                     corrections=self._corrections,
                     llm=self._llm,
+                    voice_input_prefix=self._voice_input_prefix,
                     final=True,
                 )
                 if abort:
