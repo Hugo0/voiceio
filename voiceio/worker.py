@@ -55,8 +55,18 @@ def main() -> None:
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300},
         )
-        text = " ".join(s.text.strip() for s in segs).strip()
-        print(json.dumps({"text": text}), flush=True)
+        seg_list = list(segs)
+        text = " ".join(s.text.strip() for s in seg_list).strip()
+        segments = [
+            {
+                "text": s.text.strip(),
+                "avg_logprob": round(s.avg_logprob, 4),
+                "no_speech_prob": round(s.no_speech_prob, 4),
+                "compression_ratio": round(s.compression_ratio, 3),
+            }
+            for s in seg_list
+        ]
+        print(json.dumps({"text": text, "segments": segments}), flush=True)
 
 
 if __name__ == "__main__":

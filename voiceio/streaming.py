@@ -102,6 +102,9 @@ class StreamingSession:
         self._stop_event = threading.Event()
         self._worker_thread: threading.Thread | None = None
         self._final_audio: np.ndarray | None = None  # set on stop
+        # Raw (pre-pipeline) text + confidence of the final pass, for history
+        self.raw_final_text: str | None = None
+        self.final_segments: list[dict] = []
 
     def start(self) -> None:
         """Begin streaming. Recorder must already be started by caller."""
@@ -193,6 +196,10 @@ class StreamingSession:
         except Exception:
             log.exception("Streaming transcription failed")
             return
+
+        if final:
+            self.raw_final_text = text
+            self.final_segments = getattr(self._transcriber, "last_segments", [])
 
         if text and isinstance(text, str):
             from voiceio.postprocess import apply_pipeline

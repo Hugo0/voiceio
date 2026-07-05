@@ -11,14 +11,33 @@ from voiceio.config import HISTORY_PATH
 log = logging.getLogger(__name__)
 
 
-def append(text: str, path: Path | None = None) -> None:
-    """Append a transcription entry to the history file."""
+def append(
+    text: str,
+    path: Path | None = None,
+    *,
+    raw: str | None = None,
+    segments: list[dict] | None = None,
+    duration: float | None = None,
+) -> None:
+    """Append a transcription entry to the history file.
+
+    `text` is the final post-processed output. `raw` is the unprocessed
+    Whisper text and `segments` its per-segment confidence metadata — kept
+    so correction efficacy can be measured against ground truth instead of
+    the pipeline's own output.
+    """
     if not text or not text.strip():
         return
     p = path or HISTORY_PATH
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        entry = {"ts": time.time(), "text": text.strip()}
+        entry: dict = {"ts": time.time(), "text": text.strip()}
+        if raw is not None and raw.strip() != entry["text"]:
+            entry["raw"] = raw.strip()
+        if segments:
+            entry["segments"] = segments
+        if duration is not None:
+            entry["duration"] = round(duration, 2)
         with open(p, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as e:
