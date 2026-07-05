@@ -919,6 +919,12 @@ def run_wizard() -> None:
     _print_step(1, 8, "System check")
     checks = _check_system()
 
+    if checks["is_windows"] or checks["is_mac"]:
+        _plat = "Windows" if checks["is_windows"] else "macOS"
+        print(f"\n  {YELLOW}⚠  {_plat} is experimental and untested.{RESET}")
+        print(f"  {DIM}voiceio is developed on Linux; this platform may be broken. "
+              f"Proceed at your own risk.{RESET}\n")
+
     _print_check("Platform", True, checks["display"])
     _print_check("Audio input", checks["audio"],
                  f"{len(checks['audio_devices'])} device(s)" if checks["audio"] else "no devices found")
