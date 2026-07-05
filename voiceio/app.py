@@ -161,8 +161,12 @@ class VoiceIO:
         if vocab_terms:
             extra = ", ".join(vocab_terms)
             vocab = f"{vocab}, {extra}" if vocab else extra
+        # Vocabulary biases the decoder via hotwords; initial_prompt carries
+        # recent-transcript context (rebuilt per recording via PromptBuilder).
         if vocab:
-            self.transcriber.set_initial_prompt(vocab)
+            self.transcriber.set_hotwords(vocab)
+        from voiceio.prompt import PromptBuilder
+        self._prompt_builder = PromptBuilder()
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._cleanup = cfg.output.punctuation_cleanup
@@ -285,6 +289,7 @@ class VoiceIO:
         self._state = _State.RECORDING
         self._activate_ibus()
         self._corrections.load()  # hot-reload corrections on each recording
+        self.transcriber.set_initial_prompt(self._prompt_builder.build())
         self._record_start = time.monotonic()
         self.recorder.start()
         self.recorder.set_on_auto_stop(self._on_auto_stop)
@@ -398,9 +403,11 @@ class VoiceIO:
             return
         if final_text:
             self._play_feedback(final_text)
+            stored = self._strip_voice_prefix(final_text)
+            self._prompt_builder.add_transcript(stored)
             from voiceio import history
             history.append(
-                self._strip_voice_prefix(final_text),
+                stored,
                 raw=session.raw_final_text,
                 segments=session.final_segments,
                 duration=elapsed,
@@ -440,9 +447,11 @@ class VoiceIO:
                 if text:
                     self._type_with_fallback(text)
                     self._play_feedback(text)
+                    stored = self._strip_voice_prefix(text)
+                    self._prompt_builder.add_transcript(stored)
                     from voiceio import history
                     history.append(
-                        self._strip_voice_prefix(text),
+                        stored,
                         raw=raw,
                         segments=segments,
                         duration=len(audio) / self.recorder.sample_rate,

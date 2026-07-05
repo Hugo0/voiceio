@@ -52,14 +52,20 @@ class Transcriber:
         self._lock = threading.Lock()
         self._restarts = 0
         self._initial_prompt: str | None = None
+        self._hotwords: str | None = None
         # Segment metadata (confidence etc.) from the most recent transcribe()
         # call. Read it immediately after the call that produced it.
         self.last_segments: list[dict] = []
         self._start_worker()
 
     def set_initial_prompt(self, prompt: str | None) -> None:
-        """Set a static initial_prompt for vocabulary conditioning."""
+        """Set the initial_prompt (recent-transcript context conditioning)."""
         self._initial_prompt = prompt or None
+
+    def set_hotwords(self, hotwords: str | None) -> None:
+        """Set hotwords (vocabulary bias). Composes with initial_prompt:
+        faster-whisper prepends hotwords before the prompt tokens."""
+        self._hotwords = hotwords or None
 
     def _start_worker(self) -> None:
         log.info(
@@ -129,6 +135,8 @@ class Transcriber:
             req = {"audio_b64": audio_b64, "options": {"beam_size": 5 if final else 1}}
             if self._initial_prompt:
                 req["initial_prompt"] = self._initial_prompt
+            if self._hotwords:
+                req["hotwords"] = self._hotwords
             try:
                 self._proc.stdin.write(json.dumps(req) + "\n")
                 self._proc.stdin.flush()
