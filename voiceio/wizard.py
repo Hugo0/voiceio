@@ -110,10 +110,10 @@ LOGO_DOCTOR = f"""{CYAN}{BOLD}\
 
 MODELS = [
     ("tiny", "75 MB", "Fastest, basic accuracy"),
-    ("base", "150 MB", "Fast, good accuracy (recommended)"),
-    ("small", "500 MB", "Moderate speed, better accuracy"),
-    ("medium", "1.5 GB", "Slower, great accuracy"),
-    ("large-v3", "3 GB", "Slowest, best accuracy"),
+    ("base", "150 MB", "Fast, weak on names/technical terms"),
+    ("small", "500 MB", "Good accuracy, ~5x realtime on modern CPUs (recommended)"),
+    ("distil-large-v3", "1.5 GB", "Best accuracy that still streams on a fast CPU"),
+    ("large-v3-turbo", "1.6 GB", "Top accuracy, needs a GPU or batch mode"),
 ]
 
 LANGUAGES = [
@@ -1012,7 +1012,7 @@ def run_wizard() -> None:
     # ── Step 3: Speech recognition model ────────────────────────────────
     _print_step(3, 8, "Speech recognition model")
     print(f"  {DIM}Larger models are more accurate but slower and use more RAM.{RESET}\n")
-    model_idx = _ask_choice(MODELS, default=1)
+    model_idx = _ask_choice(MODELS, default=2)
     model_name = MODELS[model_idx][0]
 
     # Download immediately

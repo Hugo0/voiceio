@@ -10,7 +10,7 @@ from voiceio.config import load, _migrate_v1
 def test_load_defaults(tmp_path):
     cfg = load(path=tmp_path / "nonexistent.toml")
     assert cfg.hotkey.key == "ctrl+alt+v"
-    assert cfg.model.name == "base"
+    assert cfg.model.name == "small"
     assert cfg.audio.prebuffer_secs == 1.0
     assert cfg.health.auto_fallback is True
 
