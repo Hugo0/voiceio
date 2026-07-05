@@ -347,6 +347,16 @@ class VoiceIO:
 
         self._deactivate_ibus()
 
+    def _strip_voice_prefix(self, text: str) -> str:
+        """Remove the configured voice-input prefix before persisting.
+
+        The prefix is presentation for the target app, not dictated content;
+        storing it would pollute vocabulary mining and correction analysis.
+        """
+        if self._voice_input_prefix and text.startswith(self._voice_input_prefix):
+            return text[len(self._voice_input_prefix):].lstrip()
+        return text
+
     _CLIP_RATIO_WARN = 0.005   # >0.5% of samples in flat-top runs
     _CLIP_WARN_INTERVAL = 300  # seconds between warnings
 
@@ -389,7 +399,12 @@ class VoiceIO:
         if final_text:
             self._play_feedback(final_text)
             from voiceio import history
-            history.append(final_text)
+            history.append(
+                self._strip_voice_prefix(final_text),
+                raw=session.raw_final_text,
+                segments=session.final_segments,
+                duration=elapsed,
+            )
         log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
         # Transition to IDLE under lock to avoid racing with _toggle
         with self._hotkey_lock:
@@ -402,7 +417,9 @@ class VoiceIO:
         try:
             if self._generation != gen:
                 return
-            text = self.transcriber.transcribe(audio, final=True)
+            raw = self.transcriber.transcribe(audio, final=True)
+            segments = self.transcriber.last_segments
+            text = raw
             if self._generation != gen:
                 return
             if text:
@@ -424,7 +441,12 @@ class VoiceIO:
                     self._type_with_fallback(text)
                     self._play_feedback(text)
                     from voiceio import history
-                    history.append(text)
+                    history.append(
+                        self._strip_voice_prefix(text),
+                        raw=raw,
+                        segments=segments,
+                        duration=len(audio) / self.recorder.sample_rate,
+                    )
                     log.info("Typed: '%s'", text)
         except Exception:
             log.exception("Processing failed")

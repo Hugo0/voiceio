@@ -52,6 +52,9 @@ class Transcriber:
         self._lock = threading.Lock()
         self._restarts = 0
         self._initial_prompt: str | None = None
+        # Segment metadata (confidence etc.) from the most recent transcribe()
+        # call. Read it immediately after the call that produced it.
+        self.last_segments: list[dict] = []
         self._start_worker()
 
     def set_initial_prompt(self, prompt: str | None) -> None:
@@ -150,6 +153,7 @@ class Transcriber:
                 log.warning("Invalid response from worker: %s", repr(result_line)[:100])
                 return ""
             text = result.get("text", "")
+            self.last_segments = result.get("segments", [])
 
             elapsed = time.monotonic() - t0
             ratio = duration / elapsed if elapsed > 0 else 999
