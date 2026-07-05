@@ -37,7 +37,10 @@ class HotkeyConfig:
 
 @dataclass
 class ModelConfig:
-    name: str = "base"
+    # "small" fixes most proper-noun/technical-term errors vs "base" and still
+    # runs ~5x realtime on a modern CPU; "distil-large-v3" is the quality pick
+    # for batch (non-streaming) use.
+    name: str = "small"
     language: str = "en"
     device: str = "auto"
     compute_type: str = "int8"
