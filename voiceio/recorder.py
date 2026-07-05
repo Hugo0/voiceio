@@ -111,6 +111,11 @@ class AudioRecorder:
         # Heartbeat: updated by _callback, checked by health watchdog
         self._last_callback_time: float = 0.0
 
+        # Level meter for the current/last recording (peak, flat-top clipping)
+        self._meter_peak = 0.0
+        self._meter_clipped = 0
+        self._meter_samples = 0
+
     def open_stream(self) -> None:
         """Start the always-on audio stream (feeds ring buffer)."""
         if self._stream is not None:
@@ -199,6 +204,9 @@ class AudioRecorder:
             self._sustained_silence = 0.0
             self._heard_speech = False
             self._last_transcribed_len = 0
+            self._meter_peak = 0.0
+            self._meter_clipped = 0
+            self._meter_samples = 0
             self._recording = True
             prebuf_ms = len(prebuf) / self.sample_rate * 1000
             log.info("Recording started (%.0fms pre-buffer)", prebuf_ms)
@@ -246,6 +254,15 @@ class AudioRecorder:
     def mark_transcribed(self, num_samples: int) -> None:
         self._last_transcribed_len = num_samples
 
+    def get_meter(self) -> dict[str, float]:
+        """Level stats for the current or just-finished recording.
+
+        clip_ratio counts only samples in flat-top runs (>=4 consecutive
+        pinned samples) — true ADC saturation, not isolated plosive peaks.
+        """
+        n = max(self._meter_samples, 1)
+        return {"peak": self._meter_peak, "clip_ratio": self._meter_clipped / n}
+
     @property
     def is_recording(self) -> bool:
         return self._recording
@@ -268,6 +285,16 @@ class AudioRecorder:
         chunk = indata.copy()
         self._chunks.append(chunk)
         self._total_samples += chunk.shape[0]
+
+        # Level metering
+        abs_chunk = np.abs(chunk.ravel())
+        self._meter_peak = max(self._meter_peak, float(abs_chunk.max(initial=0.0)))
+        self._meter_samples += len(abs_chunk)
+        pinned = abs_chunk >= 0.99
+        if np.count_nonzero(pinned) >= 4:
+            runs = np.convolve(pinned.astype(np.int8), np.ones(4, dtype=np.int8), "valid")
+            if np.any(runs >= 4):
+                self._meter_clipped += int(np.count_nonzero(pinned))
 
         # Silence detection via VAD backend
         chunk_secs = frames / self.sample_rate

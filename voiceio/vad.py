@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -92,18 +93,36 @@ class SileroVad:
 
 
 class RmsVad:
-    """Simple RMS-based silence detection (the original voiceio approach)."""
+    """RMS-based silence detection with an adaptive noise floor.
+
+    A fixed threshold breaks on hot (over-boosted) microphones whose ambient
+    noise alone exceeds it: silence is never detected, so streaming updates
+    and auto-stop stop working. Once enough frames are observed, the
+    effective threshold rises to a multiple of the estimated noise floor
+    (10th percentile of recent frame RMS). The floor persists across
+    sessions — ambient noise doesn't change per recording.
+    """
+
+    _HISTORY = 200        # frames (~10-20s at typical callback sizes)
+    _MIN_FRAMES = 20      # use the fixed threshold until we know the room
+    _FLOOR_RATIO = 3.0    # speech must exceed floor by this factor
 
     def __init__(self, threshold: float = 0.01):
         self._threshold = threshold
+        self._recent: deque[float] = deque(maxlen=self._HISTORY)
 
     def reset(self) -> None:
-        pass  # stateless
+        pass  # keep the noise-floor estimate across sessions
 
     def is_speech(self, chunk: np.ndarray) -> bool:
         flat = chunk.ravel()
         rms = float(np.sqrt(np.dot(flat, flat) / max(len(flat), 1)))
-        return rms >= self._threshold
+        self._recent.append(rms)
+        effective = self._threshold
+        if len(self._recent) >= self._MIN_FRAMES:
+            floor = float(np.percentile(list(self._recent), 10))
+            effective = max(self._threshold, floor * self._FLOOR_RATIO)
+        return rms >= effective
 
 
 def load_vad(cfg: AudioConfig) -> VadBackend:

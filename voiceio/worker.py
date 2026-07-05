@@ -42,9 +42,18 @@ def main() -> None:
         req = json.loads(line)
         audio = np.frombuffer(base64.b64decode(req["audio_b64"]), dtype=np.float32)
         initial_prompt = req.get("initial_prompt") or None
+        options = req.get("options") or {}
         segs, _ = model.transcribe(
             audio, language=args.get("language"),
-            beam_size=1, best_of=1, initial_prompt=initial_prompt,
+            beam_size=int(options.get("beam_size", 1)),
+            initial_prompt=initial_prompt,
+            # Short dictation utterances: conditioning on previous text lets one
+            # bad window poison the rest (repetition loops); vad_filter drops the
+            # pre-buffer noise and trailing silence that cause "Thank you."-style
+            # hallucinations.
+            condition_on_previous_text=False,
+            vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 300},
         )
         text = " ".join(s.text.strip() for s in segs).strip()
         print(json.dumps({"text": text}), flush=True)

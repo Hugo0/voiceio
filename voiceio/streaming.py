@@ -189,7 +189,7 @@ class StreamingSession:
             return
 
         try:
-            text = self._transcriber.transcribe(audio)
+            text = self._transcriber.transcribe(audio, final=final)
         except Exception:
             log.exception("Streaming transcription failed")
             return

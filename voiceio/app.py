@@ -186,6 +186,7 @@ class VoiceIO:
         self._generation = 0          # incremented on every stop; leaked threads check this
         self._session: StreamingSession | None = None
         self._record_start: float = 0
+        self._last_clip_warn: float = 0
 
         # Hotkey deduplication
         self._hotkey_lock = threading.Lock()
@@ -316,6 +317,7 @@ class VoiceIO:
         self.recorder.set_on_auto_stop(None)
         audio = self.recorder.stop()
         tray.set_recording(False)
+        self._warn_if_clipping()
 
         if self._streaming and self._session is not None:
             self._state = _State.FINALIZING
@@ -345,6 +347,34 @@ class VoiceIO:
 
         self._deactivate_ibus()
 
+    _CLIP_RATIO_WARN = 0.005   # >0.5% of samples in flat-top runs
+    _CLIP_WARN_INTERVAL = 300  # seconds between warnings
+
+    def _warn_if_clipping(self) -> None:
+        """Warn (rate-limited) when the mic input is saturating the ADC.
+
+        Clipping cannot be repaired in software — the gain must come down
+        before the ADC — so tell the user how to lower it.
+        """
+        meter = self.recorder.get_meter()
+        if meter["clip_ratio"] < self._CLIP_RATIO_WARN:
+            return
+        now = time.monotonic()
+        if now - self._last_clip_warn < self._CLIP_WARN_INTERVAL:
+            return
+        self._last_clip_warn = now
+        log.warning(
+            "Microphone is clipping (%.1f%% of samples saturated, peak %.2f) — "
+            "transcription quality suffers. Lower the input gain, e.g.: "
+            "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 10%%-",
+            meter["clip_ratio"] * 100, meter["peak"],
+        )
+        from voiceio import feedback
+        feedback.notify(
+            "VoiceIO: microphone too loud",
+            "Input is clipping — lower your mic gain in system sound settings.",
+        )
+
     # ── Background work ─────────────────────────────────────────────────
 
     def _finalize_streaming(
@@ -372,7 +402,7 @@ class VoiceIO:
         try:
             if self._generation != gen:
                 return
-            text = self.transcriber.transcribe(audio)
+            text = self.transcriber.transcribe(audio, final=True)
             if self._generation != gen:
                 return
             if text:
