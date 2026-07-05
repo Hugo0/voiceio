@@ -450,7 +450,7 @@ class TestWorkerLoop:
         call_count = 0
         transcriber = MagicMock()
 
-        def slow_transcribe(audio):
+        def slow_transcribe(audio, final=False):
             nonlocal call_count
             call_count += 1
             time.sleep(0.2)

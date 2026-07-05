@@ -20,6 +20,30 @@ log = logging.getLogger(__name__)
 TRANSCRIBE_TIMEOUT = 30  # seconds
 MAX_RESTARTS = 3
 
+# Loudness normalization: Whisper's log-mel frontend is not scale-invariant at
+# extremes, so too-quiet audio transcribes poorly. Normalize RMS toward a
+# speech-typical level, but never amplify noise unboundedly and never push the
+# peak into clipping.
+_TARGET_RMS = 10 ** (-20 / 20)  # -20 dBFS
+_MAX_GAIN = 10 ** (30 / 20)     # +30 dB cap
+_PEAK_LIMIT = 10 ** (-1 / 20)   # -1 dBFS
+
+
+def normalize_audio(audio: np.ndarray) -> np.ndarray:
+    """RMS-normalize float32 audio toward -20 dBFS, peak-limited to -1 dBFS."""
+    if len(audio) == 0:
+        return audio
+    rms = float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
+    if rms < 1e-6:  # digital silence — nothing to normalize
+        return audio
+    gain = min(_TARGET_RMS / rms, _MAX_GAIN)
+    peak = float(np.max(np.abs(audio)))
+    if peak * gain > _PEAK_LIMIT:
+        gain = _PEAK_LIMIT / peak
+    if abs(gain - 1.0) < 0.05:
+        return audio
+    return np.clip(audio * gain, -1.0, 1.0).astype(np.float32)
+
 
 class Transcriber:
     def __init__(self, cfg: ModelConfig):
@@ -87,15 +111,19 @@ class Transcriber:
         log.warning("Worker died, restarting (attempt %d/%d)", self._restarts, MAX_RESTARTS)
         self._start_worker()
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray, final: bool = False) -> str:
+        """Transcribe audio. `final=True` marks the pass whose text the user
+        keeps (streaming final / batch): it gets beam search; interim streaming
+        passes stay greedy for latency."""
         with self._lock:
             self._ensure_worker()
 
             duration = len(audio) / 16000
             t0 = time.monotonic()
 
+            audio = normalize_audio(audio)
             audio_b64 = base64.b64encode(audio.tobytes()).decode("ascii")
-            req = {"audio_b64": audio_b64}
+            req = {"audio_b64": audio_b64, "options": {"beam_size": 5 if final else 1}}
             if self._initial_prompt:
                 req["initial_prompt"] = self._initial_prompt
             try:

@@ -9,3 +9,4 @@ build/
 uv.lock
 bench.py
 .env
+.claude/worktrees/

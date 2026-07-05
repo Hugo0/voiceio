@@ -106,13 +106,16 @@ def _play_sync(name: str) -> None:
         log.debug("Playback failed for %s", name, exc_info=True)
 
 
+def notify(title: str, body: str) -> None:
+    """Send a desktop notification without blocking the caller."""
+    threading.Thread(
+        target=_send_notification, args=(title, body), daemon=True,
+    ).start()
+
+
 def notify_clipboard(text: str) -> None:
     preview = text[:80] + ("\u2026" if len(text) > 80 else "")
-    threading.Thread(
-        target=_send_notification,
-        args=("VoiceIO: copied to clipboard", preview),
-        daemon=True,
-    ).start()
+    notify("VoiceIO: copied to clipboard", preview)
 
 
 def _send_notification(title: str, body: str) -> None:
