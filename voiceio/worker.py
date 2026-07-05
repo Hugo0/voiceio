@@ -47,6 +47,7 @@ def main() -> None:
             audio, language=args.get("language"),
             beam_size=int(options.get("beam_size", 1)),
             initial_prompt=initial_prompt,
+            hotwords=req.get("hotwords") or None,
             # Short dictation utterances: conditioning on previous text lets one
             # bad window poison the rest (repetition loops); vad_filter drops the
             # pre-buffer noise and trailing silence that cause "Thank you."-style
