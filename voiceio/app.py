@@ -167,6 +167,7 @@ class VoiceIO:
             self.transcriber.set_hotwords(vocab)
         from voiceio.prompt import PromptBuilder
         self._prompt_builder = PromptBuilder()
+        self._vocabulary = vocab or ""
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._cleanup = cfg.output.punctuation_cleanup
@@ -184,6 +185,16 @@ class VoiceIO:
                 log.info("LLM: %s via %s", cfg.llm.model or "auto", cfg.llm.base_url)
             else:
                 log.warning("LLM enabled but Ollama not available (will retry)")
+
+        # Constrained LLM post-correction (optional, cloud API, final pass only)
+        self._postcorrect = None
+        if cfg.postcorrect.enabled:
+            from voiceio.postcorrect import PostCorrector
+            self._postcorrect = PostCorrector(cfg)
+            if self._postcorrect.is_available():
+                log.info("PostCorrect: %s", cfg.postcorrect.model or cfg.autocorrect.model)
+            else:
+                log.warning("PostCorrect enabled but no API key resolved (disabled)")
 
         # Explicit state machine
         self._state = _State.IDLE
@@ -296,6 +307,12 @@ class VoiceIO:
         self._activate_ibus()
         self._corrections.load()  # hot-reload corrections on each recording
         self.transcriber.set_initial_prompt(self._prompt_builder.build())
+        if self._postcorrect is not None:
+            self._postcorrect.set_context(
+                vocabulary=self._vocabulary,
+                recent=self._prompt_builder.recent(3),
+                title=self._context_title,
+            )
         if self.cfg.data.capture_context:
             # Snapshot the dictation target now — focus may change by finalize
             self._context_title = None
@@ -314,6 +331,7 @@ class VoiceIO:
                 language=self.cfg.model.language,
                 commands=self._command_processor,
                 corrections=self._corrections,
+                postcorrect=self._postcorrect,
                 llm=self._llm,
                 voice_input_prefix=self._voice_input_prefix,
                 on_typer_broken=self._on_typer_broken,
@@ -468,6 +486,7 @@ class VoiceIO:
                     language=self.cfg.model.language,
                     commands=self._command_processor,
                     corrections=self._corrections,
+                    postcorrect=self._postcorrect,
                     llm=self._llm,
                     voice_input_prefix=self._voice_input_prefix,
                     final=True,

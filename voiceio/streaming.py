@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from voiceio.commands import CommandProcessor
     from voiceio.corrections import CorrectionDict
     from voiceio.llm import LLMProcessor
+    from voiceio.postcorrect import PostCorrector
     from voiceio.recorder import AudioRecorder
     from voiceio.transcriber import Transcriber
     from voiceio.typers.base import TyperBackend
@@ -78,6 +79,7 @@ class StreamingSession:
         language: str = "en",
         commands: CommandProcessor | None = None,
         corrections: CorrectionDict | None = None,
+        postcorrect: PostCorrector | None = None,
         llm: LLMProcessor | None = None,
         voice_input_prefix: str = "",
         on_typer_broken: Callable[[], None] | None = None,
@@ -92,6 +94,7 @@ class StreamingSession:
         self._language = language
         self._commands = commands
         self._corrections = corrections
+        self._postcorrect = postcorrect
         self._llm = llm
         self._voice_input_prefix = voice_input_prefix
         self._on_typer_broken = on_typer_broken
@@ -210,6 +213,7 @@ class StreamingSession:
                 language=self._language,
                 commands=self._commands,
                 corrections=self._corrections,
+                postcorrect=self._postcorrect,
                 llm=self._llm,
                 voice_input_prefix=self._voice_input_prefix,
                 final=final,

@@ -110,6 +110,20 @@ class AutocorrectConfig:
 
 
 @dataclass
+class PostCorrectConfig:
+    """Constrained LLM post-correction of final transcripts.
+
+    Reuses the [autocorrect] section's API key / base_url resolution (config
+    key → OPENROUTER_API_KEY → OPENAI_API_KEY → ANTHROPIC_API_KEY). Only the
+    model can be overridden here; empty falls back to the autocorrect model.
+    """
+    enabled: bool = False
+    model: str = ""              # empty = use [autocorrect].model
+    timeout_secs: float = 8.0
+    min_words: int = 4           # skip utterances shorter than this
+
+
+@dataclass
 class TTSConfig:
     enabled: bool = True
     engine: str = "auto"         # "auto" | "piper" | "espeak" | "edge-tts"
@@ -149,6 +163,7 @@ class Config:
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     autocorrect: AutocorrectConfig = field(default_factory=AutocorrectConfig)
+    postcorrect: PostCorrectConfig = field(default_factory=PostCorrectConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     health: HealthConfig = field(default_factory=HealthConfig)
     data: DataConfig = field(default_factory=DataConfig)
@@ -209,6 +224,7 @@ def load(path: Path | None = None) -> Config:
         daemon=_build(DaemonConfig, raw.get("daemon", {})),
         llm=_build(LLMConfig, raw.get("llm", {})),
         autocorrect=_build(AutocorrectConfig, raw.get("autocorrect", {})),
+        postcorrect=_build(PostCorrectConfig, raw.get("postcorrect", {})),
         tts=_build(TTSConfig, raw.get("tts", {})),
         health=_build(HealthConfig, raw.get("health", {})),
         data=_build(DataConfig, raw.get("data", {})),

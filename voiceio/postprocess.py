@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from voiceio.commands import CommandProcessor
     from voiceio.corrections import CorrectionDict
     from voiceio.llm import LLMProcessor
+    from voiceio.postcorrect import PostCorrector
 
 # Languages that don't use letter casing
 _NO_CASE_LANGUAGES = frozenset({"zh", "ja", "ko", "ar", "he", "th", "hi", "bn", "ka", "my"})
@@ -53,6 +54,7 @@ def apply_pipeline(
     language: str = "en",
     commands: CommandProcessor | None = None,
     corrections: CorrectionDict | None = None,
+    postcorrect: PostCorrector | None = None,
     llm: LLMProcessor | None = None,
     voice_input_prefix: str = "",
     final: bool = False,
@@ -78,6 +80,10 @@ def apply_pipeline(
 
     if corrections and text:
         text = corrections.apply(text)
+
+    # Constrained LLM post-correction — final pass only, before generic LLM.
+    if final and postcorrect and text:
+        text = postcorrect.correct(text)
 
     if final and llm and text:
         text = llm.process(text)
