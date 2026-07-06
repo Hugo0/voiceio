@@ -644,7 +644,13 @@ def _cmd_correct(args: argparse.Namespace) -> None:
         # Direct manual add stays ungated, but warn if it would have been
         # blocked by the safety gate (e.g. "correcting" a real word).
         from voiceio.autocorrect import gate_correction
-        reason = gate_correction(args.wrong, args.right)
+        from voiceio.config import load as _load_cfg
+        _cfg = _load_cfg()
+        reason = gate_correction(
+            args.wrong, args.right,
+            language=_cfg.model.language if _cfg.model.language != "auto" else "en",
+            protect_languages=_cfg.autocorrect.protect_languages,
+        )
         if reason:
             print(f"Warning: {reason}")
         cd.add(args.wrong, args.right)
@@ -798,6 +804,7 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
             reason = gate_correction(
                 fix["wrong"], fix["right"],
                 vocabulary=vocab_words, language=language,
+                protect_languages=cfg.autocorrect.protect_languages,
             )
             if reason:
                 downgraded.append({
@@ -1053,6 +1060,7 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
                                 reason = gate_correction(
                                     fix["wrong"], fix["right"],
                                     vocabulary=vocab_words, language=language,
+                                    protect_languages=cfg.autocorrect.protect_languages,
                                 )
                                 if reason:
                                     resume_downgraded.append({
@@ -1099,6 +1107,7 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
                 elif cl in ("a", "accept", "y", "yes") and right:
                     reason = gate_correction(
                         wrong, right, vocabulary=vocab_words, language=language,
+                        protect_languages=cfg.autocorrect.protect_languages,
                     )
                     if reason:
                         print(f"  {YELLOW}⚠{RESET}  {reason}")
@@ -1125,6 +1134,7 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
                     # Typed a word — use it as the correction directly.
                     reason = gate_correction(
                         wrong, choice, vocabulary=vocab_words, language=language,
+                        protect_languages=cfg.autocorrect.protect_languages,
                     )
                     if reason:
                         print(f"  {YELLOW}⚠{RESET}  {reason}")

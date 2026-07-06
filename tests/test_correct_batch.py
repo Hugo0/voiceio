@@ -80,3 +80,20 @@ class TestTimerUnits:
         unit = _correct_timer_unit()
         assert "OnCalendar=weekly" in unit
         assert "Persistent=true" in unit
+
+
+class TestProtectLanguages:
+    def test_spanish_word_blocked(self):
+        from voiceio.autocorrect import gate_correction
+        # "harina" (Spanish: flour) is a non-word in English but must not be
+        # rewritten for a bilingual user
+        assert gate_correction("harina", "hearing",
+                               protect_languages=["es"]) is not None
+        # without protection it passes (English-only user)
+        assert gate_correction("harina", "hearing") is None
+
+    def test_english_nonword_still_passes(self):
+        from voiceio.autocorrect import gate_correction
+        assert gate_correction("ngroc", "ngrok",
+                               vocabulary={"ngrok"},
+                               protect_languages=["es", "ca"]) is None
