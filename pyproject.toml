@@ -37,6 +37,10 @@ tray = ["pystray>=0.19", "Pillow>=10.0"]
 tts = ["piper-tts>=1.2.0"]
 tts-cloud = ["edge-tts>=6.1.0"]
 dev = ["pytest>=7.0", "pytest-mock"]
+# Convenience bundle for a full Linux install (tray icon + local TTS). The core
+# Linux deps (evdev, sounddevice) are already unconditional; system packages
+# (IBus, PortAudio, a C toolchain) are installed separately — see README.
+linux = ["pystray>=0.19", "Pillow>=10.0", "piper-tts>=1.2.0"]
 
 [project.urls]
 Homepage = "https://github.com/Hugo0/voiceio"

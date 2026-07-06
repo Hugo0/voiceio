@@ -79,10 +79,19 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
     # Check audio
     try:
         import sounddevice as _sd
-        _sd.query_devices(kind="input")
-        report.audio_ok = True
-    except Exception as e:
-        report.audio_reason = str(e)
+    except OSError:
+        # sounddevice imports but PortAudio's shared library is missing.
+        report.audio_reason = ("PortAudio library not found — install: "
+                               + plat.system_deps_install_cmd(["portaudio"]))
+    except ImportError:
+        report.audio_reason = "sounddevice not installed (pip install sounddevice)"
+    else:
+        try:
+            _sd.query_devices(kind="input")
+            report.audio_ok = True
+        except Exception:
+            # sounddevice raises an unhelpful "Error querying device -1" here.
+            report.audio_reason = "no microphone / audio input device found"
 
     # Check CLI in PATH
     from voiceio.service import symlinks_installed

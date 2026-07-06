@@ -201,6 +201,25 @@ def test_noninteractive_fails_without_microphone(cfg_paths, monkeypatch, capsys)
     assert "microphone" in capsys.readouterr().out
 
 
+def test_noninteractive_headless_writes_config_and_skips_heavy_steps(
+        cfg_paths, monkeypatch, capsys):
+    """Unusable system (no mic, no typer) still gets a valid config, the
+    documented exit code, and no model download / service install."""
+    _patch_noninteractive(monkeypatch)
+    headless = dict(_LINUX_CHECKS, audio=False, audio_devices=[], xdotool=False)
+    monkeypatch.setattr(wizard, "_check_system", lambda: headless)
+    monkeypatch.setattr(wizard, "_download_model",
+                        lambda name: pytest.fail("model download must be skipped"))
+    code = wizard.run_setup_noninteractive({})
+    assert code == 5  # first failure (audio) wins
+    out = capsys.readouterr().out
+    assert "step=config status=written" in out
+    assert "step=model" in out and "status=skipped" in out
+    loaded = config.load(cfg_paths)
+    assert loaded.model.name == "small"
+    assert loaded.hotkey.key == "ctrl+alt+v"
+
+
 def test_noninteractive_fails_on_model_download(cfg_paths, monkeypatch, capsys):
     _patch_noninteractive(monkeypatch)
     monkeypatch.setattr(wizard, "_download_model", lambda name: False)
