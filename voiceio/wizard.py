@@ -680,7 +680,7 @@ def _write_config(
             "model": autocorrect_model or "moonshotai/kimi-k2-0905",
         })
 
-    CONFIG_PATH.write_text(_dump_toml(cfg))
+    CONFIG_PATH.write_text(_dump_toml(cfg), encoding="utf-8")
     _secure_config_permissions()
     if not quiet:
         print(f"\n  {GREEN}✓{RESET} Config saved to {DIM}{CONFIG_PATH}{RESET}")
