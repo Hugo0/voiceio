@@ -15,9 +15,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Downloads](https://img.shields.io/pepy/dt/python-voiceio)](https://pepy.tech/projects/python-voiceio)
 
-Speak → text, locally, instantly.
+Voice dictation for Linux. Speak → text, locally, instantly.
 
 https://github.com/user-attachments/assets/9cf5d1ac-b4bb-4cf8-b775-7a66dc16b376
+
+> **Linux-first.** voiceio is developed and tested daily on Linux (GNOME/Wayland). Windows and macOS ship as **experimental, untested** targets — the code paths exist but are unmaintained and likely broken. See [Experimental platforms](#experimental-platforms).
 
 ## Quick start
 
@@ -56,28 +58,9 @@ voiceio setup
 </details>
 
 <details>
-<summary><strong>Windows</strong></summary>
+<summary><strong>Windows / macOS (experimental)</strong></summary>
 
-```powershell
-# Option A: Install with pip (requires Python 3.11+)
-pip install python-voiceio
-voiceio setup
-
-# Option B: Download the installer from GitHub Releases (no Python needed)
-# https://github.com/Hugo0/voiceio/releases
-# Also available as a portable .zip if you prefer no installation.
-```
-
-Windows uses pynput for hotkeys and text injection. No extra system dependencies required.
-</details>
-
-<details>
-<summary><strong>macOS</strong></summary>
-
-```bash
-pipx install python-voiceio
-voiceio setup
-```
+See [Experimental platforms](#experimental-platforms) below — these builds are untested and unmaintained.
 </details>
 
 <details>
@@ -156,7 +139,7 @@ voiceio uninstall        Remove all system integrations
 `voiceio setup` handles everything interactively. To tweak later, edit the config file or override at runtime:
 
 - Linux/macOS: `~/.config/voiceio/config.toml`
-- Windows: `%LOCALAPPDATA%\voiceio\config\config.toml`
+- Windows: `%LOCALAPPDATA%\voiceio\config\config.toml` (see [Experimental platforms](#experimental-platforms))
 
 ```bash
 voiceio --model large-v3 --language auto -v
@@ -178,11 +161,11 @@ voiceio logs             # check debug output
 | Hotkey doesn't work on Wayland | `sudo usermod -aG input $USER` then log out and back in |
 | Transcription too slow | Use a smaller model: `voiceio --model tiny` |
 | Want to start fresh | `voiceio uninstall` then `voiceio setup` |
-| Windows: antivirus blocks hotkeys | pynput uses global keyboard hooks — add an exception for voiceio |
-| Windows: no sound feedback | Check `voiceio logs` for audio device info |
-| macOS issues | Experimental — consider [aquavoice.com](https://aquavoice.com/) or contribute a PR |
+| Windows / macOS issues | These platforms are experimental and untested — see [Experimental platforms](#experimental-platforms) |
 
 ## Platform support
+
+voiceio targets **Linux**. That's what it's developed and tested against.
 
 | Platform | Status | Text injection | Hotkeys | Streaming preview |
 |----------|--------|---------------|---------|-------------------|
@@ -191,10 +174,21 @@ voiceio logs             # check debug output
 | Fedora (GNOME) | Supported | IBus | evdev / GNOME shortcut | Yes |
 | Arch Linux | Supported | IBus | evdev | Yes |
 | KDE / Sway / Hyprland | Should work | IBus / ydotool / wtype | evdev | Yes |
-| Windows 10/11 | Experimental | pynput / clipboard | pynput | Type-and-correct (no preedit) |
-| macOS | Experimental | pynput / clipboard | pynput | Type-and-correct (no preedit) |
 
 voiceio auto-detects your platform and picks the best available backends. Run `voiceio doctor` to see what's working on your system.
+
+## Experimental platforms
+
+Windows and macOS code paths exist, but they are **experimental, untested, and unmaintained** — the maintainer only develops on Linux, so they may be broken at any given time. No parity with Linux is promised. Contributions are welcome, but please don't file bugs expecting a fix.
+
+| Platform | Status | Text injection | Hotkeys | Streaming preview |
+|----------|--------|---------------|---------|-------------------|
+| Windows 10/11 | Experimental / untested | pynput / clipboard | pynput | Type-and-correct (no preedit) |
+| macOS | Experimental / untested | pynput / clipboard | pynput | Type-and-correct (no preedit) |
+
+- **Windows:** `pip install python-voiceio` then `voiceio setup` (pynput handles hotkeys + text injection; no system deps). Prebuilt installers may appear on [GitHub Releases](https://github.com/Hugo0/voiceio/releases).
+- **macOS:** `pipx install python-voiceio` then `voiceio setup`. If it doesn't work for you, consider [aquavoice.com](https://aquavoice.com/) or contribute a PR.
+- Config lives at `%LOCALAPPDATA%\voiceio\config\config.toml` (Windows) or `~/.config/voiceio/config.toml` (macOS).
 
 ## Uninstall
 
@@ -229,7 +223,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) and [open issues](
 - [x] Voice commands — "new line", "new paragraph", "scratch that", punctuation by name
 - [x] Custom vocabulary / personal dictionary (bias Whisper via `initial_prompt`)
 - [x] Smart punctuation & capitalization post-processing
-- [x] Windows support
+- [x] Windows support (experimental, untested)
 - [x] System tray icon with animated states
 - [x] Auto-stop on silence
 
