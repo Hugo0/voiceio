@@ -104,12 +104,17 @@ class TestRestartBudgetReset:
         import time as _time
         t, mock_proc = self._make()
 
-        # Simulate having already hit the ceiling long ago.
+        # Simulate having already hit the ceiling long ago. Patch monotonic
+        # instead of subtracting from it: on a freshly-booted machine (CI),
+        # monotonic() is small and the subtraction would go negative,
+        # disabling the reset guard entirely.
         t._restarts = MAX_RESTARTS
-        t._last_crash_time = _time.monotonic() - (RESTART_RESET_SECS + 60)
+        t._last_crash_time = 1.0
         mock_proc.poll.return_value = 1  # worker died again
 
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc), \
+                patch("voiceio.transcriber.time") as mock_time:
+            mock_time.monotonic.return_value = 1.0 + RESTART_RESET_SECS + 60
             t._ensure_worker()  # must NOT raise — counter reset then incremented
 
         assert t._restarts == 1
