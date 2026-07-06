@@ -92,6 +92,12 @@ def _import_graphical_env() -> None:
 
 _HEALTH_CHECK_INTERVAL = 10  # seconds between health checks
 
+# Whisper's decoder has a hard 448-token sequence budget shared by hotwords,
+# initial_prompt AND the transcription output. Hotwords + prompt must stay
+# well under half of it or output gets truncated mid-utterance.
+# ~600 chars ≈ 150 tokens.
+_HOTWORDS_MAX_CHARS = 600
+
 
 class _State(enum.Enum):
     IDLE = "idle"
@@ -292,10 +298,19 @@ class VoiceIO:
         so this stays cheap enough to run on every recording start.
         """
         vocab = self._vocab_loader.get()
-        vocab_terms = self._corrections.vocabulary_terms()
+        # Only merge RARE correction targets (proper nouns, technical terms):
+        # common-word targets ("review", "company") add nothing to decoder bias
+        # and hundreds of them blow Whisper's 448-token prompt+output budget,
+        # which truncates transcriptions mid-utterance.
+        from voiceio.wordfreq import is_common
+        vocab_terms = [
+            t for t in self._corrections.vocabulary_terms()
+            if not is_common(t, self.cfg.model.language)
+        ]
         if vocab_terms:
             extra = ", ".join(vocab_terms)
             vocab = f"{vocab}, {extra}" if vocab else extra
+        vocab = vocab[:_HOTWORDS_MAX_CHARS]
         if vocab != self._hotwords:
             self._hotwords = vocab
             if vocab:

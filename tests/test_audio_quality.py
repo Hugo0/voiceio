@@ -118,3 +118,21 @@ class TestAdaptiveRmsVad:
         for _ in range(50):
             vad.is_speech(quiet)
         assert vad.is_speech(np.full(1024, 0.02, dtype=np.float32)) is True
+
+
+class TestPromptBudget:
+    """Whisper shares a 448-token budget between hotwords, initial_prompt and
+    output. Oversized bias inputs truncated real transcriptions mid-utterance
+    (2026-07-05 regression). These bounds must hold."""
+
+    def test_hotwords_capped(self):
+        from unittest.mock import MagicMock, patch
+        from voiceio.app import _HOTWORDS_MAX_CHARS
+        assert _HOTWORDS_MAX_CHARS <= 700
+
+    def test_prompt_builder_default_budget_small(self):
+        from voiceio.prompt import PromptBuilder
+        pb = PromptBuilder()
+        for i in range(10):
+            pb.add_transcript("word " * 120)
+        assert len(pb.build()) <= 300
