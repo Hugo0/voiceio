@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from voiceio import config
 from voiceio.config import RECORDINGS_DIR
 
 if TYPE_CHECKING:
@@ -35,12 +36,14 @@ def save_audio(audio: np.ndarray, ts: float, cfg: DataConfig) -> str | None:
     path = RECORDINGS_DIR / name
     try:
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        config._chmod(RECORDINGS_DIR, config._SECURE_DIR)
         pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
         with wave.open(str(path), "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
             wf.setframerate(16000)
             wf.writeframes(pcm.tobytes())
+        config._chmod(path, config._SECURE_FILE)
         return name
     except OSError as e:
         log.warning("Failed to save recording: %s", e)
@@ -48,7 +51,16 @@ def save_audio(audio: np.ndarray, ts: float, cfg: DataConfig) -> str | None:
 
 
 def prune(cfg: DataConfig) -> None:
-    """Delete oldest recordings when total size exceeds the configured cap."""
+    """Delete oldest recordings when total size exceeds the configured cap.
+
+    Also runs the one-shot, idempotent permission migration — this is the
+    startup housekeeping call site, so tightening existing files here means
+    upgrades from older versions get 0600/0700 without extra wiring.
+    """
+    try:
+        config.harden_permissions()
+    except Exception:
+        log.debug("Permission hardening failed", exc_info=True)
     if not RECORDINGS_DIR.exists():
         return
     try:

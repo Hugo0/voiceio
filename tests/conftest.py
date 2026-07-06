@@ -25,7 +25,14 @@ def _isolate_user_state(tmp_path, monkeypatch):
     monkeypatch.setattr("voiceio.config.SNAPSHOTS_DIR", tmp_path / "snapshots")
     monkeypatch.setattr("voiceio.config.AUDIT_STATE_PATH", tmp_path / "audit_state.json")
     monkeypatch.setattr("voiceio.config.CONFIG_DIR", tmp_path / "config")
+    monkeypatch.setattr("voiceio.config.CONFIG_PATH", tmp_path / "config" / "config.toml")
+    monkeypatch.setattr("voiceio.config.CONSENT_PATH", tmp_path / "config" / "consent.json")
+    monkeypatch.setattr(
+        "voiceio.config.AUTOCORRECT_STATE_PATH", tmp_path / "config" / "autocorrect_state.json",
+    )
     monkeypatch.setattr("voiceio.config.CORRECTIONS_PATH", tmp_path / "config" / "corrections.json")
+    monkeypatch.setattr("voiceio.config.FLAGGED_PATH", tmp_path / "config" / "flagged.txt")
+    monkeypatch.setattr("voiceio.config.LOG_DIR", tmp_path / "state")
     monkeypatch.setattr(
         "voiceio.corrections.CORRECTIONS_PATH", tmp_path / "config" / "corrections.json",
     )

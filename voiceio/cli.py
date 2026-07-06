@@ -201,6 +201,28 @@ def _cmd_setup() -> None:
     hint("test", "Run 'voiceio test' to try a quick recording")
 
 
+def _is_privileged_cmd(cmd: list[str]) -> bool:
+    """True if a fix command runs sudo or pipes a remote install script."""
+    joined = " ".join(cmd)
+    return "sudo" in cmd or "sudo " in joined or "curl" in joined or "| sh" in joined
+
+
+def _confirm_privileged(description: str, command_str: str) -> bool:
+    """Show the exact privileged command and require an explicit y/N (default N).
+
+    Used for every sudo / remote-script action in `doctor --fix` so nothing
+    touches the system or runs as root without the user seeing and approving
+    the exact command first.
+    """
+    print(f"\n  {description} needs to run:")
+    print(f"    {command_str}")
+    try:
+        answer = input("  Run this now? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    return answer in ("y", "yes")
+
+
 def _cmd_doctor(args: argparse.Namespace) -> None:
     """Run diagnostic health check, offer to fix issues."""
     if sys.platform in ("win32", "darwin"):
@@ -209,8 +231,16 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
               f"voiceio is developed on Linux and may be broken here.\n",
               file=sys.stderr)
     from voiceio.health import check_health, format_report
+    from voiceio import config as _config
     report = check_health()
     print(format_report(report))
+
+    # Permission probe: nothing voiceio persists should be group/world-readable.
+    perm_issues = _config.check_permissions()
+    if perm_issues:
+        print("\nInsecure file permissions (should be 0600 files / 0700 dirs):")
+        for path, mode, expected in perm_issues:
+            print(f"  {oct(mode)[2:]:>4} → {oct(expected)[2:]:>4}  {path}")
 
     fixable = [b for b in report.hotkey_backends + report.typer_backends
                if not b.ok and b.fix_cmd]
@@ -219,21 +249,34 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         if fixable:
             names = ", ".join(b.name for b in fixable)
             print(f"\nRun 'voiceio doctor --fix' to auto-fix: {names}")
+        if perm_issues:
+            print("Run 'voiceio doctor --fix' to tighten file permissions.")
         from voiceio.hints import hint
         hint("correct_auto", "Run 'voiceio correct --auto' to scan for Whisper mistakes")
-        sys.exit(0 if report.all_ok else 1)
+        sys.exit(0 if (report.all_ok and not perm_issues) else 1)
 
     # Auto-fix mode
     print("\nAttempting fixes...\n")
     import subprocess
 
     fixed_any = False
+
+    if perm_issues:
+        changed = _config.harden_permissions()
+        print(f"  Tightened permissions on {changed} path(s).")
+        fixed_any = fixed_any or changed > 0
+
     for b in report.hotkey_backends + report.typer_backends:
         if not b.ok and b.fix_cmd:
             cmd_str = " ".join(b.fix_cmd)
-            print(f"  Fixing {b.name}: {cmd_str}")
+            if _is_privileged_cmd(b.fix_cmd):
+                if not _confirm_privileged(f"Fix {b.name}", cmd_str):
+                    print(f"  Skipped {b.name} (declined).")
+                    continue
+            else:
+                print(f"  Fixing {b.name}: {cmd_str}")
             try:
-                subprocess.run(b.fix_cmd, check=True, timeout=10)
+                subprocess.run(b.fix_cmd, check=True, timeout=30)
                 print("  Done.")
                 fixed_any = True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
@@ -284,12 +327,18 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         llm_status, _ = diagnose_ollama(_cfg.llm)
         if llm_status == OllamaStatus.NOT_INSTALLED:
             if sys.platform == "linux":
-                print("  Fixing LLM: installing Ollama...")
-                if install_ollama():
-                    print("  Done.")
-                    fixed_any = True
+                if _confirm_privileged(
+                    "Install Ollama (local LLM runtime)",
+                    "curl -fsSL https://ollama.com/install.sh | sh",
+                ):
+                    print("  Installing Ollama...")
+                    if install_ollama():
+                        print("  Done.")
+                        fixed_any = True
+                    else:
+                        print("  Failed. Visit https://ollama.com")
                 else:
-                    print("  Failed. Visit https://ollama.com")
+                    print("  Skipped Ollama install (declined). Manual: https://ollama.com/download")
             else:
                 print("  LLM: Install Ollama from https://ollama.com")
         elif llm_status == OllamaStatus.NOT_RUNNING:
@@ -427,6 +476,7 @@ def _cmd_uninstall() -> None:
     """Remove all voiceio system integrations."""
     import os
     import shutil
+    import signal
     import subprocess
 
     home = Path.home()
@@ -453,20 +503,21 @@ def _cmd_uninstall() -> None:
         if uninstall_windows_startup():
             removed.append("Windows startup shortcut")
     else:
-        # Kill any running voiceio daemon (manual or systemd)
+        # Kill the running voiceio daemon via its PID file (not pgrep, which
+        # can match unrelated processes or this very uninstall command).
+        from voiceio.config import PID_PATH
         try:
-            result = subprocess.run(
-                ["pgrep", "-f", "voiceio.cli"],
-                capture_output=True, text=True, timeout=3,
-            )
-            if result.returncode == 0:
-                my_pid = str(os.getpid())
-                for pid in result.stdout.strip().split("\n"):
-                    pid = pid.strip()
-                    if pid and pid != my_pid:
-                        subprocess.run(["kill", pid], capture_output=True, timeout=3)
-                removed.append("Running voiceio daemon(s)")
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pid = int(PID_PATH.read_text().strip())
+            if pid and pid != os.getpid():
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    removed.append(f"Running voiceio daemon (pid {pid})")
+                except ProcessLookupError:
+                    pass  # already gone
+                except PermissionError:
+                    pass
+            PID_PATH.unlink(missing_ok=True)
+        except (FileNotFoundError, ValueError):
             pass
 
         # Kill any running IBus engine process
@@ -507,6 +558,12 @@ def _cmd_uninstall() -> None:
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 pass
             removed.append(str(service_path))
+
+        # Remove the weekly mining timer + its oneshot unit.
+        from voiceio import service as _service
+        if _service.CORRECT_TIMER_PATH.exists() or _service.CORRECT_SERVICE_PATH.exists():
+            _service.uninstall_correct_timer()
+            removed.append(str(_service.CORRECT_TIMER_PATH))
 
         # 2. Remove IBus component and launcher
         ibus_component = home / ".local" / "share" / "ibus" / "component" / "voiceio.xml"
@@ -558,16 +615,27 @@ def _cmd_uninstall() -> None:
                 link.unlink()
                 removed.append(str(link))
 
-    # 6. Optionally remove config and logs (use platform-aware paths)
+        # 6. Remove the uinput udev rule (needs sudo — explicit consent).
+        from voiceio.typers.ydotool import UINPUT_UDEV_RULE_PATH
+        if Path(UINPUT_UDEV_RULE_PATH).exists():
+            cmd = f"sudo rm {UINPUT_UDEV_RULE_PATH}"
+            if _confirm_privileged("Remove the voiceio uinput udev rule", cmd):
+                try:
+                    subprocess.run(["sudo", "rm", UINPUT_UDEV_RULE_PATH], timeout=30)
+                    removed.append(UINPUT_UDEV_RULE_PATH)
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    print(f"  Failed. Run manually: {cmd}")
+
+    # 7. Optionally remove config and all local state (platform-aware paths)
     from voiceio.config import CONFIG_DIR, LOG_DIR
     if CONFIG_DIR.exists():
-        answer = input("Remove config too? [y/N] ").strip().lower()
+        answer = input("Remove config too (config.toml, corrections, consent)? [y/N] ").strip().lower()
         if answer == "y":
             shutil.rmtree(CONFIG_DIR)
             removed.append(str(CONFIG_DIR))
 
     if LOG_DIR.exists():
-        answer = input("Remove logs too? [y/N] ").strip().lower()
+        answer = input("Remove all local state too (history, recordings, logs, metrics)? [y/N] ").strip().lower()
         if answer == "y":
             shutil.rmtree(LOG_DIR)
             removed.append(str(LOG_DIR))
@@ -1413,7 +1481,12 @@ def _save_api_key(cfg, key: str) -> None:
     content = _set_field(content, "base_url", base_url)
     content = _set_field(content, "model", model)
 
-    CONFIG_PATH.write_text(content, encoding="utf-8")
+    from voiceio import config as _config
+    from voiceio import consent
+    # config.toml now holds a secret — write it 0600 in a 0700 dir.
+    _config.secure_write(CONFIG_PATH, content)
+    # Deliberately configuring a cloud key is explicit cloud consent.
+    consent.record_consent(source="api-key")
 
 
 def _cmd_history(args: argparse.Namespace) -> None:

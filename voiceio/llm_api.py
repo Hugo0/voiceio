@@ -16,9 +16,44 @@ from voiceio.config import AutocorrectConfig
 log = logging.getLogger(__name__)
 
 
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1")
+_consent_warned = False
+
+
 def _is_anthropic(base_url: str) -> bool:
     """Check if the base URL points to Anthropic's native API."""
     return "api.anthropic.com" in base_url
+
+
+def _is_local(base_url: str) -> bool:
+    """True for loopback endpoints (Ollama etc.) that never leave the machine."""
+    return any(h in base_url for h in _LOCAL_HOSTS)
+
+
+def _cloud_call_allowed(cfg: AutocorrectConfig) -> bool:
+    """Consent gate for cloud LLM calls (never applies to local endpoints).
+
+    Fails open to local-only behaviour: with no recorded consent we log one
+    warning and return False so the caller keeps its un-corrected text. An
+    api_key explicitly set in config.toml counts as consent (recorded once)
+    so existing setups keep working; env-var keys never count on their own.
+    """
+    global _consent_warned
+    from voiceio import consent
+
+    if consent.has_cloud_consent():
+        return True
+    if cfg.api_key:
+        consent.record_consent(source="configured-key")
+        return True
+    if not _consent_warned:
+        log.warning(
+            "Cloud LLM call skipped: no cloud consent recorded. Run the setup "
+            "wizard or 'voiceio correct' to enable cloud features, or set an "
+            "api_key in config.toml. Staying local-only.",
+        )
+        _consent_warned = True
+    return False
 
 
 def resolve_api_key(cfg: AutocorrectConfig) -> str:
@@ -142,6 +177,8 @@ def chat(
         return None
 
     base_url = cfg.base_url.rstrip("/")
+    if not _is_local(base_url) and not _cloud_call_allowed(cfg):
+        return None
     messages = [{"role": "user", "content": user_message}]
 
     try:
