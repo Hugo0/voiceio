@@ -722,3 +722,22 @@ class TestBootRaceAndReProbe:
              patch("voiceio.app.time.sleep"):
             vio._deferred_typer_upgrade()
             mock_upgrade.assert_called_once_with(reason="streaming-failure")
+
+
+class TestZombieStreamRecovery:
+    """A 'healthy' stream delivering all zeros (post-suspend zombie) must be
+    reopened at recording start, not just logged (2026-07-06 field failure)."""
+
+    def test_silent_prebuffer_triggers_reopen(self):
+        from unittest.mock import MagicMock, patch
+        from voiceio import app as app_mod
+
+        app = MagicMock()
+        app.recorder.stream_health.return_value = (True, "")
+        # Silent before reopen, signal after
+        app.recorder.has_signal.side_effect = [False, True]
+        app._streaming = False
+        app.cfg.data.capture_context = False
+        with patch.object(app_mod.time, "sleep"):
+            app_mod.VoiceIO._do_start(app)
+        app.recorder.reopen_stream.assert_called_once()

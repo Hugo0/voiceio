@@ -338,7 +338,22 @@ class VoiceIO:
                 return
 
         if not self.recorder.has_signal():
-            log.warning("Mic appears silent or muted (pre-buffer is all zeros)")
+            # All-zero pre-buffer with a "healthy" stream is the zombie-stream
+            # signature (e.g. after suspend/resume PortAudio keeps firing
+            # callbacks but the capture node is gone). Reopening fixes it.
+            log.warning("Mic silent (pre-buffer all zeros) — reopening audio stream")
+            try:
+                self.recorder.reopen_stream()
+                time.sleep(0.4)  # let the new stream fill some pre-buffer
+            except Exception:
+                log.exception("Audio stream reopen failed")
+            if not self.recorder.has_signal():
+                log.warning("Mic still silent after reopen — muted or wrong device?")
+                from voiceio import feedback
+                feedback.notify(
+                    "VoiceIO: microphone appears silent",
+                    "Check that your mic is unmuted and the right input device is selected.",
+                )
 
         self._state = _State.RECORDING
         self._ibus_session_fallback = False
