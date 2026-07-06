@@ -5,11 +5,36 @@ import json
 import logging
 import re
 import threading
+import time
 from pathlib import Path
 
+from voiceio import config
 from voiceio.config import CORRECTIONS_PATH, FLAGGED_PATH
 
 log = logging.getLogger(__name__)
+
+
+def _log_fires(fires: list[tuple[str, str, str]]) -> None:
+    """Append fired-rule records to the corrections audit log.
+
+    Best-effort and never raises into the dictation path: each record is
+    {ts, wrong, right, snippet}. Path is read from config at call time so
+    tests can isolate it. Open-append-close is cheap at dictation rates.
+    """
+    if not fires:
+        return
+    try:
+        path = config.CORRECTIONS_AUDIT_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        ts = time.time()
+        with open(path, "a", encoding="utf-8") as f:
+            for wrong, right, snippet in fires:
+                f.write(json.dumps(
+                    {"ts": ts, "wrong": wrong, "right": right, "snippet": snippet},
+                    ensure_ascii=False,
+                ) + "\n")
+    except Exception:  # noqa: BLE001 — logging must never break dictation
+        log.debug("corrections audit log write failed", exc_info=True)
 
 
 class CorrectionDict:
@@ -98,12 +123,21 @@ class CorrectionDict:
             regex = self._regex
             corrections = dict(self._corrections)
 
+        fires: list[tuple[str, str, str]] = []
+
         def _replace(m: re.Match) -> str:
             key = re.sub(r"\s+", " ", m.group(0)).lower()
             entry = corrections.get(key)
-            return entry[1] if entry else m.group(0)
+            if not entry:
+                return m.group(0)
+            start = max(0, m.start() - 40)
+            end = min(len(text), m.end() + 40)
+            fires.append((entry[0], entry[1], text[start:end]))
+            return entry[1]
 
-        return regex.sub(_replace, text)
+        result = regex.sub(_replace, text)
+        _log_fires(fires)
+        return result
 
     def flag_word(self, word: str) -> None:
         """Append a word to the flagged list."""
