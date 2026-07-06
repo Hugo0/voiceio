@@ -15,9 +15,15 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Downloads](https://img.shields.io/pepy/dt/python-voiceio)](https://pepy.tech/projects/python-voiceio)
 
-Voice dictation for Linux. Speak → text, locally, instantly.
+Voice dictation for Linux. Local, yours, and it learns how you speak.
 
 https://github.com/user-attachments/assets/9cf5d1ac-b4bb-4cf8-b775-7a66dc16b376
+
+Open-source, sovereign voice input/output. Your speech is transcribed on your own machine, everything it learns about you stays in local files you own, and it gets better the more you use it.
+
+- **Local & sovereign** — speech is transcribed on-device with [faster-whisper](https://github.com/SYSTRAN/faster-whisper); audio never leaves the machine. Your history, retained audio, corrections, and vocabulary all live in plain local files (JSONL / TOML / txt) you can read, edit, and delete. Zero telemetry. The one honest nuance: two *optional, off-by-default* features send text (never audio) to a cloud LLM you configure yourself — final-transcript polish (`[postcorrect]`) and the weekly correction-mining review.
+- **Improves with use — automatically** — every utterance teaches it your words and names. See [How it learns](#how-it-learns).
+- **Linux-first & hackable** — Wayland/X11, GNOME/KDE/sway/i3, chosen automatically by chain-and-probe backends. It's plain Python you can read in an afternoon and [contribute to](CLAUDE.md).
 
 > **Linux-first.** voiceio is developed and tested daily on Linux (GNOME/Wayland). Windows and macOS ship as **experimental, untested** targets — the code paths exist but are unmaintained and likely broken. See [Experimental platforms](#experimental-platforms).
 
@@ -89,7 +95,38 @@ hotkey → mic capture → whisper (local) → text at cursor
           pre-buffered   streaming        IBus / clipboard
 ```
 
-Press your hotkey to start recording (1s pre-buffer catches the first syllable). Text streams into the focused app as an underlined preview. Press again to commit. Transcription runs locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), text is injected through IBus (any GTK/Qt app) with clipboard fallback for terminals.
+Press your hotkey to start recording (1s pre-buffer catches the first syllable). Text streams into the focused app as an underlined preview. Press again to commit. Transcription runs locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), text is injected through IBus (any GTK/Qt app) with clipboard fallback for terminals. It runs in real time on a modern CPU and ships with model tiers from `tiny` to `large-v3`.
+
+## How it learns
+
+Most dictation tools transcribe the same way on day 100 as on day 1. voiceio adapts to *you* — your jargon, names, and accent — entirely from data that never leaves your machine.
+
+```
+  every utterance                weekly, in the background
+  ┌────────────────┐             ┌──────────────────────────────┐
+  │ store audio +  │             │ mine history for recurring    │
+  │ raw text +     │──────┐      │ errors → learn corrections    │
+  │ confidence     │      │      │ + vocabulary (safety-gated)   │
+  └────────────────┘      │      └───────────────┬──────────────┘
+  ┌────────────────┐      │                      ▼
+  │ bias Whisper   │      │      ┌──────────────────────────────┐
+  │ with your      │◀─────┘      │ teacher model (bigger Whisper)│
+  │ vocab + context│             │ replays your audio → AUDITS   │
+  └────────────────┘             │ what was learned. Bad rules   │
+  ┌────────────────┐             │ retire; a whole week rolls    │
+  │ optional LLM   │             │ back if quality regressed.    │
+  │ fixes misheard │             └──────────────────────────────┘
+  │ proper nouns   │
+  └────────────────┘
+```
+
+1. **Capture** — every utterance stores its audio, raw text, and confidence in local files.
+2. **Bias** — your vocabulary and recent context steer the Whisper decoder (hotwords / prompt) on every recording.
+3. **Contextual fix** — an optional LLM pass repairs misheard proper nouns using surrounding context.
+4. **Mine** — a weekly background job scans your history for recurring errors and auto-learns corrections and vocabulary. Multi-vote adjudication and a protected-languages guard (for bilingual users) keep it safe; it never asks you to triage.
+5. **Audit** — a teacher model (a larger Whisper) replays your retained audio to verify what was learned. Bad rules are retired automatically, and a system-level drift metric rolls back an entire week of learning if quality regressed.
+
+Rules are always **probationary, never tenured** — anything that stops helping is dropped. Your only touchpoint is an occasional desktop notification telling you what was learned.
 
 ## Features
 
