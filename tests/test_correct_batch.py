@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from unittest.mock import patch
 
-from voiceio.autocorrect import ReviewResult, SuspiciousWord
+from voiceio.autocorrect import AdjudicationResult, ReviewResult, SuspiciousWord
 from voiceio.autocorrect_state import load_state
 from voiceio.cli import _cmd_correct_auto
 from voiceio.corrections import CorrectionDict
@@ -28,22 +28,48 @@ class TestBatchMode:
             _cmd_correct_auto(cd, batch=True)
         assert "skipping batch" in capsys.readouterr().out.lower()
 
-    def test_pending_review_notifies_and_keeps_cursor(self, tmp_path):
+    def test_ambiguous_item_deferred_no_notify_cursor_advances(self, tmp_path):
+        """No consensus → silently deferred; no queue, no notification, cursor advances."""
         cd = CorrectionDict(path=tmp_path / "c.json")
         review = ReviewResult()
         review.ask_user.append({"wrong": "mantekka", "right": "Manteca",
                                 "reason": "ambiguous"})
+        adj = AdjudicationResult(
+            deferred=[{"wrong": "mantekka", "right": "Manteca", "votes": []}],
+        )
         with patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
              patch("voiceio.history.read", return_value=_entries()), \
              patch("voiceio.autocorrect.find_suspicious_words",
                    return_value=_suspicious()), \
              patch("voiceio.autocorrect.review_suspicious", return_value=review), \
+             patch("voiceio.autocorrect.adjudicate", return_value=adj), \
              patch("voiceio.feedback.notify") as notify:
             _cmd_correct_auto(cd, batch=True)
+        # No human queue: nothing added, nothing notified.
+        assert not notify.called
+        assert "mantekka" not in cd.list_all()
+        # Cursor ALWAYS advances; the item is deferred for later.
+        state = load_state()
+        assert state.last_scan_ts
+        assert "mantekka" in state.deferred
+
+    def test_unanimous_correction_applied_and_notified(self, tmp_path):
+        cd = CorrectionDict(path=tmp_path / "c.json")
+        review = ReviewResult()
+        review.ask_user.append({"wrong": "mantekka", "right": "", "reason": "?"})
+        adj = AdjudicationResult(apply=[{"wrong": "mantekka", "right": "manteca"}])
+        with patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
+             patch("voiceio.history.read", return_value=_entries()), \
+             patch("voiceio.autocorrect.find_suspicious_words",
+                   return_value=_suspicious()), \
+             patch("voiceio.autocorrect.review_suspicious", return_value=review), \
+             patch("voiceio.autocorrect.adjudicate", return_value=adj), \
+             patch("voiceio.feedback.notify") as notify:
+            _cmd_correct_auto(cd, batch=True)
+        assert cd.list_all().get("mantekka") == "manteca"
         assert notify.called
-        assert "1 suggestion" in notify.call_args[0][1]
-        # Cursor must NOT advance — pending items stay re-proposable
-        assert not load_state().last_scan_ts
+        assert "correction" in notify.call_args[0][1].lower()
+        assert load_state().last_scan_ts
 
     def test_clean_run_advances_cursor(self, tmp_path):
         cd = CorrectionDict(path=tmp_path / "c.json")
@@ -60,11 +86,15 @@ class TestBatchMode:
         cd = CorrectionDict(path=tmp_path / "c.json")
         review = ReviewResult()
         review.vocabulary.append("Grafana")
+        adj = AdjudicationResult(
+            deferred=[{"wrong": "mantekka", "right": "", "votes": []}],
+        )
         with patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
              patch("voiceio.history.read", return_value=_entries()), \
              patch("voiceio.autocorrect.find_suspicious_words",
                    return_value=_suspicious()), \
              patch("voiceio.autocorrect.review_suspicious", return_value=review), \
+             patch("voiceio.autocorrect.adjudicate", return_value=adj), \
              patch("voiceio.feedback.notify"):
             _cmd_correct_auto(cd, batch=True)  # must not block on input()
         assert "Grafana" in (tmp_path / "vocabulary.txt").read_text()

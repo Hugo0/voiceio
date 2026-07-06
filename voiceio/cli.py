@@ -7,6 +7,12 @@ import signal
 import sys
 from pathlib import Path
 
+log = logging.getLogger(__name__)
+
+# Per-run cap on candidates sent to LLM adjudication. The lower-frequency tail
+# is deferred to the next run so one huge backlog can't blow up token cost.
+_ADJUDICATE_CAP = 150
+
 
 def main() -> None:
     """Main entry point: voiceio [command] [options]."""
@@ -674,13 +680,19 @@ def _cmd_correct(args: argparse.Namespace) -> None:
 
 
 def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
-    """Scan history for Whisper mistakes, auto-fix with LLM or review manually.
+    """Scan history for Whisper mistakes, auto-fix with LLM, or review manually.
 
-    batch=True (systemd timer): non-interactive — apply the safety-gated
-    auto-fix bucket and sane vocabulary terms, then send a desktop
-    notification if items need human review instead of prompting. The scan
-    cursor only advances when nothing is left to review, so pending items
-    are re-proposed until the user runs an interactive session.
+    batch=True (systemd timer): non-interactive and queue-free. Apply the
+    safety-gated auto_fix bucket, then run evidence-based *adjudication* over
+    the ambiguous remainder (each candidate voted on multiple times with full
+    context) — applying unanimous corrections, learning unanimous terms, and
+    silently deferring the rest for later re-adjudication. The scan cursor
+    ALWAYS advances; deferred items carry their own revisit logic. A desktop
+    notification fires only as an informational summary when something changed.
+    Nothing is ever left pending for a human to triage.
+
+    Interactive mode keeps the review UI for users who want to inspect, seeded
+    with the same adjudication outcomes as pre-filled suggestions.
     """
     import time as _time
 
@@ -758,12 +770,17 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
     # ── Scan ────────────────────────────────────────────────────────────
     language = cfg.model.language if cfg.model.language != "auto" else "en"
 
+    # Deferred words still in cooldown are skipped this run — they get a fresh
+    # look (with accumulated context) only once their cooldown expires and they
+    # recur in new dictation. Ready deferred words fall through normally.
+    skip_words = set(state.dismissed) | state.cooldown_words(run_ts)
+
     with Spinner("Scanning history...") as sp:
         suspicious = find_suspicious_words(
             entries, language,
             existing_corrections=set(existing.keys()),
             vocabulary=vocab_words,
-            dismissed=state.dismissed,
+            dismissed=skip_words,
         )
         n = len(suspicious)
         sp.ok(f"Scanned {len(entries)} entries — {n} uncommon word(s)")
@@ -868,20 +885,77 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
     skipped = 0
     user_quit = False
 
-    if to_review and batch:
-        # Unattended: never prompt. Tell the user review is waiting.
-        print(f"\n{len(to_review)} suggestion(s) need review:")
-        for item in to_review[:10]:
-            suggestion = f" → {item['right']}" if item.get("right") else ""
-            print(f"  {item['wrong']}{suggestion}")
-        if len(to_review) > 10:
-            print(f"  … and {len(to_review) - 10} more")
-        from voiceio.feedback import notify
-        notify(
-            "VoiceIO: transcription fixes to review",
-            f"{len(to_review)} suggestion(s) waiting — run 'voiceio correct'",
+    # ── Evidence-based adjudication (replaces the human review queue) ─────
+    # Cap per run by frequency so a huge backlog can't blow up token cost in a
+    # single run; the lower-frequency tail is capacity-deferred (no penalty,
+    # no cooldown) so it's picked up on the very next run.
+    from voiceio.autocorrect import adjudicate
+
+    def _cand_count(item: dict) -> int:
+        sw = sw_by_word.get(item.get("wrong", ""))
+        return sw.count if sw else 0
+
+    to_review.sort(key=lambda it: -_cand_count(it))
+    if len(to_review) > _ADJUDICATE_CAP:
+        capped = to_review[_ADJUDICATE_CAP:]
+        to_review = to_review[:_ADJUDICATE_CAP]
+        for it in capped:
+            state.defer(it["wrong"], failure=False)
+        log.info(
+            "Adjudication cap hit: adjudicating %d, deferring %d to next run",
+            len(to_review), len(capped),
         )
-    elif to_review:
+        print(f"  {DIM}{len(capped)} lower-frequency item(s) deferred "
+              f"to next run{RESET}")
+
+    adj = adjudicate(cfg, to_review, sw_by_word,
+                     vocabulary=vocab_words, language=language)
+
+    # Unanimous corrections (already gate-passed inside adjudicate).
+    adj_applied = 0
+    if adj.apply:
+        print(f"\n{BOLD}Adjudicated{RESET} {DIM}({len(adj.apply)}){RESET}")
+        for fix in adj.apply:
+            sw = sw_by_word.get(fix["wrong"])
+            count = f" {DIM}({sw.count}x){RESET}" if sw else ""
+            cd.add(fix["wrong"], fix["right"])
+            print(f"  {GREEN}✓{RESET} {fix['wrong']} → "
+                  f"{BOLD}{fix['right']}{RESET}{count}")
+            adj_applied += 1
+
+    # Unanimous real terms → vocabulary.
+    adj_vocab = 0
+    if adj.vocabulary:
+        adj_vocab = _confirm_add_vocabulary(cfg, adj.vocabulary, state, silent=True)
+
+    corrections_learned = auto_fixed + adj_applied
+    terms_learned = vocab_added + adj_vocab
+
+    # ── Batch: no queue, ever. Defer the rest, advance the cursor, notify ─
+    if batch:
+        for it in adj.deferred:
+            state.defer(it["wrong"], votes=it.get("votes"))
+        if corrections_learned or terms_learned:
+            from voiceio.feedback import notify
+            parts = []
+            if corrections_learned:
+                parts.append(f"{corrections_learned} correction"
+                             f"{'s' if corrections_learned != 1 else ''}")
+            if terms_learned:
+                parts.append(f"{terms_learned} term"
+                             f"{'s' if terms_learned != 1 else ''}")
+            notify(
+                "VoiceIO learned from your dictation",
+                f"Learned {' and '.join(parts)} this week.",
+            )
+        state.last_scan_ts = run_ts
+        save_state(state)
+        return
+
+    # ── Interactive: inspect the deferred remainder (pre-filled) ─────────
+    to_review = rank_review_items(adj.deferred, sw_by_word)
+
+    if to_review:
         import re as _re
         import readline as _rl
 
@@ -1152,30 +1226,32 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
 
     # ── Persist scan state ──────────────────────────────────────────────
     # Advance the cursor only on a completed run — quitting mid-review must
-    # leave the un-reviewed (new) entries eligible for the next scan, and a
-    # batch run with pending review items must leave them re-proposable.
-    # The dismissed set is always persisted.
-    if not user_quit and not (batch and to_review):
+    # leave the un-reviewed (new) entries eligible for the next scan. (Batch
+    # mode already advanced the cursor and returned above.) The dismissed set
+    # is always persisted.
+    if not user_quit:
         state.last_scan_ts = run_ts
     save_state(state)
 
     # ── Summary ─────────────────────────────────────────────────────────
+    auto_total = auto_fixed + adj_applied
+    vocab_total = vocab_added + adj_vocab
     parts = []
-    if auto_fixed:
-        parts.append(f"{GREEN}{auto_fixed} auto-corrected{RESET}")
+    if auto_total:
+        parts.append(f"{GREEN}{auto_total} auto-corrected{RESET}")
     if reviewed:
         parts.append(f"{GREEN}{reviewed} reviewed{RESET}")
-    if vocab_added:
-        parts.append(f"{CYAN}{vocab_added} vocabulary{RESET}")
+    if vocab_total:
+        parts.append(f"{CYAN}{vocab_total} vocabulary{RESET}")
     if skipped:
         parts.append(f"{DIM}{skipped} skipped{RESET}")
     if parts:
         print(f"\n{BOLD}Summary{RESET}")
         print(f"{DIM}{'─' * 40}{RESET}")
         print(f"  {' · '.join(parts)}")
-    if auto_fixed or reviewed:
+    if auto_total or reviewed:
         print(f"  {DIM}Corrections will apply to future dictations automatically.{RESET}")
-    if auto_fixed or reviewed or vocab_added:
+    if auto_total or reviewed or vocab_total:
         from voiceio.hints import hint
         hint("correct_list", "Run 'voiceio correct --list' to see all corrections")
 
