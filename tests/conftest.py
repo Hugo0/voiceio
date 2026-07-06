@@ -6,6 +6,14 @@ import pytest
 from voiceio.platform import Platform
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_state(tmp_path, monkeypatch):
+    """Keep tests out of the user's real state dir (recordings, history)."""
+    monkeypatch.setattr("voiceio.retention.RECORDINGS_DIR", tmp_path / "recordings")
+    monkeypatch.setattr("voiceio.config.HISTORY_PATH", tmp_path / "history.jsonl")
+    monkeypatch.setattr("voiceio.history.HISTORY_PATH", tmp_path / "history.jsonl")
+
+
 @pytest.fixture
 def linux_x11():
     return Platform(
