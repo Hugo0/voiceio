@@ -67,6 +67,11 @@ class PromptBuilder:
 
             return result if result else None
 
+    def recent(self, n: int = 3) -> list[str]:
+        """Return up to the last ``n`` transcript segments (oldest first)."""
+        with self._lock:
+            return list(self._history)[-n:]
+
     def reset(self) -> None:
         """Clear history (vocabulary is preserved)."""
         with self._lock:
