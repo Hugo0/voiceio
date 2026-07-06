@@ -128,7 +128,11 @@ press it again to commit.
   or re-run setup with `--yes`.
 - **`[voiceio-setup] step=... status=error reason='...'`** → non-zero exit; read
   the `reason`. `step=validate` = bad `--answers` JSON/keys; `step=model` =
-  model download failed (network); `step=system` = no mic or no typer backend.
+  model download failed (network); `step=system` = no mic (exit 5) or no typer
+  backend (exit 6). On `step=system` failures a valid `config.toml` is still
+  written (look for `step=config status=written`) — fix the hardware/packages
+  and re-run setup; heavy steps (model download, service install) are skipped
+  until the system is usable.
 - **Hotkey does nothing (GNOME/Wayland, socket backend)** → the DE shortcut may
   not have registered. Check Settings → Keyboard → Custom Shortcuts; command
   must be `voiceio-toggle`. Or add the user to the `input` group for evdev:

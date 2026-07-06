@@ -1871,20 +1871,30 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
         _progress("preflight", status="ok")
 
     # ── System capability gate ──────────────────────────────────────────
+    # Failures here don't abort immediately: setup still writes a valid config
+    # (so a later fix — plugging in a mic, installing IBus — needs no re-setup)
+    # and then exits with the documented code. Heavy/irreversible steps (model
+    # download, service install) are skipped while the system is unusable.
     checks = _check_system()
+    system_error: tuple[str, int] | None = None  # (reason, exit code)
     if not checks["audio"]:
-        return _fail("system", "no microphone/audio input device found", 5)
+        _progress("system", check="audio", status="missing",
+                  reason=repr("no microphone/audio input device found"))
+        system_error = ("no microphone/audio input device found", 5)
     if checks["is_windows"] or checks["is_mac"]:
         if not checks["pynput"]:
-            return _fail("system", "no text injection backend (pip install pynput)", 6)
+            _progress("system", check="typer", status="missing",
+                      reason=repr("no text injection backend (pip install pynput)"))
+            system_error = system_error or ("no text injection backend (pip install pynput)", 6)
     else:
         has_typer = (
             (checks["ibus"] and checks["ibus_gi"])
             or checks["xdotool"] or checks["ydotool"] or checks["wtype"]
         )
         if not has_typer:
-            return _fail("system",
-                         f"no text injection backend; install: {plat.system_deps_install_cmd(['ibus'])}", 6)
+            reason = f"no text injection backend; install: {plat.system_deps_install_cmd(['ibus'])}"
+            _progress("system", check="typer", status="missing", reason=repr(reason))
+            system_error = system_error or (reason, 6)
 
     # ── Backend selection (mirrors interactive path) ────────────────────
     backend = answers.get("backend")
@@ -1900,11 +1910,15 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     _progress("backend", value=backend, display=checks["display"])
 
     # ── Model download ──────────────────────────────────────────────────
-    if answers.get("download_model", True):
+    if system_error is not None:
+        _progress("model", name=model, status="skipped", reason="'system unusable'")
+    elif answers.get("download_model", True):
         _progress("model", name=model, status="downloading")
         if not _download_model(model):
             return _fail("model", f"could not download model '{model}'", 7)
-    _progress("model", name=model, status="ready")
+        _progress("model", name=model, status="ready")
+    else:
+        _progress("model", name=model, status="ready")
 
     from voiceio.tray import probe_availability
     tray_ok, _, _ = probe_availability()
@@ -1959,7 +1973,7 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
 
     # ── Autostart service ───────────────────────────────────────────────
     autostart = False
-    if answers.get("install_service", True):
+    if answers.get("install_service", True) and system_error is None:
         from voiceio.service import has_systemd, install_service
         if checks["is_windows"]:
             autostart = install_service()
@@ -1972,6 +1986,10 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
                                capture_output=True, timeout=5)
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 pass
+
+    if system_error is not None:
+        reason, code = system_error
+        return _fail("system", reason, code)
 
     _progress("done", status="ok", hotkey=hotkey, config=str(CONFIG_PATH))
     return 0
