@@ -191,6 +191,12 @@ class VoiceIO:
         self._session: StreamingSession | None = None
         self._record_start: float = 0
         self._last_clip_warn: float = 0
+        self._context_title: str | None = None
+        # Prune retained recordings over the size cap (startup housekeeping)
+        from voiceio import retention
+        threading.Thread(
+            target=retention.prune, args=(cfg.data,), daemon=True,
+        ).start()
 
         # Hotkey deduplication
         self._hotkey_lock = threading.Lock()
@@ -290,6 +296,10 @@ class VoiceIO:
         self._activate_ibus()
         self._corrections.load()  # hot-reload corrections on each recording
         self.transcriber.set_initial_prompt(self._prompt_builder.build())
+        if self.cfg.data.capture_context:
+            # Snapshot the dictation target now — focus may change by finalize
+            self._context_title = None
+            threading.Thread(target=self._capture_context, daemon=True).start()
         self._record_start = time.monotonic()
         self.recorder.start()
         self.recorder.set_on_auto_stop(self._on_auto_stop)
@@ -352,6 +362,23 @@ class VoiceIO:
 
         self._deactivate_ibus()
 
+    def _capture_context(self) -> None:
+        from voiceio import retention
+        self._context_title = retention.active_window_title()
+
+    def _retention_extra(self, audio: np.ndarray | None) -> dict:
+        """Save the utterance audio (before transcription, so it survives
+        worker timeouts) and collect context for the history entry."""
+        from voiceio import retention
+        audio_name = None
+        if audio is not None:
+            audio_name = retention.save_audio(audio, time.time(), self.cfg.data)
+        return {
+            "audio": audio_name,
+            "context": self._context_title if self.cfg.data.capture_context else None,
+            "model": self.cfg.model.name,
+        }
+
     def _strip_voice_prefix(self, text: str) -> str:
         """Remove the configured voice-input prefix before persisting.
 
@@ -397,6 +424,7 @@ class VoiceIO:
         elapsed: float, gen: int,
     ) -> None:
         """Run final transcription and commit in background thread."""
+        extra = self._retention_extra(audio)
         final_text = session.stop(audio)
         if self._generation != gen:
             log.debug("Finalize cancelled (gen %d, current %d)", gen, self._generation)
@@ -411,6 +439,7 @@ class VoiceIO:
                 raw=session.raw_final_text,
                 segments=session.final_segments,
                 duration=elapsed,
+                extra=extra,
             )
         log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
         # Transition to IDLE under lock to avoid racing with _toggle
@@ -424,6 +453,7 @@ class VoiceIO:
         try:
             if self._generation != gen:
                 return
+            extra = self._retention_extra(audio)
             raw = self.transcriber.transcribe(audio, final=True)
             segments = self.transcriber.last_segments
             text = raw
@@ -455,6 +485,7 @@ class VoiceIO:
                         raw=raw,
                         segments=segments,
                         duration=len(audio) / self.recorder.sample_rate,
+                        extra=extra,
                     )
                     log.info("Typed: '%s'", text)
         except Exception:

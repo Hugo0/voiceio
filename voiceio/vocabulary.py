@@ -10,7 +10,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-MAX_VOCAB_CHARS = 400  # Leave room for history in the ~224 token budget
+# Vocabulary feeds the hotwords channel, which has its own ~224-token budget
+# (separate from initial_prompt). ~800 chars ≈ 200 tokens of typical terms.
+MAX_VOCAB_CHARS = 800
 
 
 def load_vocabulary(model_cfg: ModelConfig) -> str:

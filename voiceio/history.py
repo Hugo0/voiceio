@@ -18,6 +18,7 @@ def append(
     raw: str | None = None,
     segments: list[dict] | None = None,
     duration: float | None = None,
+    extra: dict | None = None,
 ) -> None:
     """Append a transcription entry to the history file.
 
@@ -38,6 +39,10 @@ def append(
             entry["segments"] = segments
         if duration is not None:
             entry["duration"] = round(duration, 2)
+        if extra:
+            for k, v in extra.items():
+                if v is not None and k not in entry:
+                    entry[k] = v
         with open(p, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as e:

@@ -25,6 +25,7 @@ CONFIG_PATH = CONFIG_DIR / "config.toml"
 CORRECTIONS_PATH = CONFIG_DIR / "corrections.json"
 FLAGGED_PATH = CONFIG_DIR / "flagged.txt"
 HISTORY_PATH = LOG_DIR / "history.jsonl"
+RECORDINGS_DIR = LOG_DIR / "recordings"
 LOG_PATH = LOG_DIR / "voiceio.log"
 PID_PATH = LOG_DIR / "voiceio.pid"
 
@@ -124,6 +125,19 @@ class HealthConfig:
 
 
 @dataclass
+class DataConfig:
+    """Local data retention for diagnostics and self-improvement.
+
+    Everything stays on disk under ~/.local/state/voiceio/ — nothing is
+    uploaded. retain_audio keeps a WAV per utterance so (audio, final text)
+    pairs accumulate for later analysis or fine-tuning.
+    """
+    retain_audio: bool = True
+    max_audio_mb: int = 4096   # prune oldest recordings beyond this
+    capture_context: bool = True  # best-effort active-window title
+
+
+@dataclass
 class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -137,6 +151,7 @@ class Config:
     autocorrect: AutocorrectConfig = field(default_factory=AutocorrectConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     health: HealthConfig = field(default_factory=HealthConfig)
+    data: DataConfig = field(default_factory=DataConfig)
 
 
 def _migrate_v1(raw: dict) -> dict:
@@ -196,4 +211,5 @@ def load(path: Path | None = None) -> Config:
         autocorrect=_build(AutocorrectConfig, raw.get("autocorrect", {})),
         tts=_build(TTSConfig, raw.get("tts", {})),
         health=_build(HealthConfig, raw.get("health", {})),
+        data=_build(DataConfig, raw.get("data", {})),
     )

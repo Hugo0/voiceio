@@ -46,7 +46,7 @@ class TestLoadVocabulary:
         vocab_file.write_text("\n".join(terms))
         cfg = ModelConfig(vocabulary_file=str(vocab_file))
         result = load_vocabulary(cfg)
-        assert len(result) <= 400
+        assert len(result) <= 800
 
     def test_no_config_uses_default_location(self, tmp_path, monkeypatch):
         """With empty vocabulary_file, checks CONFIG_DIR/vocabulary.txt."""
