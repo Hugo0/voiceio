@@ -191,6 +191,11 @@ def _cmd_setup() -> None:
 
 def _cmd_doctor(args: argparse.Namespace) -> None:
     """Run diagnostic health check, offer to fix issues."""
+    if sys.platform in ("win32", "darwin"):
+        _plat = "Windows" if sys.platform == "win32" else "macOS"
+        print(f"Warning: {_plat} is an experimental, untested platform. "
+              f"voiceio is developed on Linux and may be broken here.\n",
+              file=sys.stderr)
     from voiceio.health import check_health, format_report
     report = check_health()
     print(format_report(report))
