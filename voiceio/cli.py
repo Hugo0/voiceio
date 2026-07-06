@@ -46,7 +46,14 @@ def main() -> None:
                         help="Disable desktop notification on commit")
 
     # ── voiceio setup ─────────────────────────────────────────────────
-    sub.add_parser("setup", help="Run interactive setup wizard")
+    p_setup = sub.add_parser("setup", help="Run interactive setup wizard")
+    p_setup.add_argument("--defaults", action="store_true",
+                         help="Non-interactive: accept all recommended defaults (no TTY needed)")
+    p_setup.add_argument("--answers", type=str, default=None, metavar="JSON",
+                         help="Non-interactive: JSON object of explicit answers "
+                              "(any subset; the rest are defaulted)")
+    p_setup.add_argument("--yes", "-y", action="store_true",
+                         help="Auto-run the system-dependency install command without prompting")
 
     # ── voiceio doctor ────────────────────────────────────────────────
     p_doctor = sub.add_parser("doctor", help="Run diagnostic health check")
@@ -110,7 +117,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "setup":
-        _cmd_setup()
+        _cmd_setup(args)
     elif args.command == "doctor":
         _cmd_doctor(args)
     elif args.command == "toggle":
@@ -193,8 +200,26 @@ def _cmd_run(args: argparse.Namespace) -> None:
     app.run()
 
 
-def _cmd_setup() -> None:
-    """Run interactive setup wizard."""
+def _cmd_setup(args: argparse.Namespace) -> None:
+    """Run setup: interactive wizard by default, or non-interactive for agents."""
+    non_interactive = getattr(args, "defaults", False) or getattr(args, "answers", None) is not None
+    if non_interactive:
+        import json
+        answers: dict = {}
+        if getattr(args, "answers", None):
+            try:
+                answers = json.loads(args.answers)
+            except json.JSONDecodeError as e:
+                print(f"[voiceio-setup] step=validate status=error reason='invalid JSON: {e}'",
+                      file=sys.stderr)
+                sys.exit(2)
+            if not isinstance(answers, dict):
+                print("[voiceio-setup] step=validate status=error reason='--answers must be a JSON object'",
+                      file=sys.stderr)
+                sys.exit(2)
+        from voiceio.wizard import run_setup_noninteractive
+        sys.exit(run_setup_noninteractive(answers, install_deps=getattr(args, "yes", False)))
+
     from voiceio.wizard import run_wizard
     run_wizard()
     from voiceio.hints import hint
@@ -242,22 +267,42 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         for path, mode, expected in perm_issues:
             print(f"  {oct(mode)[2:]:>4} → {oct(expected)[2:]:>4}  {path}")
 
+    # System-dependency preflight: the #1 install funnel killer.
+    from voiceio import platform as plat
+    missing_deps = plat.check_system_deps()
+    dep_cmd = plat.system_deps_install_cmd(missing_deps) if missing_deps else ""
+    if missing_deps:
+        print("\nMissing system dependencies:")
+        for key in missing_deps:
+            print(f"  ✗ {plat.dep_label(key)}")
+        print(f"\nInstall them all with:\n  {dep_cmd}")
+
     fixable = [b for b in report.hotkey_backends + report.typer_backends
                if not b.ok and b.fix_cmd]
 
     if not args.fix:
-        if fixable:
+        if fixable or missing_deps:
             names = ", ".join(b.name for b in fixable)
+            if missing_deps:
+                names = (names + ", " if names else "") + "system packages"
             print(f"\nRun 'voiceio doctor --fix' to auto-fix: {names}")
         if perm_issues:
             print("Run 'voiceio doctor --fix' to tighten file permissions.")
         from voiceio.hints import hint
         hint("correct_auto", "Run 'voiceio correct --auto' to scan for Whisper mistakes")
-        sys.exit(0 if (report.all_ok and not perm_issues) else 1)
+        sys.exit(0 if (report.all_ok and not perm_issues and not missing_deps) else 1)
 
     # Auto-fix mode
     print("\nAttempting fixes...\n")
     import subprocess
+
+    if missing_deps and dep_cmd:
+        print(f"  Fixing system packages: {dep_cmd}")
+        try:
+            subprocess.run(dep_cmd.split(), check=True, timeout=600)
+            print("  Done.")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+            print(f"  Failed: {e} — run the command above manually.")
 
     fixed_any = False
 
