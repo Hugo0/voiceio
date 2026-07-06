@@ -30,8 +30,9 @@ Open-source, sovereign voice input/output. Your speech is transcribed on your ow
 ## Quick start
 
 ```bash
-# 1. Install system dependencies (Ubuntu/Debian)
-sudo apt install pipx ibus gir1.2-ibus-1.0 python3-gi python3-dev portaudio19-dev
+# 1. Install system dependencies (Ubuntu/Debian). build-essential + python3-dev
+#    are needed to compile evdev (no prebuilt wheel); portaudio for the mic.
+sudo apt install pipx build-essential python3-dev portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi
 
 # 2. Install voiceio
 pipx install python-voiceio
@@ -42,11 +43,14 @@ voiceio setup
 
 That's it. Press **Ctrl+Alt+V** (or your chosen hotkey) to start dictating.
 
+**Installing with an AI agent?** Point it at [INSTALL.md](INSTALL.md) — a terse,
+copy-pasteable runbook (`voiceio setup --defaults` / `--answers '{json}'`, no TTY needed).
+
 <details>
 <summary><strong>Fedora</strong></summary>
 
 ```bash
-sudo dnf install pipx ibus python3-gobject python3-devel portaudio-devel
+sudo dnf install pipx gcc gcc-c++ make python3-devel portaudio-devel ibus ibus-libs python3-gobject
 pipx install python-voiceio
 voiceio setup
 ```
@@ -56,8 +60,8 @@ voiceio setup
 <summary><strong>Arch Linux</strong></summary>
 
 ```bash
-sudo pacman -S python-pipx ibus python-gobject portaudio
-# Note: Arch includes Python headers by default with the python package
+sudo pacman -S python-pipx base-devel portaudio ibus python-gobject
+# base-devel provides gcc/make; the python package ships headers.
 pipx install python-voiceio
 voiceio setup
 ```
