@@ -337,16 +337,23 @@ class VoiceIO:
                 log.exception("Cannot reopen audio stream, aborting recording")
                 return
 
-        if not self.recorder.has_signal():
-            # All-zero pre-buffer with a "healthy" stream is the zombie-stream
-            # signature (e.g. after suspend/resume PortAudio keeps firing
-            # callbacks but the capture node is gone). Reopening fixes it.
-            log.warning("Mic silent (pre-buffer all zeros) — reopening audio stream")
+        if self.recorder.is_zombie():
+            # Full pre-buffer of digital zeros with a "healthy" stream is the
+            # post-suspend zombie signature (callbacks fire, capture node
+            # gone). Reopening fixes it; a failed reopen means no audio is
+            # possible, so abort rather than record silence.
+            log.warning("Zombie audio stream (all-zero pre-buffer) — reopening")
             try:
                 self.recorder.reopen_stream()
                 time.sleep(0.4)  # let the new stream fill some pre-buffer
             except Exception:
-                log.exception("Audio stream reopen failed")
+                log.exception("Audio stream reopen failed, aborting recording")
+                from voiceio import feedback
+                feedback.notify(
+                    "VoiceIO: microphone unavailable",
+                    "Could not reopen the audio stream — check your input device.",
+                )
+                return
             if not self.recorder.has_signal():
                 log.warning("Mic still silent after reopen — muted or wrong device?")
                 from voiceio import feedback
@@ -354,6 +361,8 @@ class VoiceIO:
                     "VoiceIO: microphone appears silent",
                     "Check that your mic is unmuted and the right input device is selected.",
                 )
+        elif not self.recorder.has_signal():
+            log.warning("Mic appears silent or muted (pre-buffer is all zeros)")
 
         self._state = _State.RECORDING
         self._ibus_session_fallback = False

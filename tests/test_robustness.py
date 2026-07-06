@@ -728,16 +728,50 @@ class TestZombieStreamRecovery:
     """A 'healthy' stream delivering all zeros (post-suspend zombie) must be
     reopened at recording start, not just logged (2026-07-06 field failure)."""
 
-    def test_silent_prebuffer_triggers_reopen(self):
+    def test_zombie_stream_triggers_reopen(self):
         from unittest.mock import MagicMock, patch
         from voiceio import app as app_mod
 
         app = MagicMock()
         app.recorder.stream_health.return_value = (True, "")
-        # Silent before reopen, signal after
-        app.recorder.has_signal.side_effect = [False, True]
+        app.recorder.is_zombie.return_value = True
+        app.recorder.has_signal.return_value = True  # healthy after reopen
         app._streaming = False
         app.cfg.data.capture_context = False
         with patch.object(app_mod.time, "sleep"):
             app_mod.VoiceIO._do_start(app)
         app.recorder.reopen_stream.assert_called_once()
+        app.recorder.start.assert_called_once()
+
+    def test_zombie_reopen_failure_aborts_recording(self):
+        from unittest.mock import MagicMock, patch
+        from voiceio import app as app_mod
+
+        app = MagicMock()
+        app.recorder.stream_health.return_value = (True, "")
+        app.recorder.is_zombie.return_value = True
+        app.recorder.reopen_stream.side_effect = OSError("no device")
+        with patch.object(app_mod.time, "sleep"):
+            app_mod.VoiceIO._do_start(app)
+        app.recorder.start.assert_not_called()
+
+    def test_empty_ring_is_not_zombie(self):
+        """A fresh/headless stream (ring not yet full) must not trigger the
+        reopen path — that broke CI machines with no audio device."""
+        from voiceio.config import AudioConfig
+        from voiceio.recorder import AudioRecorder
+
+        rec = AudioRecorder(AudioConfig())
+        assert rec.is_zombie() is False
+
+    def test_full_ring_of_zeros_is_zombie(self):
+        import numpy as np
+        from voiceio.config import AudioConfig
+        from voiceio.recorder import AudioRecorder
+
+        rec = AudioRecorder(AudioConfig())
+        rec._ring.append(np.zeros(rec._ring._max, dtype=np.float32))
+        assert rec.is_zombie() is True
+        # any real signal → not a zombie
+        rec._ring.append(np.full(rec._ring._max, 0.1, dtype=np.float32))
+        assert rec.is_zombie() is False
