@@ -783,7 +783,10 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
     # Deferred words still in cooldown are skipped this run — they get a fresh
     # look (with accumulated context) only once their cooldown expires and they
     # recur in new dictation. Ready deferred words fall through normally.
-    skip_words = set(state.dismissed) | state.cooldown_words(run_ts)
+    # Words retired by the teacher audit are never re-learned automatically.
+    from voiceio.audit import load_audit_state
+    skip_words = (set(state.dismissed) | state.cooldown_words(run_ts)
+                  | load_audit_state().retired)
 
     with Spinner("Scanning history...") as sp:
         suspicious = find_suspicious_words(
