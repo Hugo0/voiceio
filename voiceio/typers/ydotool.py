@@ -4,12 +4,46 @@ from __future__ import annotations
 import functools
 import logging
 import os
+import shlex
 import shutil
 import subprocess
 
 from voiceio.backends import ProbeResult
 
 log = logging.getLogger(__name__)
+
+UINPUT_UDEV_RULE_PATH = "/etc/udev/rules.d/99-voiceio-uinput.rules"
+# Grant the logged-in user access to /dev/uinput without a world-writable
+# device. `uaccess` hands the device to the active seat's user via
+# systemd-logind; the input-group + MODE 0660 fallback covers non-systemd
+# setups. This is the correct, persistent replacement for `chmod 0666`.
+UINPUT_UDEV_RULE = 'KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"\n'
+
+
+def uinput_udev_install_cmd() -> list[str]:
+    """argv that installs the udev rule and reloads it (runs via sudo).
+
+    Returned as a single ``sh -c`` invocation so the whole privileged action
+    is visible as one string in the consent prompt.
+    """
+    script = (
+        f"printf %s {shlex.quote(UINPUT_UDEV_RULE)} "
+        f"| sudo tee {UINPUT_UDEV_RULE_PATH} > /dev/null "
+        f"&& sudo modprobe uinput "
+        f"&& sudo udevadm control --reload-rules "
+        f"&& sudo udevadm trigger /dev/uinput"
+    )
+    return ["sh", "-c", script]
+
+
+def uinput_manual_instructions() -> str:
+    """Human-readable manual alternative to the automated udev-rule install."""
+    return (
+        f"Create {UINPUT_UDEV_RULE_PATH} containing:\n"
+        f"    {UINPUT_UDEV_RULE.strip()}\n"
+        "then run: sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput\n"
+        "(log out/in if access still fails — group membership refreshes on new sessions)"
+    )
 
 
 @functools.lru_cache(maxsize=1)
@@ -78,8 +112,12 @@ class YdotoolTyper:
                 return ProbeResult(
                     ok=False,
                     reason="No write access to /dev/uinput",
-                    fix_hint="sudo chmod 0666 /dev/uinput  (or add udev rule)",
-                    fix_cmd=["sudo", "chmod", "0666", "/dev/uinput"],
+                    fix_hint=(
+                        f"install udev rule {UINPUT_UDEV_RULE_PATH} (persistent, "
+                        "no world-writable device) — manual: "
+                        + uinput_manual_instructions()
+                    ),
+                    fix_cmd=uinput_udev_install_cmd(),
                 )
 
         return ProbeResult(ok=True)

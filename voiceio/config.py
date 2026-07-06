@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import stat
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -34,6 +35,9 @@ CORRECTIONS_AUDIT_PATH = LOG_DIR / "corrections_audit.jsonl"
 METRICS_PATH = LOG_DIR / "metrics.jsonl"
 SNAPSHOTS_DIR = CONFIG_DIR / "snapshots"
 AUDIT_STATE_PATH = CONFIG_DIR / "audit_state.json"
+AUTOCORRECT_STATE_PATH = CONFIG_DIR / "autocorrect_state.json"
+# Explicit, per-user record that cloud LLM calls (text, never audio) are allowed.
+CONSENT_PATH = CONFIG_DIR / "consent.json"
 
 
 @dataclass
@@ -143,6 +147,18 @@ class TTSConfig:
 
 
 @dataclass
+class HistoryConfig:
+    """Retention policy for the transcription history log (history.jsonl).
+
+    All fields stay local. `enabled=False` stops new entries from being
+    written. Pruning runs on daemon start and periodically as history grows.
+    """
+    enabled: bool = True
+    max_entries: int = 0   # 0 = unlimited
+    max_age_days: int = 0  # 0 = keep forever
+
+
+@dataclass
 class HealthConfig:
     auto_fallback: bool = True
 
@@ -176,6 +192,7 @@ class Config:
     tts: TTSConfig = field(default_factory=TTSConfig)
     health: HealthConfig = field(default_factory=HealthConfig)
     data: DataConfig = field(default_factory=DataConfig)
+    history: HistoryConfig = field(default_factory=HistoryConfig)
 
 
 def _migrate_v1(raw: dict) -> dict:
@@ -237,4 +254,110 @@ def load(path: Path | None = None) -> Config:
         tts=_build(TTSConfig, raw.get("tts", {})),
         health=_build(HealthConfig, raw.get("health", {})),
         data=_build(DataConfig, raw.get("data", {})),
+        history=_build(HistoryConfig, raw.get("history", {})),
     )
+
+
+# ── File permission hardening ────────────────────────────────────────────
+# Everything voiceio persists is either user content (transcripts, audio) or
+# a secret (API key in config.toml). On multi-user machines the default umask
+# can leave these world-readable, which contradicts the "your data, in files
+# you own" promise. We keep files at 0600 and dirs at 0700.
+
+_SECURE_FILE = 0o600
+_SECURE_DIR = 0o700
+
+
+def _content_files() -> list[Path]:
+    """Files that may contain user content or secrets (0600)."""
+    return [
+        CONFIG_PATH,
+        CORRECTIONS_PATH,
+        FLAGGED_PATH,
+        HISTORY_PATH,
+        CORRECTIONS_AUDIT_PATH,
+        METRICS_PATH,
+        AUDIT_STATE_PATH,
+        AUTOCORRECT_STATE_PATH,
+        CONSENT_PATH,
+    ]
+
+
+def _content_dirs() -> list[Path]:
+    """Directories that hold user content (0700)."""
+    return [CONFIG_DIR, LOG_DIR, RECORDINGS_DIR, SNAPSHOTS_DIR]
+
+
+def _chmod(path: Path, mode: int) -> None:
+    """chmod, ignoring missing files and unsupported platforms (Windows)."""
+    if sys.platform == "win32":
+        return
+    try:
+        path.chmod(mode)
+    except (OSError, NotImplementedError):
+        log.debug("Could not chmod %s", path, exc_info=True)
+
+
+def secure_write(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+    """Write text to a file guaranteed to be 0600 with a 0700 parent dir.
+
+    The parent is created (0700) and the file's mode is tightened after the
+    write, so a permissive umask cannot leave secrets world-readable.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _chmod(path.parent, _SECURE_DIR)
+    path.write_text(text, encoding=encoding)
+    _chmod(path, _SECURE_FILE)
+
+
+def check_permissions() -> list[tuple[Path, int, int]]:
+    """Return [(path, actual_mode, expected_mode)] for anything too permissive.
+
+    Only existing paths are reported. A path is flagged when it grants any
+    group/other bits beyond the expected 0600 (files) / 0700 (dirs).
+    """
+    issues: list[tuple[Path, int, int]] = []
+    if sys.platform == "win32":
+        return issues
+    for f in _content_files():
+        if f.is_file():
+            mode = stat.S_IMODE(f.stat().st_mode)
+            if mode & 0o077:
+                issues.append((f, mode, _SECURE_FILE))
+    for d in _content_dirs():
+        if d.is_dir():
+            mode = stat.S_IMODE(d.stat().st_mode)
+            if mode & 0o077:
+                issues.append((d, mode, _SECURE_DIR))
+    # Retained WAVs live under RECORDINGS_DIR.
+    if RECORDINGS_DIR.is_dir():
+        for wav in RECORDINGS_DIR.glob("*.wav"):
+            mode = stat.S_IMODE(wav.stat().st_mode)
+            if mode & 0o077:
+                issues.append((wav, mode, _SECURE_FILE))
+    return issues
+
+
+def harden_permissions() -> int:
+    """Tighten permissions on all existing voiceio state. Idempotent + cheap.
+
+    Called on daemon start and after config writes. Returns the number of
+    paths whose mode was changed (best-effort; never raises).
+    """
+    if sys.platform == "win32":
+        return 0
+    changed = 0
+    for d in _content_dirs():
+        if d.is_dir() and stat.S_IMODE(d.stat().st_mode) != _SECURE_DIR:
+            _chmod(d, _SECURE_DIR)
+            changed += 1
+    for f in _content_files():
+        if f.is_file() and stat.S_IMODE(f.stat().st_mode) != _SECURE_FILE:
+            _chmod(f, _SECURE_FILE)
+            changed += 1
+    if RECORDINGS_DIR.is_dir():
+        for wav in RECORDINGS_DIR.glob("*.wav"):
+            if stat.S_IMODE(wav.stat().st_mode) != _SECURE_FILE:
+                _chmod(wav, _SECURE_FILE)
+                changed += 1
+    return changed
