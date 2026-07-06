@@ -14,8 +14,11 @@ class PromptBuilder:
     def __init__(
         self,
         vocabulary: str = "",
-        max_chars: int = 800,
-        max_segments: int = 5,
+        # Whisper shares a 448-token budget between hotwords, initial_prompt
+        # and OUTPUT; keep the prompt small (~75 tokens) so hotwords plus
+        # prompt never crowd out the transcription itself.
+        max_chars: int = 300,
+        max_segments: int = 3,
     ):
         self._vocabulary = vocabulary
         self._max_chars = max_chars
