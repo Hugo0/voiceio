@@ -17,8 +17,26 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-TRANSCRIBE_TIMEOUT = 30  # seconds
+TRANSCRIBE_TIMEOUT = 30  # seconds (floor; scaled up for long audio)
+# Realtime-factor headroom for the read timeout. Whisper decodes well faster
+# than realtime, so 1.5x the audio duration is a generous ceiling that still
+# never kills a long dictation mid-decode.
+TIMEOUT_PER_SECOND = 1.5
 MAX_RESTARTS = 3
+# A crash-free stretch this long means earlier crashes were transient (suspend,
+# device churn) rather than a fatal loop — reset the restart budget so three
+# unrelated crashes spread over weeks don't permanently kill the daemon.
+RESTART_RESET_SECS = 600
+
+
+def transcribe_timeout(audio_duration: float) -> float:
+    """Read timeout for one transcription, scaled to audio length.
+
+    A fixed 30s timeout kills any dictation whose decode exceeds it (a >2.5min
+    utterance) with total text loss. Scale with the audio so the worker always
+    gets enough time, keeping the 30s floor for short clips.
+    """
+    return max(TRANSCRIBE_TIMEOUT, audio_duration * TIMEOUT_PER_SECOND)
 
 # Loudness normalization: Whisper's log-mel frontend is not scale-invariant at
 # extremes, so too-quiet audio transcribes poorly. Normalize RMS toward a
@@ -51,6 +69,7 @@ class Transcriber:
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
         self._restarts = 0
+        self._last_crash_time = 0.0  # monotonic; for restart-budget reset
         self._initial_prompt: str | None = None
         self._hotwords: str | None = None
         # Segment metadata (confidence etc.) from the most recent transcribe()
@@ -114,9 +133,22 @@ class Transcriber:
                     log.error("Worker stderr: %s", stderr[-500:])
             except OSError:
                 pass
+        # Reset the restart budget after a sustained crash-free period: three
+        # transient crashes spread over weeks (suspend/device churn) must not
+        # permanently disable the daemon. Only counts as sustained health if
+        # we had actually crashed before (_last_crash_time set).
+        now = time.monotonic()
+        if (self._restarts > 0 and self._last_crash_time > 0
+                and now - self._last_crash_time > RESTART_RESET_SECS):
+            log.info(
+                "Transcriber healthy for %.0fs since last crash, resetting restart budget",
+                now - self._last_crash_time,
+            )
+            self._restarts = 0
         if self._restarts >= MAX_RESTARTS:
             raise RuntimeError(f"Transcriber worker crashed {MAX_RESTARTS} times, giving up")
         self._restarts += 1
+        self._last_crash_time = now
         log.warning("Worker died, restarting (attempt %d/%d)", self._restarts, MAX_RESTARTS)
         self._start_worker()
 
@@ -147,10 +179,12 @@ class Transcriber:
                 self._proc.stdin.write(json.dumps(req) + "\n")
                 self._proc.stdin.flush()
 
-            # Read with timeout
-            result_line = self._read_with_timeout(TRANSCRIBE_TIMEOUT)
+            # Read with a timeout scaled to the audio length (never kill a
+            # long dictation mid-decode).
+            timeout = transcribe_timeout(duration)
+            result_line = self._read_with_timeout(timeout)
             if result_line is None:
-                log.warning("Transcription timed out after %ds, restarting worker", TRANSCRIBE_TIMEOUT)
+                log.warning("Transcription timed out after %.0fs, restarting worker", timeout)
                 self._kill_worker()
                 self._ensure_worker()
                 return ""

@@ -8,7 +8,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Callable
 
-from voiceio.transcriber import TRANSCRIBE_TIMEOUT
+from voiceio.transcriber import transcribe_timeout
 from voiceio.typers.base import StreamingTyper
 
 if TYPE_CHECKING:
@@ -83,9 +83,15 @@ class StreamingSession:
         llm: LLMProcessor | None = None,
         voice_input_prefix: str = "",
         on_typer_broken: Callable[[], None] | None = None,
+        is_current: Callable[[], bool] | None = None,
     ):
         self._transcriber = transcriber
         self._typer = typer
+        # Output-ownership gate: the app sets this so a superseded session (its
+        # generation was overtaken by a newer recording) stops emitting ANY
+        # typer output on the final path, which would otherwise corrupt the new
+        # session's text on non-IBus typers. Defaults to "always current".
+        self._is_current = is_current or (lambda: True)
         self._recorder: AudioRecorder | None = recorder
         self._sample_rate = recorder.sample_rate
         self._generation = generation
@@ -109,6 +115,25 @@ class StreamingSession:
         self.raw_final_text: str | None = None
         self.final_segments: list[dict] = []
 
+    def set_is_current(self, is_current: Callable[[], bool]) -> None:
+        """Install the output-ownership gate (see __init__).
+
+        Called by the app at stop time, once it knows the generation this
+        finalizer owns, so the final path can bail out of typer output the
+        moment a newer recording supersedes this one.
+        """
+        self._is_current = is_current
+
+    def set_typer(self, typer: TyperBackend) -> None:
+        """Swap the output backend mid-session (used when the user switches
+        the input source away from voiceio and we fall back to clipboard).
+
+        Resets the typed-text tracking: the old backend's on-screen state
+        (e.g. a stranded IBus preedit) no longer belongs to us.
+        """
+        self._typer = typer
+        self._typed_text = ""
+
     def start(self) -> None:
         """Begin streaming. Recorder must already be started by caller."""
         self._recorder.set_on_speech_pause(self._on_vad_pause)
@@ -130,7 +155,10 @@ class StreamingSession:
         self._stop_event.set()
         self._pending.set()  # wake worker for final pass
         if self._worker_thread is not None:
-            self._worker_thread.join(timeout=TRANSCRIBE_TIMEOUT + 2)
+            # Scale the join to the final-pass audio length so a long dictation
+            # isn't abandoned before its (longer) decode finishes.
+            dur = len(audio) / self._sample_rate if audio is not None else 0.0
+            self._worker_thread.join(timeout=transcribe_timeout(dur) + 2)
             if self._worker_thread.is_alive():
                 log.warning("Streaming worker did not exit in time (gen=%d)", self._generation)
         # Release recorder reference — session must not touch it after stop
@@ -203,6 +231,13 @@ class StreamingSession:
         if final:
             self.raw_final_text = text
             self.final_segments = getattr(self._transcriber, "last_segments", [])
+            if not text:
+                # The final pass produced nothing. If we already have interim
+                # text (e.g. the final transcription timed out on a long
+                # dictation), commit that instead of silently dropping it —
+                # the audio WAV is retained separately, so no extra save here.
+                self._commit_interim_on_final()
+                return
 
         if text and isinstance(text, str):
             from voiceio.postprocess import apply_pipeline
@@ -219,6 +254,11 @@ class StreamingSession:
                 final=final,
             )
             if abort:
+                # A superseded session must not touch the typer on the final
+                # path (would corrupt the newer session's output).
+                if final and not self._is_current():
+                    self._typed_text = ""
+                    return
                 if isinstance(self._typer, StreamingTyper):
                     self._typer.clear_preedit()
                 elif self._typed_text:
@@ -229,8 +269,22 @@ class StreamingSession:
             if text:
                 self._apply_correction(text, final=final)
 
-        if final and self._recorder is not None:
-            self._recorder.mark_transcribed(len(audio))
+    def _commit_interim_on_final(self) -> None:
+        """Commit whatever interim text we have when the final pass yields none.
+
+        For the IBus preedit path the interim text lives only in the preedit
+        (uncommitted) — commit it so a final-pass timeout doesn't drop it. For
+        keystroke typers the interim text is already in the target app, so
+        there is nothing to do.
+        """
+        if not self._typed_text or not self._is_current():
+            return
+        if isinstance(self._typer, StreamingTyper):
+            log.warning(
+                "Final transcription empty; committing interim preedit text (%d chars)",
+                len(self._typed_text),
+            )
+            self._typer.commit_text(self._typed_text)
 
     def _apply_correction(self, new_text: str, final: bool = False) -> None:
         """Apply correction to typed text.
@@ -239,6 +293,12 @@ class StreamingSession:
         Without: append-only via word-level matching, char-level diff on final.
         """
         old = self._typed_text
+
+        # A superseded session must emit no typer output on the final path.
+        if final and not self._is_current():
+            log.debug("Final output suppressed: session superseded")
+            self._typed_text = new_text
+            return
 
         # Preedit path: trivial, just replace the preview text
         if isinstance(self._typer, StreamingTyper):

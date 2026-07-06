@@ -8,6 +8,7 @@ import socket
 import subprocess
 import stat
 import sys
+import time
 from pathlib import Path
 
 from voiceio.backends import ProbeResult
@@ -281,14 +282,40 @@ class IBusTyper:
 
     name = "ibus"
 
+    # A healthy IBus setup does not change under our feet, and the full probe
+    # spawns ~3 subprocesses. The health watchdog calls probe() every 10s, so
+    # cache a successful result and only re-run the full check every few
+    # minutes. Failures are never cached — they must be re-checked immediately.
+    _PROBE_CACHE_TTL = 300.0
+
     def __init__(self, platform=None, **kwargs):
         self._wl_copy = shutil.which("wl-copy")
         self._ydotool = shutil.which("ydotool")
         self._wtype = shutil.which("wtype")
         self._sock: socket.socket | None = None
         self._wl_copy_proc: subprocess.Popen | None = None
+        self._probe_cache: ProbeResult | None = None
+        self._probe_cache_time = 0.0
 
     def probe(self) -> ProbeResult:
+        """Read-only health probe with a cached cheap tier.
+
+        Returns a cached OK result for up to _PROBE_CACHE_TTL to avoid spawning
+        subprocesses on every 10s health tick. Never writes files or restarts
+        IBus — installation lives in ensure_installed().
+        """
+        now = time.monotonic()
+        cached = self._probe_cache
+        if (cached is not None and cached.ok
+                and now - self._probe_cache_time < self._PROBE_CACHE_TTL):
+            return cached
+        result = self._probe_full()
+        self._probe_cache = result
+        self._probe_cache_time = now
+        return result
+
+    def _probe_full(self) -> ProbeResult:
+        """Full read-only probe (no side effects)."""
         from voiceio.platform import pkg_install
         if not shutil.which("ibus"):
             return ProbeResult(
@@ -312,14 +339,11 @@ class IBusTyper:
             )
 
         if not _component_installed():
-            if install_component():
-                log.info("Auto-installed IBus component")
-            else:
-                return ProbeResult(
-                    ok=False,
-                    reason="VoiceIO IBus component not installed",
-                    fix_hint="Run 'voiceio setup' to install",
-                )
+            return ProbeResult(
+                ok=False,
+                reason="VoiceIO IBus component not installed",
+                fix_hint="Run 'voiceio setup' to install",
+            )
 
         if not _gnome_source_configured():
             return ProbeResult(
@@ -329,6 +353,23 @@ class IBusTyper:
             )
 
         return ProbeResult(ok=True)
+
+    def ensure_installed(self) -> bool:
+        """Install the component + GNOME input source if missing.
+
+        This is the ONLY place that writes files / restarts IBus. Call it from
+        setup and daemon-start paths, never from the health loop. Invalidates
+        the probe cache so the next probe() re-checks.
+        """
+        installed = True
+        if not _component_installed():
+            installed = install_component()
+            if installed:
+                log.info("Installed IBus component")
+        if installed:
+            _ensure_gnome_input_source()
+        self._probe_cache = None
+        return installed
 
     def type_text(self, text: str) -> None:
         if not text:
