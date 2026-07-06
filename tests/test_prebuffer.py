@@ -103,3 +103,49 @@ class TestAudioRecorderPrebuffer:
         assert audio.ndim == 1
         # Should contain prebuffer + callback data
         assert len(audio) > 1024
+
+
+class TestNoCrossGenerationTruncation:
+    """Fix #5: mark_transcribed is gone; stop() returns the FULL recording and
+    the streaming pause gate uses a session-local high-water mark."""
+
+    def _recorder(self):
+        cfg = AudioConfig(sample_rate=16000, prebuffer_secs=0.0, silence_duration=0.1)
+        rec = AudioRecorder(cfg)
+        rec._stream = MagicMock()
+        return rec
+
+    def test_mark_transcribed_removed(self):
+        rec = self._recorder()
+        assert not hasattr(rec, "mark_transcribed")
+        assert not hasattr(rec, "_last_transcribed_len")
+
+    def test_stop_returns_full_audio(self):
+        rec = self._recorder()
+        rec.start()
+        # 1s of audio in 4 chunks
+        for _ in range(4):
+            rec._callback(np.ones((4000, 1), dtype=np.float32) * 0.3, 4000, None, None)
+        audio = rec.stop()
+        assert audio is not None
+        assert len(audio) == 16000  # nothing truncated
+
+    def test_pause_high_water_resets_each_recording(self):
+        rec = self._recorder()
+        fired = []
+        rec.set_on_speech_pause(lambda: fired.append(1))
+
+        # First recording: speech then silence -> fires once.
+        rec.start()
+        assert rec._pause_fired_at == 0
+        with patch.object(rec._vad, "is_speech", return_value=True):
+            rec._callback(np.ones((16000, 1), dtype=np.float32) * 0.3, 16000, None, None)
+        with patch.object(rec._vad, "is_speech", return_value=False):
+            rec._callback(np.zeros((3200, 1), dtype=np.float32), 3200, None, None)
+        assert len(fired) == 1
+        assert rec._pause_fired_at > 0
+        rec.stop()
+
+        # New recording must reset the high-water mark (no leak across gens).
+        rec.start()
+        assert rec._pause_fired_at == 0
