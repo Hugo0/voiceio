@@ -162,6 +162,17 @@ class AudioRecorder:
                 return False, f"no audio callback for {stale:.1f}s"
         return True, ""
 
+    def is_zombie(self) -> bool:
+        """Stream firing callbacks but delivering only digital zeros.
+
+        The post-suspend PortAudio failure mode: the heartbeat stays healthy
+        while the capture node is gone. Distinct from a merely-empty ring
+        (fresh stream) or a muted mic (noise floor > 0 on real hardware).
+        """
+        if self._ring._filled < self._ring._max:
+            return False  # ring not yet full — can't judge
+        return not self.has_signal()
+
     def has_signal(self) -> bool:
         """Check if the pre-buffer ring contains non-silence audio.
 
