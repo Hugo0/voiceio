@@ -514,3 +514,200 @@ def _validate_ask_user(items) -> list[dict]:
             "reason": item.get("reason", ""),
         })
     return valid
+
+
+# ── Evidence-based multi-vote adjudication ───────────────────────────────
+#
+# The corrections dictionary is a *cache* of the runtime post-correction layer
+# (voiceio/postcorrect.py): a MISSING rule costs almost nothing (postcorrect
+# fixes it live), a WRONG rule causes regressions. So instead of queueing
+# ambiguous candidates for a human, we adjudicate each one by asking the LLM
+# `votes` times independently, with the word's FULL sentence contexts, and act
+# only on unanimity:
+#   * apply a correction only if ALL votes name the same target AND it passes
+#     gate_correction,
+#   * add to vocabulary only if ALL votes call it a real term,
+#   * otherwise DROP (the caller defers it for later re-adjudication).
+
+
+@dataclass
+class AdjudicationResult:
+    """Outcome of multi-vote adjudication over ambiguous candidates."""
+    apply: list[dict] = field(default_factory=list)       # [{"wrong","right"}]
+    vocabulary: list[str] = field(default_factory=list)   # real terms to keep
+    deferred: list[dict] = field(default_factory=list)    # original item + "votes"
+
+
+_ADJUDICATE_SYSTEM_PROMPT = """\
+You judge whether an uncommon word from speech-to-text (Whisper) dictation is a
+misrecognition or a real term the user meant to say. You are given each word
+with up to three FULL sentences it appeared in — use that context carefully.
+
+For every input word return exactly one verdict:
+  - "correction": it is clearly a misrecognition. Put the intended word in
+    `right` (the correctly spelled real word the user actually said).
+  - "keep": it is a real proper noun, brand, or technical term to keep as-is.
+  - "uncertain": you cannot tell from the context.
+
+Be conservative: only say "correction" when the context makes the intended
+word obvious, and only say "keep" when it reads as a deliberate real term. When
+in doubt, say "uncertain".
+
+Return ONLY a JSON object:
+{"verdicts": [{"word": "olamma", "verdict": "correction", "right": "Ollama"}, \
+{"word": "grafana", "verdict": "keep", "right": ""}, \
+{"word": "tridle", "verdict": "uncertain", "right": ""}]}"""
+
+
+def _build_adjudicate_prompt(items: list[dict], sw_by_word: dict) -> str:
+    """List each candidate with up to 3 full sentence contexts."""
+    parts = []
+    for it in items:
+        word = it.get("wrong", "")
+        sw = sw_by_word.get(word)
+        contexts = list(sw.contexts[:3]) if (sw and sw.contexts) else []
+        if contexts:
+            ctx = "\n".join(f'    - "{c}"' for c in contexts)
+        else:
+            ctx = "    (no context available)"
+        parts.append(f'- "{word}"\n{ctx}')
+    return "\n\n".join(parts)
+
+
+def _parse_adjudication_response(response: str) -> list[dict]:
+    """Parse the adjudication JSON into a flat list of verdict dicts."""
+    text = response.strip()
+    if "```" in text:
+        lines = [ln for ln in text.split("\n") if not ln.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+    parsed = _try_parse_json(text)
+    verdicts = None
+    if isinstance(parsed, dict):
+        verdicts = parsed.get("verdicts")
+    elif isinstance(parsed, list):
+        verdicts = parsed
+    if not isinstance(verdicts, list):
+        return []
+    out = []
+    for v in verdicts:
+        if not isinstance(v, dict):
+            continue
+        word = (v.get("word") or "").strip()
+        if not word:
+            continue
+        verdict = (v.get("verdict") or "").strip().lower()
+        out.append({
+            "word": word,
+            "verdict": verdict,
+            "right": (v.get("right") or "").strip(),
+        })
+    return out
+
+
+def _adjudicate_pass(cfg, items: list[dict], sw_by_word: dict, api_key: str) -> dict:
+    """One independent vote over all `items`, batched. Returns word_lc -> verdict."""
+    from voiceio.llm_api import chat
+
+    out: dict[str, dict] = {}
+    for start in range(0, len(items), _REVIEW_BATCH_SIZE):
+        batch = items[start:start + _REVIEW_BATCH_SIZE]
+        try:
+            response = chat(
+                cfg.autocorrect, _ADJUDICATE_SYSTEM_PROMPT,
+                _build_adjudicate_prompt(batch, sw_by_word),
+                api_key=api_key,
+            )
+        except Exception as e:
+            log.warning("Adjudication batch %d raised: %s", start, e)
+            continue
+        if not response:
+            continue
+        for v in _parse_adjudication_response(response):
+            out[v["word"].lower()] = v
+    return out
+
+
+def _decide_adjudication(
+    word: str, votes: list[dict], required: int,
+    vocabulary: set[str], language: str, protect_languages,
+) -> tuple[str, str]:
+    """Apply the unanimity rule to a word's collected votes.
+
+    Returns ("apply", right) | ("vocab", "") | ("defer", "").
+    """
+    # Every independent pass must have returned a verdict for this word.
+    if len(votes) < required:
+        return ("defer", "")
+
+    verdicts = [v.get("verdict") for v in votes]
+
+    if all(v == "correction" for v in verdicts):
+        rights = [(v.get("right") or "").strip() for v in votes]
+        lowered = {r.lower() for r in rights if r}
+        if len(lowered) == 1 and rights[0]:
+            right = next(r for r in rights if r)
+            gate = gate_correction(
+                word, right, vocabulary=vocabulary, language=language,
+                protect_languages=protect_languages,
+            )
+            if gate is None:
+                return ("apply", right)
+        return ("defer", "")
+
+    if all(v == "keep" for v in verdicts):
+        return ("vocab", "")
+
+    return ("defer", "")
+
+
+def adjudicate(
+    cfg, items: list[dict], sw_by_word: dict, *,
+    votes: int = 3,
+    vocabulary: set[str] | None = None,
+    language: str = "en",
+) -> AdjudicationResult:
+    """Evidence-based adjudication of ambiguous candidates via repeated voting.
+
+    Each of `items` (dicts with at least a "wrong" key) is voted on `votes`
+    times independently, using the word's full sentence contexts. A correction
+    is applied only on unanimous agreement + gate_correction; vocabulary only
+    on unanimous "keep"; everything else is deferred (returned in `deferred`
+    carrying its accumulated `votes` for the caller to persist).
+
+    Votes are batched per pass, so N items × `votes` costs about `votes` API
+    calls (times ceil(N / batch_size)) rather than N × `votes`.
+    """
+    result = AdjudicationResult()
+    if not items:
+        return result
+
+    vocab = vocabulary or set()
+    protect = tuple(cfg.autocorrect.protect_languages)
+
+    from voiceio.llm_api import resolve_api_key
+    api_key = resolve_api_key(cfg.autocorrect)
+    if not api_key:
+        # No way to gather evidence — defer everything untouched.
+        for it in items:
+            result.deferred.append({**it, "votes": []})
+        return result
+
+    votes_by_word: dict[str, list[dict]] = {}
+    for _ in range(max(1, votes)):
+        pass_votes = _adjudicate_pass(cfg, items, sw_by_word, api_key)
+        for wl, v in pass_votes.items():
+            votes_by_word.setdefault(wl, []).append(v)
+
+    for it in items:
+        word = it.get("wrong", "")
+        vlist = votes_by_word.get(word.lower(), [])
+        decision, right = _decide_adjudication(
+            word, vlist, max(1, votes), vocab, language, protect,
+        )
+        if decision == "apply":
+            result.apply.append({"wrong": word, "right": right})
+        elif decision == "vocab":
+            result.vocabulary.append(word)
+        else:
+            result.deferred.append({**it, "votes": vlist})
+    return result
