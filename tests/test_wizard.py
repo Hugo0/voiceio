@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import os
+
 import pytest
 
 import voiceio.config as config
@@ -72,8 +74,8 @@ def test_write_config_roundtrips_through_loader(cfg_paths):
     assert loaded.output.voice_input_prefix == "[voice]"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions only")
 def test_write_config_restricts_permissions(cfg_paths):
-    import os
     wizard._write_config(
         model="small", language="en", hotkey="ctrl+alt+v", method="auto",
         streaming=True, backend="evdev", quiet=True,
