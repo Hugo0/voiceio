@@ -107,6 +107,9 @@ class AutocorrectConfig:
     base_url: str = "https://openrouter.ai/api/v1"  # Any OpenAI-compatible endpoint
     model: str = "moonshotai/kimi-k2-0905"   # Model ID (OpenRouter format) — fast, cheap, non-thinking
     timeout_secs: float = 30.0
+    # Languages you also dictate in: mined corrections never rewrite words
+    # that are real in these (e.g. ["es"] protects Spanish "harina").
+    protect_languages: list[str] = field(default_factory=list)
 
 
 @dataclass

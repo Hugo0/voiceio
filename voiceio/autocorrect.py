@@ -16,17 +16,27 @@ log = logging.getLogger(__name__)
 
 # ── Safety gate for persisting mined correction rules ────────────────────
 
+# A word is "real" in a protected language when it's reasonably common there.
+# Higher than the English non-word bar (2.0) because sharing a rare cognate
+# shouldn't block fixing an obvious English misrecognition.
+_PROTECT_ZIPF = 3.0
+
+
 def gate_correction(
     wrong: str, right: str,
     *,
     vocabulary: set[str] | None = None,
     language: str = "en",
+    protect_languages: tuple[str, ...] | list[str] = (),
 ) -> str | None:
     """Guard against learning bad correction rules from mined pairs.
 
     A mined `wrong → right` pair is only safe to persist when:
       * `wrong` is a genuine non-word (zipf < 2.0, i.e. not is_known) — we
         never rewrite real words the user might legitimately dictate, and
+      * `wrong` isn't a real word in any protected language (a bilingual
+        user's Spanish "harina" must not be rewritten because it looks like
+        a non-word in English), and
       * `right` is either a known-common word (is_common) or already a term
         in the user's vocabulary file — so we don't cement one misspelling
         into another (the historic "manteka"/"wordall" bug).
@@ -34,6 +44,8 @@ def gate_correction(
     Returns ``None`` when the pair passes, otherwise a short human-readable
     reason string explaining why it was rejected.
     """
+    from wordfreq import zipf_frequency
+
     wrong = (wrong or "").strip()
     right = (right or "").strip()
     if not wrong or not right:
@@ -41,6 +53,9 @@ def gate_correction(
     vocab_lower = {v.lower() for v in (vocabulary or set())}
     if is_known(wrong, language):
         return f'"{wrong}" is a real word — refusing to auto-correct it'
+    for pl in protect_languages:
+        if pl != language and zipf_frequency(wrong.lower(), pl) >= _PROTECT_ZIPF:
+            return f'"{wrong}" is a real word in protected language "{pl}"'
     if not (is_common(right, language) or right.lower() in vocab_lower):
         return f'"{right}" is neither a common word nor in your vocabulary'
     return None
