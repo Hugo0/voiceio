@@ -101,23 +101,20 @@ Press your hotkey to start recording (1s pre-buffer catches the first syllable).
 
 Most dictation tools transcribe the same way on day 100 as on day 1. voiceio adapts to *you* — your jargon, names, and accent — entirely from data that never leaves your machine.
 
-```
-  every utterance                weekly, in the background
-  ┌────────────────┐             ┌──────────────────────────────┐
-  │ store audio +  │             │ mine history for recurring    │
-  │ raw text +     │──────┐      │ errors → learn corrections    │
-  │ confidence     │      │      │ + vocabulary (safety-gated)   │
-  └────────────────┘      │      └───────────────┬──────────────┘
-  ┌────────────────┐      │                      ▼
-  │ bias Whisper   │      │      ┌──────────────────────────────┐
-  │ with your      │◀─────┘      │ teacher model (bigger Whisper)│
-  │ vocab + context│             │ replays your audio → AUDITS   │
-  └────────────────┘             │ what was learned. Bad rules   │
-  ┌────────────────┐             │ retire; a whole week rolls    │
-  │ optional LLM   │             │ back if quality regressed.    │
-  │ fixes misheard │             └──────────────────────────────┘
-  │ proper nouns   │
-  └────────────────┘
+```mermaid
+flowchart LR
+    subgraph live ["every utterance"]
+        A["🎙️ dictate"] --> B["store audio + raw text\n+ confidence (local)"]
+        A --> C["hotwords + recent context\nbias the Whisper decoder"]
+        A --> D["optional LLM pass fixes\nmisheard proper nouns"]
+    end
+    subgraph weekly ["weekly, in the background"]
+        E["mine history for recurring errors\n→ learn corrections + vocabulary\n(safety-gated, multi-vote)"] --> F["teacher model replays your audio\n→ audits what was learned"]
+        F -->|"bad rule"| G["auto-retired"]
+        F -->|"quality regressed"| H["whole week rolled back"]
+    end
+    B --> E
+    F -->|"confirmed"| C
 ```
 
 1. **Capture** — every utterance stores its audio, raw text, and confidence in local files.

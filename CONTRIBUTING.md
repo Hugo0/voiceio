@@ -26,7 +26,9 @@ voiceio/
 ├── commands.py      # Voice commands: "new line", "scratch that", "correct that"
 ├── corrections.py   # Corrections dictionary (auto-replace misheard words)
 ├── autocorrect.py   # Frequency analysis + Levenshtein clustering + LLM review
-├── autocorrect_state.py # Persistent mining state: scan cursor + dismissed terms
+├── autocorrect_state.py # Persistent mining state: scan cursor + deferred/dismissed terms
+├── audit.py         # Teacher-model audit: retires bad rules, ages vocab, drift rollback
+├── snapshots.py     # Corrections/vocabulary snapshots for audit rollback
 ├── postcorrect.py   # Constrained final-pass LLM rewrite of misheard words (cloud)
 ├── retention.py     # Local per-utterance audio + context storage for mining/audit
 ├── wordfreq.py      # Word frequency lookup via wordfreq package
