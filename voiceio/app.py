@@ -164,7 +164,6 @@ class VoiceIO:
         self._refresh_hotwords()
         from voiceio.prompt import PromptBuilder
         self._prompt_builder = PromptBuilder()
-        self._vocabulary = vocab or ""
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._cleanup = cfg.output.punctuation_cleanup
@@ -322,12 +321,6 @@ class VoiceIO:
         self._corrections.load()  # hot-reload corrections on each recording
         self._refresh_hotwords()  # hot-reload vocabulary (mtime-cached)
         self.transcriber.set_initial_prompt(self._prompt_builder.build())
-        if self._postcorrect is not None:
-            self._postcorrect.set_context(
-                vocabulary=self._vocabulary,
-                recent=self._prompt_builder.recent(3),
-                title=self._context_title,
-            )
         if self.cfg.data.capture_context:
             # Snapshot the dictation target now — focus may change by finalize
             self._context_title = None
@@ -366,6 +359,15 @@ class VoiceIO:
         audio = self.recorder.stop()
         tray.set_recording(False)
         self._warn_if_clipping()
+
+        if self._postcorrect is not None:
+            # Freshest context for the finalize pass: this recording's window
+            # title (captured at start) and the latest transcripts/vocabulary.
+            self._postcorrect.set_context(
+                vocabulary=self._hotwords,
+                recent=self._prompt_builder.recent(3),
+                title=self._context_title,
+            )
 
         if self._streaming and self._session is not None:
             self._state = _State.FINALIZING
