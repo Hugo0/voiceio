@@ -235,6 +235,15 @@ class VoiceIO:
         self._prev_ibus_engine: str | None = None
         self._engine_proc: subprocess.Popen | None = None
         self._shutdown = threading.Event()
+        # IBus input-source ownership. We claim the GNOME input source ONLY
+        # while a recording is live (RECORDING/FINALIZING) and restore whatever
+        # the user actually had. Never re-forced while IDLE so we don't fight
+        # users who run a real IME (CJK).
+        self._prev_input_source_index: int | None = None
+        self._voiceio_source_index: int | None = None
+        # Set when the user switched input source away from voiceio mid-record:
+        # we stop fighting and fall back to clipboard output for the session.
+        self._ibus_session_fallback = False
 
         # Audio stream recovery backoff
         self._stream_fail_count = 0
@@ -332,6 +341,7 @@ class VoiceIO:
             log.warning("Mic appears silent or muted (pre-buffer is all zeros)")
 
         self._state = _State.RECORDING
+        self._ibus_session_fallback = False
         self._activate_ibus()
         self._corrections.load()  # hot-reload corrections on each recording
         self._refresh_hotwords()  # hot-reload vocabulary (mtime-cached)
@@ -389,6 +399,9 @@ class VoiceIO:
             tray.set_processing(True)
             session = self._session
             self._session = None
+            # Output-ownership gate: the moment a newer recording supersedes
+            # this generation, the session must stop emitting typer output.
+            session.set_is_current(lambda g=gen: self._generation == g)
             # Finalize in background. Pass audio snapshot — session no longer
             # touches the recorder. Generation check cancels if superseded.
             threading.Thread(
@@ -400,17 +413,21 @@ class VoiceIO:
             self._state = _State.IDLE
             log.info("Stopped recording (%.1fs)", elapsed)
             if audio is not None:
+                # _process owns deactivation (its finally block).
                 threading.Thread(
                     target=self._process,
                     args=(audio, gen),
                     daemon=True,
                 ).start()
+            else:
+                # No processing thread will run — release the source here.
+                self._deactivate_ibus(gen)
         else:
             # Streaming mode but session already gone (race) — nothing to do
             self._state = _State.IDLE
             log.debug("Stop: streaming session already finalized")
-
-        self._deactivate_ibus()
+            # No finalizer will run to release the input source, so do it here.
+            self._deactivate_ibus(gen)
 
     def _capture_context(self) -> None:
         from voiceio import retention
@@ -492,6 +509,10 @@ class VoiceIO:
                 extra=extra,
             )
         log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
+        # Release the IBus input source now that the final commit is done.
+        # Generation-checked inside: if a newer recording started, it already
+        # re-claimed the source and we must not restore it out from under it.
+        self._deactivate_ibus(gen)
         # Transition to IDLE under lock to avoid racing with _toggle
         with self._hotkey_lock:
             if self._generation == gen and self._state == _State.FINALIZING:
@@ -525,7 +546,8 @@ class VoiceIO:
                 )
                 if abort:
                     return
-                if text:
+                # Superseded by a newer recording — do not touch the typer.
+                if text and self._generation == gen:
                     self._type_with_fallback(text)
                     self._play_feedback(text)
                     stored = self._strip_voice_prefix(text)
@@ -541,6 +563,9 @@ class VoiceIO:
                     log.info("Typed: '%s'", text)
         except Exception:
             log.exception("Processing failed")
+        finally:
+            # Release the IBus input source after the batch commit (or failure).
+            self._deactivate_ibus(gen)
 
     # ── Text-to-speech ─────────────────────────────────────────────
 
@@ -578,7 +603,11 @@ class VoiceIO:
     # ── IBus management ─────────────────────────────────────────────────
 
     def _activate_ibus(self) -> None:
-        """Switch GNOME input source to voiceio engine for text injection."""
+        """Claim the GNOME input source for the voiceio engine (record start).
+
+        Records the source the user had so we can restore exactly that on
+        deactivation, rather than hardcoding index 0.
+        """
         if self._typer.name != "ibus":
             return
         threading.Thread(
@@ -586,13 +615,21 @@ class VoiceIO:
             args=("voiceio",), daemon=True,
         ).start()
 
-    def _deactivate_ibus(self) -> None:
-        """Switch GNOME input source back to normal keyboard."""
+    def _deactivate_ibus(self, gen: int | None = None) -> None:
+        """Restore the user's input source after a recording finishes.
+
+        Generation-checked: if a newer recording already re-claimed the source
+        (self._generation moved past ``gen``), do NOT restore — that would yank
+        the source out from under the live recording. Called after the final
+        commit, never while IDLE.
+        """
         if self._typer.name != "ibus":
             return
+        if gen is not None and self._generation != gen:
+            log.debug("Skip IBus deactivate: gen %d superseded by %d", gen, self._generation)
+            return
         threading.Thread(
-            target=self._set_gnome_input_source_index,
-            args=(0,), daemon=True,
+            target=self._restore_input_source, daemon=True,
         ).start()
 
     # ── Feedback ────────────────────────────────────────────────────────
@@ -649,7 +686,14 @@ class VoiceIO:
         ).start()
 
     def _deferred_typer_upgrade(self) -> None:
-        """Wait for IDLE state, then re-detect platform and upgrade typer."""
+        """Wait for IDLE state, then re-detect platform and upgrade typer.
+
+        Lock discipline: all subprocess probing (redetect, chain resolve,
+        select, engine start) runs OUTSIDE ``_hotkey_lock``. Only the field
+        assignments go through the lock-guarded swap helpers, which apply the
+        change only while IDLE. We must never hold the lock across a typer or
+        engine subprocess call.
+        """
         # Wait up to 30s for recording/finalizing to complete
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -658,17 +702,45 @@ class VoiceIO:
             time.sleep(0.5)
         if self._shutdown.is_set():
             return
+        if self._state != _State.IDLE:
+            log.debug("Typer upgrade abandoned: state=%s after 30s", self._state)
+            return
+        _import_graphical_env()
+        if not self._swap_platform(_redetect_platform()):
+            return  # left IDLE before we could apply
+        log.info(
+            "Typer broken: re-detected platform: display=%s desktop=%s",
+            self.platform.display_server, self.platform.desktop,
+        )
+        self._try_upgrade_typer(reason="streaming-failure")
+
+    def _swap_platform(self, new_platform) -> bool:
+        """Assign ``self.platform`` under the lock, only while IDLE.
+
+        Health/upgrade threads must not mutate shared state that the hotkey and
+        finalizer paths read, except while IDLE and holding the lock. Returns
+        True if applied.
+        """
         with self._hotkey_lock:
             if self._state != _State.IDLE:
-                log.debug("Typer upgrade abandoned: state=%s after 30s", self._state)
-                return
-            _import_graphical_env()
-            self.platform = _redetect_platform()
-            log.info(
-                "Typer broken: re-detected platform: display=%s desktop=%s",
-                self.platform.display_server, self.platform.desktop,
-            )
-            self._try_upgrade_typer(reason="streaming-failure")
+                return False
+            self.platform = new_platform
+            return True
+
+    def _swap_typer(self, new_typer: TyperBackend, reason: str = "") -> bool:
+        """Assign ``self._typer`` under the lock, only while IDLE.
+
+        Contains NO subprocess/engine operations — callers perform those
+        (probing, engine start) outside the lock. Returns True if applied.
+        """
+        with self._hotkey_lock:
+            if self._state != _State.IDLE:
+                log.debug("Typer swap (%s) skipped: state=%s", reason, self._state)
+                return False
+            old = self._typer.name
+            self._typer = new_typer
+        log.info("Typer upgraded: %s -> %s (%s)", old, new_typer.name, reason)
+        return True
 
     def _try_upgrade_typer(self, reason: str = "") -> bool:
         """Try to switch to a better typer backend.
@@ -712,12 +784,13 @@ class VoiceIO:
 
         new_idx = chain.index(new_typer.name) if new_typer.name in chain else len(chain)
         if new_idx < current_idx:
-            old_name = self._typer.name
-            self._typer = new_typer
-            log.info("Typer upgraded: %s -> %s (%s)", old_name, new_typer.name, reason)
+            # Apply the swap under the lock (IDLE-gated); if it didn't apply
+            # (state left IDLE), don't start the engine.
+            if not self._swap_typer(new_typer, reason):
+                return False
             if new_typer.name == "ibus" and self._engine_proc is None:
                 try:
-                    self._ensure_ibus_engine()
+                    self._ensure_ibus_engine()  # subprocess ops, outside the lock
                 except Exception:
                     log.exception("Upgrade (%s): failed to start IBus engine", reason)
             return True
@@ -787,6 +860,11 @@ class VoiceIO:
                 log.warning("IBus engine started but socket not found, commands may fail")
             return
 
+        # Remember the source the user is on now so we can return the engine
+        # to dormancy without hardcoding index 0 (which may not be the user's
+        # keyboard). Phase 2 briefly activates voiceio to spawn the instance.
+        dormant_idx = self._get_current_input_source_index()
+
         # Phase 2: activate via `ibus engine voiceio`
         log.info("Activating VoiceIO IBus engine...")
         activate_proc = subprocess.Popen(
@@ -809,7 +887,8 @@ class VoiceIO:
         except subprocess.TimeoutExpired:
             activate_proc.kill()
 
-        self._set_gnome_input_source_index(0)
+        # Return to dormancy on the user's real source (not hardcoded 0).
+        self._set_gnome_input_source_index(dormant_idx if dormant_idx is not None else 0)
         log.info("VoiceIO IBus engine ready (dormant until recording)")
 
     def _ping_ibus_engine(self) -> bool:
@@ -832,33 +911,31 @@ class VoiceIO:
         except (OSError, _socket.timeout):
             return False
 
-    def _reactivate_ibus_if_stale(self) -> None:
-        """Re-activate IBus engine if it lost registration (e.g. after hibernate).
-
-        After suspend/hibernate, the IBus daemon may forget about our engine.
-        Check by querying the current active engine; if it's not 'voiceio',
-        re-run ``ibus engine voiceio`` to re-register.
+    def _detect_input_source_hijack(self) -> None:
+        """If the user switched input source away from voiceio mid-recording,
+        stop fighting: log it and fall back to the clipboard typer for the
+        rest of this session instead of re-forcing our engine.
         """
-        from voiceio.typers.ibus import _ibus_env
-        try:
-            result = subprocess.run(
-                ["ibus", "engine"], capture_output=True, text=True,
-                timeout=3, env=_ibus_env(),
-            )
-            current = result.stdout.strip() if result.returncode == 0 else ""
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        if self._ibus_session_fallback or self._voiceio_source_index is None:
             return
-        if current == "voiceio":
-            return  # still registered, nothing to do
-        log.warning("IBus engine stale (current=%r), re-activating", current)
+        cur = self._get_current_input_source_index()
+        if cur is None or cur == self._voiceio_source_index:
+            return
+        log.warning(
+            "Input source switched away from voiceio mid-recording (now index %d); "
+            "falling back to clipboard for this session (not fighting the user)",
+            cur,
+        )
+        self._ibus_session_fallback = True
         try:
-            subprocess.run(
-                ["ibus", "engine", "voiceio"],
-                capture_output=True, timeout=5, env=_ibus_env(),
-            )
-            log.info("IBus engine re-activated")
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            log.warning("IBus re-activation failed: %s", e)
+            from voiceio.typers.clipboard import ClipboardTyper
+            clip = ClipboardTyper(self.platform)
+        except Exception:
+            log.debug("Could not build clipboard fallback typer", exc_info=True)
+            return
+        session = self._session
+        if session is not None:
+            session.set_typer(clip)
 
     def _wait_for_ibus(self, chain: list[str]) -> TyperBackend | None:
         """Wait for IBus daemon to become available and switch to IBus typer.
@@ -902,6 +979,30 @@ class VoiceIO:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
+    def _get_current_input_source_index(self) -> int | None:
+        """Read the active GNOME input source index, or None if unavailable."""
+        if not self.platform.is_gnome:
+            return None
+        try:
+            result = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.input-sources", "current"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if result.returncode == 0:
+                return int(result.stdout.strip())
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass
+        return None
+
+    def _restore_input_source(self) -> None:
+        """Restore the input source the user had before we claimed it."""
+        if not self.platform.is_gnome:
+            return
+        idx = self._prev_input_source_index
+        self._set_gnome_input_source_index(idx if idx is not None else 0)
+        self._prev_input_source_index = None
+        self._voiceio_source_index = None
+
     def _switch_gnome_input_source(self, engine_name: str) -> None:
         if not self.platform.is_gnome:
             return
@@ -922,6 +1023,13 @@ class VoiceIO:
                 return
             for i, (kind, name) in enumerate(source_list):
                 if kind == "ibus" and name == engine_name:
+                    # Record the source the user actually had so we can restore
+                    # exactly it, and remember voiceio's index to detect a
+                    # mid-recording switch-away.
+                    prev = self._get_current_input_source_index()
+                    if prev is not None and prev != i:
+                        self._prev_input_source_index = prev
+                    self._voiceio_source_index = i
                     subprocess.run(
                         ["gsettings", "set", "org.gnome.desktop.input-sources",
                          "current", str(i)],
@@ -1005,7 +1113,8 @@ class VoiceIO:
         _import_graphical_env()
 
         # Re-detect platform now that env vars may have been refreshed
-        self.platform = _redetect_platform()
+        # (lock-guarded, IDLE-only — a live recording keeps its platform).
+        self._swap_platform(_redetect_platform())
 
         # Audio: reopen stream (device may have changed or died)
         try:
@@ -1018,7 +1127,8 @@ class VoiceIO:
         # of ibus) — the preferred backend may be available now.
         self._try_upgrade_typer(reason="resume")
 
-        # IBus: re-activate engine registration
+        # IBus: restart the engine only if its process died. Never re-force the
+        # active input source on resume — activation happens on record-start.
         if self._typer.name == "ibus" and self._engine_proc is not None:
             if self._engine_proc.poll() is not None:
                 # Engine process died during sleep
@@ -1028,8 +1138,6 @@ class VoiceIO:
                     log.info("Resume: IBus engine restarted")
                 except Exception:
                     log.exception("Resume: IBus engine restart failed")
-            else:
-                self._reactivate_ibus_if_stale()
 
         # Tray: restart if subprocess died
         if self.cfg.tray.enabled and not tray.is_alive():
@@ -1093,31 +1201,15 @@ class VoiceIO:
             log.warning("Tray subprocess died, restarting")
             tray.restart(self.on_hotkey)
 
-        # Check typer: if on a fallback, try to upgrade to preferred backend.
-        # Refresh env + platform first in case we started before the desktop
-        # session had exported DISPLAY/WAYLAND_DISPLAY/XDG_CURRENT_DESKTOP.
-        _import_graphical_env()
-        old_desktop = self.platform.desktop
-        self.platform = _redetect_platform()
-        if self.platform.desktop != old_desktop:
-            log.info(
-                "Platform refreshed: display=%s desktop=%s (was desktop=%s)",
-                self.platform.display_server, self.platform.desktop, old_desktop,
-            )
-        chain = typer_chain._get_chain(self.platform)
-        current_idx = chain.index(self._typer.name) if self._typer.name in chain else len(chain)
-        if current_idx > 0:
-            self._try_upgrade_typer(reason="health-check")
+        # Typer upkeep: only touch typer/platform while IDLE, and only through
+        # the lock-guarded swap helpers (never hot-swap under a live recording).
+        if self._state == _State.IDLE:
+            self._health_typer_upkeep()
 
-        # Check typer: re-probe if current backend is broken
-        probe = self._typer.probe()
-        if not probe.ok:
-            log.warning("Typer '%s' probe failed: %s — re-selecting", self._typer.name, probe.reason)
-            _import_graphical_env()
-            self.platform = _redetect_platform()
-            self._try_upgrade_typer(reason="probe-failed")
-
-        # Check IBus engine (restart if died, zombie, or stale after resume)
+        # Check IBus engine liveness. When IDLE we ONLY restart a dead/zombie
+        # engine process — we never re-force the active input source, so we
+        # don't fight users running a real IME. When a recording is live we
+        # watch for the user switching source away from us and fall back.
         if self._typer.name == "ibus" and self._engine_proc is not None:
             if self._engine_proc.poll() is not None:
                 log.warning("IBus engine process died (rc=%d), restarting",
@@ -1133,7 +1225,8 @@ class VoiceIO:
                 # actually responding. A zombie engine (process alive but
                 # GLib loop stuck / socket thread dead) silently drops all
                 # preedit and commit messages, causing the "transcription
-                # works but no text appears" symptom.
+                # works but no text appears" symptom. Restart it, but do NOT
+                # touch the active input source.
                 if not self._ping_ibus_engine():
                     log.warning("IBus engine not responding to ping, restarting")
                     self._engine_proc.kill()
@@ -1147,9 +1240,37 @@ class VoiceIO:
                         log.info("IBus engine recovered (was zombie)")
                     except Exception:
                         log.exception("IBus engine recovery failed")
-                else:
-                    # Engine alive and responding — check IBus registration
-                    self._reactivate_ibus_if_stale()
+            else:
+                # RECORDING / FINALIZING: don't re-force the source; if the
+                # user switched away from voiceio, fall back to clipboard.
+                self._detect_input_source_hijack()
+
+    def _health_typer_upkeep(self) -> None:
+        """IDLE-only: refresh platform + upgrade/repair the typer.
+
+        Runs the expensive probing outside ``_hotkey_lock``; the platform and
+        typer field mutations go through the lock-guarded swap helpers.
+        """
+        _import_graphical_env()
+        old_desktop = self.platform.desktop
+        new_platform = _redetect_platform()
+        if new_platform.desktop != old_desktop:
+            log.info(
+                "Platform refreshed: display=%s desktop=%s (was desktop=%s)",
+                new_platform.display_server, new_platform.desktop, old_desktop,
+            )
+        self._swap_platform(new_platform)
+
+        chain = typer_chain._get_chain(self.platform)
+        current_idx = chain.index(self._typer.name) if self._typer.name in chain else len(chain)
+        if current_idx > 0:
+            self._try_upgrade_typer(reason="health-check")
+
+        # Re-probe current backend; re-select if it broke.
+        probe = self._typer.probe()
+        if not probe.ok:
+            log.warning("Typer '%s' probe failed: %s — re-selecting", self._typer.name, probe.reason)
+            self._try_upgrade_typer(reason="probe-failed")
 
     # ── Main loop ───────────────────────────────────────────────────────
 
@@ -1184,6 +1305,13 @@ class VoiceIO:
         self._pid_fd.flush()
 
         if self._typer.name == "ibus":
+            # Daemon-start is one of the only places allowed to install the
+            # component / restart IBus (probe() is read-only now, fix #6).
+            try:
+                if hasattr(self._typer, "ensure_installed"):
+                    self._typer.ensure_installed()
+            except Exception:
+                log.exception("IBus ensure_installed failed (continuing)")
             self._ensure_ibus_engine()
         else:
             # IBus daemon may not be ready at startup (race with graphical
@@ -1227,7 +1355,10 @@ class VoiceIO:
             f"(model={self.cfg.model.name}, typer={self._typer.name})",
         )
 
+        # Ctrl-C and `systemctl stop voiceio` must run the SAME cleanup path
+        # (restore input source, engine shutdown) — the finally block below.
         signal.signal(signal.SIGINT, lambda *_: self._shutdown.set())
+        signal.signal(signal.SIGTERM, lambda *_: self._shutdown.set())
         try:
             self._shutdown.wait()
         except KeyboardInterrupt:

@@ -401,6 +401,122 @@ class TestPreeditPath:
         s._typer.delete_chars.assert_not_called()
 
 
+# --- Output ownership gate (fix #4) ---
+
+class TestOutputOwnershipGate:
+    """A superseded session must emit NO typer output on the final path."""
+
+    def _session(self, is_current):
+        return StreamingSession(
+            transcriber=MagicMock(),
+            typer=MagicMock(spec=TyperBackend),
+            recorder=MagicMock(),
+            is_current=is_current,
+        )
+
+    def test_superseded_final_emits_nothing(self):
+        s = self._session(is_current=lambda: False)
+        s._typed_text = "Hello world"
+        s._apply_correction("Hello world corrected", final=True)
+        s._typer.type_text.assert_not_called()
+        s._typer.delete_chars.assert_not_called()
+        # Internal state still advances so history reflects the real text.
+        assert s._typed_text == "Hello world corrected"
+
+    def test_current_final_still_emits(self):
+        s = self._session(is_current=lambda: True)
+        s._typed_text = "Hello"
+        s._apply_correction("Hello world", final=True)
+        # Non-streaming typer: char diff appends " world"
+        s._typer.type_text.assert_called_once_with(" world")
+
+    def test_superseded_preedit_final_no_commit(self):
+        typer = MagicMock(spec=_MockStreamingTyper)
+        typer.name = "mock-ibus"
+        typer.commit_text = MagicMock()
+        typer.update_preedit = MagicMock()
+        s = StreamingSession(
+            transcriber=MagicMock(), typer=typer, recorder=MagicMock(),
+            is_current=lambda: False,
+        )
+        s._typed_text = "Hello"
+        s._apply_correction("Hello world", final=True)
+        typer.commit_text.assert_not_called()
+
+    def test_default_is_current_true(self):
+        s = StreamingSession(
+            transcriber=MagicMock(),
+            typer=MagicMock(spec=TyperBackend),
+            recorder=MagicMock(),
+        )
+        assert s._is_current() is True
+
+
+# --- Commit interim text on final-pass timeout (fix #9) ---
+
+class TestCommitInterimOnFinal:
+    def _streaming_session(self, is_current=lambda: True):
+        typer = MagicMock(spec=_MockStreamingTyper)
+        typer.name = "mock-ibus"
+        typer.commit_text = MagicMock()
+        s = StreamingSession(
+            transcriber=MagicMock(), typer=typer, recorder=MagicMock(),
+            is_current=is_current,
+        )
+        return s, typer
+
+    def test_commits_interim_preedit(self):
+        s, typer = self._streaming_session()
+        s._typed_text = "hello there friend"
+        s._commit_interim_on_final()
+        typer.commit_text.assert_called_once_with("hello there friend")
+
+    def test_no_interim_nothing_committed(self):
+        s, typer = self._streaming_session()
+        s._typed_text = ""
+        s._commit_interim_on_final()
+        typer.commit_text.assert_not_called()
+
+    def test_superseded_does_not_commit(self):
+        s, typer = self._streaming_session(is_current=lambda: False)
+        s._typed_text = "hello there"
+        s._commit_interim_on_final()
+        typer.commit_text.assert_not_called()
+
+    def test_final_empty_text_commits_interim(self):
+        """Full path: final transcription returns '' (timeout) but interim
+        preedit exists -> it's committed, not dropped."""
+        transcriber = MagicMock()
+        transcriber.transcribe.return_value = ""  # simulate timeout / empty
+        transcriber.last_segments = []
+        typer = MagicMock(spec=_MockStreamingTyper)
+        typer.name = "mock-ibus"
+        typer.commit_text = MagicMock()
+        recorder = MagicMock()
+        recorder.sample_rate = 16000
+        s = StreamingSession(transcriber, typer, recorder, is_current=lambda: True)
+        s._typed_text = "interim words here"
+        s._final_audio = np.ones(16000, dtype=np.float32)
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        typer.commit_text.assert_called_once_with("interim words here")
+
+
+# --- Mid-session typer swap (fix #1 fallback) ---
+
+class TestSetTyper:
+    def test_swap_resets_typed_text(self):
+        s = StreamingSession(
+            transcriber=MagicMock(),
+            typer=MagicMock(spec=TyperBackend),
+            recorder=MagicMock(),
+        )
+        s._typed_text = "stranded preedit"
+        new_typer = MagicMock(spec=TyperBackend)
+        s.set_typer(new_typer)
+        assert s._typer is new_typer
+        assert s._typed_text == ""
+
+
 # --- Worker loop integration ---
 
 class TestWorkerLoop:

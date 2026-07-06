@@ -25,6 +25,7 @@ gi.require_version("IBus", "1.0")
 from gi.repository import GLib, GObject, IBus
 
 from voiceio.ibus import READY_PATH, SOCKET_PATH
+from voiceio.ibus.pending import PendingBuffer
 
 log = logging.getLogger(__name__)
 ENGINE_NAME = "voiceio"
@@ -99,6 +100,12 @@ class VoiceIOEngineFactory(IBus.Factory):
         VoiceIOEngineFactory._engine_count += 1
         obj_path = f"/org/freedesktop/IBus/Engine/{VoiceIOEngineFactory._engine_count}"
         log.info("Creating engine '%s' at %s", engine_name, obj_path)
+        # A fresh engine instance means a new focus/window context. Any commands
+        # buffered against the previous (non-existent) instance are stale — drop
+        # them so they don't replay into whatever window is focused now.
+        if len(_pending):
+            log.info("Dropping %d buffered command(s) on engine creation", len(_pending))
+            _pending.clear()
         engine = VoiceIOEngine(
             engine_name=engine_name,
             object_path=obj_path,
@@ -116,7 +123,9 @@ class VoiceIOEngineFactory(IBus.Factory):
 
 # Global engine reference (set when factory creates the engine)
 _engine: VoiceIOEngine | None = None
-_pending_commands: list[str] = []
+# Commands that arrived before the engine instance existed. Stale entries are
+# dropped and the whole buffer is cleared on engine creation (see PendingBuffer).
+_pending = PendingBuffer()
 
 
 def _socket_listener(mainloop: GLib.MainLoop) -> None:
@@ -165,9 +174,10 @@ def _socket_listener(mainloop: GLib.MainLoop) -> None:
 
 
 def _flush_pending() -> None:
-    """Replay any commands that arrived before the engine was ready."""
-    while _pending_commands:
-        _dispatch(_pending_commands.pop(0))
+    """Replay commands that arrived before the engine was ready, dropping any
+    that have gone stale."""
+    for msg in _pending.drain_fresh():
+        _dispatch(msg)
 
 
 def _dispatch(msg: str) -> None:
@@ -189,12 +199,12 @@ def _handle_command(msg: str) -> bool:
     """Handle a command on the GLib main thread. Returns False to remove from idle."""
     if _engine is None:
         log.debug("Engine not ready, buffering command: %s", msg[:40])
-        _pending_commands.append(msg)
+        _pending.add(msg)
         return False
 
-    # Flush any buffered commands first
-    if _pending_commands:
-        log.info("Engine ready, flushing %d buffered commands", len(_pending_commands))
+    # Flush any buffered commands first (stale ones are dropped)
+    if len(_pending):
+        log.info("Engine ready, flushing %d buffered commands", len(_pending))
         _flush_pending()
 
     _dispatch(msg)
