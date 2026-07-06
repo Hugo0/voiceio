@@ -79,6 +79,10 @@ def main() -> None:
                            help="Scan history with LLM to find and fix Whisper mistakes")
     p_correct.add_argument("--full", action="store_true",
                            help="Rescan all history (ignore the last-scan cursor)")
+    p_correct.add_argument("--batch", action="store_true",
+                           help="Non-interactive: apply safety-gated fixes and "
+                                "vocabulary, notify about items needing review "
+                                "(used by the weekly systemd timer)")
 
     # ── voiceio history ──────────────────────────────────────────────────
     p_history = sub.add_parser("history", help="View transcription history")
@@ -649,7 +653,11 @@ def _cmd_correct(args: argparse.Namespace) -> None:
 
     # --auto or bare `voiceio correct` both run the scan flow
     if args.auto or (not args.wrong):
-        _cmd_correct_auto(cd, full=getattr(args, "full", False))
+        _cmd_correct_auto(
+            cd,
+            full=getattr(args, "full", False),
+            batch=getattr(args, "batch", False),
+        )
         return
 
     print("Usage: voiceio correct \"wrong\" \"right\"")
@@ -659,8 +667,15 @@ def _cmd_correct(args: argparse.Namespace) -> None:
     sys.exit(1)
 
 
-def _cmd_correct_auto(cd, *, full: bool = False) -> None:
-    """Scan history for Whisper mistakes, auto-fix with LLM or review manually."""
+def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
+    """Scan history for Whisper mistakes, auto-fix with LLM or review manually.
+
+    batch=True (systemd timer): non-interactive — apply the safety-gated
+    auto-fix bucket and sane vocabulary terms, then send a desktop
+    notification if items need human review instead of prompting. The scan
+    cursor only advances when nothing is left to review, so pending items
+    are re-proposed until the user runs an interactive session.
+    """
     import time as _time
 
     from voiceio import history
@@ -722,6 +737,12 @@ def _cmd_correct_auto(cd, *, full: bool = False) -> None:
     # ── API key check ───────────────────────────────────────────────────
     has_api = bool(resolve_api_key(cfg.autocorrect))
     has_ollama = cfg.llm.enabled
+
+    if batch and not has_api:
+        # Unattended runs can't do manual review and Ollama isn't reliable
+        # for classification — bail quietly rather than fail the timer.
+        print("No API key configured — skipping batch mining run.")
+        return
 
     if not has_api and not has_ollama:
         print(f"\n  {YELLOW}⚠{RESET}  No LLM configured — review will be manual only.")
@@ -795,9 +816,13 @@ def _cmd_correct_auto(cd, *, full: bool = False) -> None:
                 auto_fixed += 1
 
     # ── Bucket 3: Vocabulary (proper nouns/terms) — bulk confirm ─────────
+    # In batch mode terms are added without prompting; add_terms() still
+    # applies its sanity checks (junk, near-misspellings of existing terms).
     vocab_added = 0
     if result.vocabulary:
-        vocab_added = _confirm_add_vocabulary(cfg, result.vocabulary, state)
+        vocab_added = _confirm_add_vocabulary(
+            cfg, result.vocabulary, state, silent=batch,
+        )
 
     # ── Bucket 2: Ask user (ambiguous) ──────────────────────────────────
     to_review = downgraded + list(result.ask_user)
@@ -836,7 +861,20 @@ def _cmd_correct_auto(cd, *, full: bool = False) -> None:
     skipped = 0
     user_quit = False
 
-    if to_review:
+    if to_review and batch:
+        # Unattended: never prompt. Tell the user review is waiting.
+        print(f"\n{len(to_review)} suggestion(s) need review:")
+        for item in to_review[:10]:
+            suggestion = f" → {item['right']}" if item.get("right") else ""
+            print(f"  {item['wrong']}{suggestion}")
+        if len(to_review) > 10:
+            print(f"  … and {len(to_review) - 10} more")
+        from voiceio.feedback import notify
+        notify(
+            "VoiceIO: transcription fixes to review",
+            f"{len(to_review)} suggestion(s) waiting — run 'voiceio correct'",
+        )
+    elif to_review:
         import re as _re
         import readline as _rl
 
@@ -1104,9 +1142,10 @@ def _cmd_correct_auto(cd, *, full: bool = False) -> None:
 
     # ── Persist scan state ──────────────────────────────────────────────
     # Advance the cursor only on a completed run — quitting mid-review must
-    # leave the un-reviewed (new) entries eligible for the next scan. The
-    # dismissed set is always persisted.
-    if not user_quit:
+    # leave the un-reviewed (new) entries eligible for the next scan, and a
+    # batch run with pending review items must leave them re-proposable.
+    # The dismissed set is always persisted.
+    if not user_quit and not (batch and to_review):
         state.last_scan_ts = run_ts
     save_state(state)
 
