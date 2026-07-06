@@ -99,7 +99,11 @@ class AudioRecorder:
         self._on_speech_pause = on_speech_pause
         self._silence_duration = cfg.silence_duration
         self._silent_chunks = 0.0
-        self._last_transcribed_len = 0
+        # High-water mark of _total_samples at the last speech-pause fire.
+        # Session-local: reset in start() under the lock, only ever read/written
+        # inside a single recording. Gates re-firing until enough new audio has
+        # accumulated (see _callback).
+        self._pause_fired_at = 0
         self._total_samples = 0
 
         # Auto-stop on sustained silence
@@ -203,7 +207,7 @@ class AudioRecorder:
             self._silent_chunks = 0.0
             self._sustained_silence = 0.0
             self._heard_speech = False
-            self._last_transcribed_len = 0
+            self._pause_fired_at = 0
             self._meter_peak = 0.0
             self._meter_clipped = 0
             self._meter_samples = 0
@@ -223,18 +227,16 @@ class AudioRecorder:
                 return None
 
             audio = np.concatenate(self._chunks, axis=0).flatten()
-            remaining = audio[self._last_transcribed_len:]
-            duration = len(remaining) / self.sample_rate
+            duration = len(audio) / self.sample_rate
 
             if duration < 0.3:
-                if self._last_transcribed_len > 0:
-                    return None
                 log.warning("Audio too short (%.1fs), skipping", duration)
+                self._chunks = []
                 return None
 
             log.info("Recording stopped, %.1fs audio", duration)
             self._chunks = []
-            return remaining
+            return audio
 
     def get_audio_so_far(self) -> np.ndarray | None:
         """Get all audio captured so far (for streaming)."""
@@ -250,9 +252,6 @@ class AudioRecorder:
     def set_on_auto_stop(self, callback: Callable[[], None] | None) -> None:
         """Set/clear the auto-stop callback (fires after sustained silence)."""
         self._on_auto_stop = callback
-
-    def mark_transcribed(self, num_samples: int) -> None:
-        self._last_transcribed_len = num_samples
 
     def get_meter(self) -> dict[str, float]:
         """Level stats for the current or just-finished recording.
@@ -308,11 +307,15 @@ class AudioRecorder:
             self._sustained_silence = 0.0
             self._heard_speech = True
 
-        # Streaming VAD: trigger transcription on speech pause
+        # Streaming VAD: trigger transcription on speech pause, but only once
+        # at least ~1s of new audio has accumulated since the last fire. The
+        # high-water mark is session-local (reset in start()), so it can never
+        # leak across recordings.
         if self._on_speech_pause is not None:
-            has_new = self._total_samples > self._last_transcribed_len + self.sample_rate
+            has_new = self._total_samples > self._pause_fired_at + self.sample_rate
             if self._silent_chunks >= self._silence_duration and has_new:
                 self._silent_chunks = 0.0
+                self._pause_fired_at = self._total_samples
                 self._on_speech_pause()
 
         # Auto-stop after sustained silence (only after hearing speech)
