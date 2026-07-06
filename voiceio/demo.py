@@ -88,9 +88,9 @@ def run_demo() -> None:
     commands_table = [
         ("new line / new paragraph", "insert line break"),
         ("period / comma / question mark", "insert punctuation"),
-        ("scratch that", "delete last phrase"),
+        ("open quote / close paren / dash", "brackets, quotes, dashes"),
+        ("scratch that / undo that", "delete last phrase (destructive — opt-in)"),
         ("correct that", "flag last word for review"),
-        ("select all / copy that / undo", "editing commands"),
     ]
     print(f"  {BOLD}Available commands:{RESET}")
     for cmd, desc in commands_table:

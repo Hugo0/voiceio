@@ -190,6 +190,127 @@ def pkg_install(*packages: str) -> str:
     return f"{prefix} {' '.join(mapped)}"
 
 
+# ── System-dependency preflight ──────────────────────────────────────────────
+#
+# The #1 install funnel killer is missing *system* packages: a C toolchain to
+# build the evdev wheel, PortAudio for microphone capture, and IBus + its
+# GObject-introspection bindings for text injection. This is the single source
+# of truth mapping each requirement to the exact package names per distro.
+
+SYSTEM_DEPS: dict[str, dict[str, list[str]]] = {
+    # Builds the evdev C-extension (no manylinux wheel is published for evdev).
+    "compiler": {
+        "apt": ["build-essential", "python3-dev"],
+        "dnf": ["gcc", "gcc-c++", "make", "python3-devel"],
+        "pacman": ["base-devel"],
+        "zypper": ["gcc", "gcc-c++", "make", "python3-devel"],
+    },
+    # PortAudio backs sounddevice (microphone capture).
+    "portaudio": {
+        "apt": ["portaudio19-dev"],
+        "dnf": ["portaudio-devel"],
+        "pacman": ["portaudio"],
+        "zypper": ["portaudio-devel"],
+    },
+    # IBus engine + GObject bindings — the only reliable Wayland text injection.
+    "ibus": {
+        "apt": ["ibus", "gir1.2-ibus-1.0", "python3-gi"],
+        "dnf": ["ibus", "ibus-libs", "python3-gobject"],
+        "pacman": ["ibus", "python-gobject"],
+        "zypper": ["ibus", "typelib-1_0-IBus-1_0", "python3-gobject"],
+    },
+}
+
+_DEP_LABELS: dict[str, str] = {
+    "compiler": "C compiler + Python headers (builds the evdev hotkey backend)",
+    "portaudio": "PortAudio (microphone capture)",
+    "ibus": "IBus + GObject bindings (text injection)",
+}
+
+
+def _probe_compiler() -> bool:
+    # If evdev already imports, the toolchain did its job at install time and
+    # is no longer needed at runtime.
+    try:
+        import evdev  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    return shutil.which("cc") is not None or shutil.which("gcc") is not None
+
+
+def _probe_portaudio() -> bool:
+    try:
+        import sounddevice  # noqa: F401
+        return True
+    except (OSError, ImportError):
+        return False
+
+
+def _probe_ibus() -> bool:
+    if shutil.which("ibus") is None:
+        return False
+    try:
+        from voiceio.typers.ibus import _has_ibus_gi
+        return _has_ibus_gi()
+    except Exception:
+        return False
+
+
+_DEP_PROBES = {
+    "compiler": _probe_compiler,
+    "portaudio": _probe_portaudio,
+    "ibus": _probe_ibus,
+}
+
+
+def check_system_deps() -> list[str]:
+    """Return canonical keys of missing/broken system dependencies (Linux only).
+
+    Each key indexes both SYSTEM_DEPS (package names) and _DEP_LABELS (human
+    text). Empty list on non-Linux or when everything is satisfied.
+    """
+    if _detect_os() != "linux":
+        return []
+    missing: list[str] = []
+    for key, probe in _DEP_PROBES.items():
+        try:
+            ok = probe()
+        except Exception:
+            ok = False
+        if not ok:
+            missing.append(key)
+    return missing
+
+
+def dep_label(key: str) -> str:
+    """Human-readable label for a system-dependency key."""
+    return _DEP_LABELS.get(key, key)
+
+
+def system_deps_install_cmd(keys: list[str] | None = None) -> str:
+    """One copy-pasteable install command covering ``keys`` on this distro.
+
+    With no keys, covers every requirement in SYSTEM_DEPS. Package names are
+    de-duplicated and ordered; falls back to apt names for unknown managers.
+    """
+    if keys is None:
+        keys = list(SYSTEM_DEPS)
+    mgr = _detect_pkg_manager()
+    prefix = _INSTALL_CMDS.get(mgr, f"sudo {mgr} install")
+    pkgs: list[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        by_mgr = SYSTEM_DEPS.get(key, {})
+        for pkg in by_mgr.get(mgr, by_mgr.get("apt", [])):
+            if pkg not in seen:
+                seen.add(pkg)
+                pkgs.append(pkg)
+    if not pkgs:
+        return ""
+    return f"{prefix} {' '.join(pkgs)}"
+
+
 def open_in_terminal(cmd: list[str]) -> bool:
     """Launch a command in the user's terminal emulator. Returns success."""
     import subprocess
