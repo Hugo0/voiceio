@@ -722,7 +722,7 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
             from voiceio.snapshots import snapshot
             audit_snapshot = snapshot("pre-mining")
         except Exception:
-            logging.getLogger("voiceio").debug("pre-mining snapshot failed", exc_info=True)
+            logging.getLogger("voiceio").warning("pre-mining snapshot failed", exc_info=True)
 
     # ── Banner + stats ──────────────────────────────────────────────────
     existing = cd.list_all()
@@ -1279,7 +1279,7 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
                 from voiceio.audit import run_audit
                 run_audit(cfg, snapshot_dir=audit_snapshot)
         except Exception:
-            logging.getLogger("voiceio").debug("teacher audit failed", exc_info=True)
+            logging.getLogger("voiceio").warning("teacher audit failed", exc_info=True)
 
 
 def _offer_cluster_apply(
