@@ -113,6 +113,7 @@ class StreamingSession:
         self._final_audio: np.ndarray | None = None  # set on stop
         # Raw (pre-pipeline) text + confidence of the final pass, for history
         self.raw_final_text: str | None = None
+        self.final_latency: dict = {}
         self.final_segments: list[dict] = []
 
     def set_is_current(self, is_current: Callable[[], bool]) -> None:
@@ -222,15 +223,21 @@ class StreamingSession:
         if len(audio) < self._sample_rate * min_seconds:
             return
 
+        t0 = time.monotonic()
         try:
             text = self._transcriber.transcribe(audio, final=final)
         except Exception:
             log.exception("Streaming transcription failed")
             return
+        t_transcribe = time.monotonic() - t0
 
         if final:
             self.raw_final_text = text
             self.final_segments = getattr(self._transcriber, "last_segments", [])
+            self.final_latency = {
+                "audio_secs": round(len(audio) / self._sample_rate, 2),
+                "transcribe": round(t_transcribe, 3),
+            }
             if not text:
                 # The final pass produced nothing. If we already have interim
                 # text (e.g. the final transcription timed out on a long
@@ -241,6 +248,7 @@ class StreamingSession:
 
         if text and isinstance(text, str):
             from voiceio.postprocess import apply_pipeline
+            t1 = time.monotonic()
             text, abort = apply_pipeline(
                 text,
                 do_cleanup=self._cleanup,
@@ -253,6 +261,11 @@ class StreamingSession:
                 voice_input_prefix=self._voice_input_prefix,
                 final=final,
             )
+            if final:
+                self.final_latency["pipeline"] = round(time.monotonic() - t1, 3)
+                pc_secs = getattr(self._postcorrect, "last_secs", None)
+                if pc_secs is not None:
+                    self.final_latency["postcorrect"] = round(pc_secs, 3)
             if abort:
                 # A superseded session must not touch the typer on the final
                 # path (would corrupt the newer session's output).

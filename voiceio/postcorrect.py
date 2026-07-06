@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import difflib
 import logging
+import time
 
 from voiceio.config import AutocorrectConfig, Config
 
@@ -83,6 +84,8 @@ class PostCorrector:
         # API key / base_url resolution is shared with [autocorrect].
         self._ac = cfg.autocorrect
         self._available: bool | None = None
+        # Wall-clock seconds of the most recent LLM call (latency metrics).
+        self.last_secs: float | None = None
         # Per-recording context, set by the app before each utterance.
         self._vocabulary = ""
         self._recent: list[str] = []
@@ -145,6 +148,7 @@ class PostCorrector:
 
         Context args override any values set via set_context().
         """
+        self.last_secs = None  # stale values must not leak into metrics
         if not text or not text.strip():
             return text
         if not self.is_available():
@@ -160,11 +164,14 @@ class PostCorrector:
 
         from voiceio.llm_api import chat
         user_msg = self._build_user_message(text, vocab, rec, ctx)
+        t0 = time.monotonic()
         try:
             response = chat(self._client_cfg(), _SYSTEM_PROMPT, user_msg, max_tokens=1024)
         except Exception as e:
             log.debug("PostCorrector LLM error: %s — keeping original", e)
             return text
+        finally:
+            self.last_secs = time.monotonic() - t0
 
         if not response:
             log.debug("PostCorrector: empty/failed response — keeping original")

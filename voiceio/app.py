@@ -491,6 +491,7 @@ class VoiceIO:
         elapsed: float, gen: int,
     ) -> None:
         """Run final transcription and commit in background thread."""
+        t_final = time.monotonic()
         extra = self._retention_extra(audio)
         final_text = session.stop(audio)
         if self._generation != gen:
@@ -500,6 +501,10 @@ class VoiceIO:
             self._play_feedback(final_text)
             stored = self._strip_voice_prefix(final_text)
             self._prompt_builder.add_transcript(stored)
+            latency = dict(session.final_latency)
+            # stop-to-commit: what the user actually waits for
+            latency["finalize_total"] = round(time.monotonic() - t_final, 3)
+            extra["latency"] = latency
             from voiceio import history
             history.append(
                 stored,
@@ -525,13 +530,19 @@ class VoiceIO:
             if self._generation != gen:
                 return
             extra = self._retention_extra(audio)
+            t0 = time.monotonic()
             raw = self.transcriber.transcribe(audio, final=True)
+            latency = {
+                "audio_secs": round(len(audio) / self.recorder.sample_rate, 2),
+                "transcribe": round(time.monotonic() - t0, 3),
+            }
             segments = self.transcriber.last_segments
             text = raw
             if self._generation != gen:
                 return
             if text:
                 from voiceio.postprocess import apply_pipeline
+                t1 = time.monotonic()
                 text, abort = apply_pipeline(
                     text,
                     do_cleanup=self._cleanup,
@@ -544,6 +555,11 @@ class VoiceIO:
                     voice_input_prefix=self._voice_input_prefix,
                     final=True,
                 )
+                latency["pipeline"] = round(time.monotonic() - t1, 3)
+                pc_secs = getattr(self._postcorrect, "last_secs", None)
+                if pc_secs is not None:
+                    latency["postcorrect"] = round(pc_secs, 3)
+                extra["latency"] = latency
                 if abort:
                     return
                 # Superseded by a newer recording — do not touch the typer.
