@@ -9,9 +9,41 @@ from dataclasses import dataclass, field
 
 from wordfreq import top_n_list
 
-from voiceio.wordfreq import extract_words, is_known
+from voiceio.wordfreq import extract_words, is_common, is_known
 
 log = logging.getLogger(__name__)
+
+
+# ── Safety gate for persisting mined correction rules ────────────────────
+
+def gate_correction(
+    wrong: str, right: str,
+    *,
+    vocabulary: set[str] | None = None,
+    language: str = "en",
+) -> str | None:
+    """Guard against learning bad correction rules from mined pairs.
+
+    A mined `wrong → right` pair is only safe to persist when:
+      * `wrong` is a genuine non-word (zipf < 2.0, i.e. not is_known) — we
+        never rewrite real words the user might legitimately dictate, and
+      * `right` is either a known-common word (is_common) or already a term
+        in the user's vocabulary file — so we don't cement one misspelling
+        into another (the historic "manteka"/"wordall" bug).
+
+    Returns ``None`` when the pair passes, otherwise a short human-readable
+    reason string explaining why it was rejected.
+    """
+    wrong = (wrong or "").strip()
+    right = (right or "").strip()
+    if not wrong or not right:
+        return "empty term"
+    vocab_lower = {v.lower() for v in (vocabulary or set())}
+    if is_known(wrong, language):
+        return f'"{wrong}" is a real word — refusing to auto-correct it'
+    if not (is_common(right, language) or right.lower() in vocab_lower):
+        return f'"{right}" is neither a common word nor in your vocabulary'
+    return None
 
 
 # ── Suspicious word detection ────────────────────────────────────────────
@@ -56,19 +88,28 @@ def find_suspicious_words(
     *,
     existing_corrections: set[str] | None = None,
     vocabulary: set[str] | None = None,
+    dismissed: set[str] | None = None,
     min_word_length: int = 4,
 ) -> list[SuspiciousWord]:
-    """Scan history entries for words that are likely Whisper mistakes."""
+    """Scan history entries for words that are likely Whisper mistakes.
+
+    History v2 entries may carry a ``raw`` field (the pre-correction Whisper
+    text). We prefer it when present, since post-corrected ``text`` hides the
+    very misrecognitions we're hunting for. Entries with only ``text`` (v1)
+    still work.
+    """
     skip = existing_corrections or set()
     vocab = vocabulary or set()
+    dismiss = dismissed or set()
     skip_lower = {w.lower() for w in skip}
     vocab_lower = {w.lower() for w in vocab}
+    dismiss_lower = {w.lower() for w in dismiss}
 
     word_counts: Counter[str] = Counter()
     word_contexts: dict[str, list[str]] = {}
 
     for entry in entries:
-        text = entry.get("text", "").strip()
+        text = (entry.get("raw") or entry.get("text") or "").strip()
         if not text:
             continue
         words = extract_words(text)
@@ -88,7 +129,7 @@ def find_suspicious_words(
     for word, count in word_counts.items():
         if len(word) < min_word_length:
             continue
-        if word in skip_lower or word in vocab_lower:
+        if word in skip_lower or word in vocab_lower or word in dismiss_lower:
             continue
         if is_known(word, language):
             continue

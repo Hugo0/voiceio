@@ -77,6 +77,8 @@ def main() -> None:
                            help="Clear flagged words")
     p_correct.add_argument("--auto", action="store_true",
                            help="Scan history with LLM to find and fix Whisper mistakes")
+    p_correct.add_argument("--full", action="store_true",
+                           help="Rescan all history (ignore the last-scan cursor)")
 
     # ── voiceio history ──────────────────────────────────────────────────
     p_history = sub.add_parser("history", help="View transcription history")
@@ -635,13 +637,19 @@ def _cmd_correct(args: argparse.Namespace) -> None:
         return
 
     if args.wrong and args.right:
+        # Direct manual add stays ungated, but warn if it would have been
+        # blocked by the safety gate (e.g. "correcting" a real word).
+        from voiceio.autocorrect import gate_correction
+        reason = gate_correction(args.wrong, args.right)
+        if reason:
+            print(f"Warning: {reason}")
         cd.add(args.wrong, args.right)
         print(f"Added: {args.wrong} → {args.right}")
         return
 
     # --auto or bare `voiceio correct` both run the scan flow
     if args.auto or (not args.wrong):
-        _cmd_correct_auto(cd)
+        _cmd_correct_auto(cd, full=getattr(args, "full", False))
         return
 
     print("Usage: voiceio correct \"wrong\" \"right\"")
@@ -651,13 +659,16 @@ def _cmd_correct(args: argparse.Namespace) -> None:
     sys.exit(1)
 
 
-def _cmd_correct_auto(cd) -> None:
+def _cmd_correct_auto(cd, *, full: bool = False) -> None:
     """Scan history for Whisper mistakes, auto-fix with LLM or review manually."""
+    import time as _time
+
     from voiceio import history
     from voiceio.autocorrect import (
-        ReviewResult, find_suspicious_words, rank_review_items,
-        review_suspicious,
+        ReviewResult, find_suspicious_words, gate_correction,
+        rank_review_items, review_suspicious,
     )
+    from voiceio.autocorrect_state import load_state, save_state
     from voiceio.config import load as load_cfg
     from voiceio.llm_api import resolve_api_key
     from voiceio.vocabulary import load_vocabulary
@@ -667,25 +678,45 @@ def _cmd_correct_auto(cd) -> None:
     )
 
     cfg = load_cfg()
+    state = load_state()
+    run_ts = _time.time()
 
     # ── Banner + stats ──────────────────────────────────────────────────
     existing = cd.list_all()
     vocab_str = load_vocabulary(cfg.model)
     vocab_words = set(vocab_str.split(", ")) if vocab_str else set()
     flagged = cd.list_flagged()
-    entries = history.read(limit=0)
+    all_entries = history.read(limit=0)
+
+    # Scan cursor: only mine entries newer than the last successful run,
+    # unless --full was passed. Entries without a `ts` are treated as new.
+    if full or not state.last_scan_ts:
+        entries = all_entries
+    else:
+        entries = [e for e in all_entries if e.get("ts", 0) > state.last_scan_ts]
 
     print(LOGO_CORRECT)
     stats = []
-    stats.append(f"{len(entries)} history entries")
+    if full or not state.last_scan_ts:
+        stats.append(f"{len(all_entries)} history entries")
+    else:
+        stats.append(f"{len(entries)} new / {len(all_entries)} entries")
     stats.append(f"{len(existing)} correction(s)")
     stats.append(f"{len(vocab_words)} vocabulary term(s)")
+    if state.dismissed:
+        stats.append(f"{len(state.dismissed)} dismissed")
     if flagged:
         stats.append(f"{YELLOW}{len(flagged)} flagged{RESET}")
     print(f"  {DIM}{' · '.join(stats)}{RESET}")
 
-    if not entries:
+    if not all_entries:
         print(f"\n  {DIM}No history yet. Start dictating to build history.{RESET}")
+        return
+
+    if not entries:
+        print(f"\n  {GREEN}✓{RESET} No new history since last scan. "
+              f"{DIM}Use --full to rescan everything.{RESET}")
+        save_state(state)  # refresh nothing but keep file present
         return
 
     # ── API key check ───────────────────────────────────────────────────
@@ -705,6 +736,7 @@ def _cmd_correct_auto(cd) -> None:
             entries, language,
             existing_corrections=set(existing.keys()),
             vocabulary=vocab_words,
+            dismissed=state.dismissed,
         )
         n = len(suspicious)
         sp.ok(f"Scanned {len(entries)} entries — {n} uncommon word(s)")
@@ -734,28 +766,41 @@ def _cmd_correct_auto(cd) -> None:
     # Build lookup for O(1) access to suspicious word metadata
     sw_by_word = {sw.word: sw for sw in suspicious}
 
-    # ── Bucket 1: Auto-fix (high confidence) ────────────────────────────
+    # ── Bucket 1: Auto-fix (high confidence, safety-gated) ──────────────
+    # Pairs failing the gate (real word being "corrected", or target that is
+    # itself junk) are downgraded to manual review rather than persisted.
     auto_fixed = 0
+    downgraded: list[dict] = []
     if result.auto_fix:
-        print(f"\n{BOLD}Auto-corrected{RESET} {DIM}({len(result.auto_fix)}){RESET}")
+        gated = []
         for fix in result.auto_fix:
-            sw = sw_by_word.get(fix["wrong"])
-            count = f" {DIM}({sw.count}x){RESET}" if sw else ""
-            cd.add(fix["wrong"], fix["right"])
-            print(f"  {GREEN}✓{RESET} {fix['wrong']} → {BOLD}{fix['right']}{RESET}{count}")
-            auto_fixed += 1
+            reason = gate_correction(
+                fix["wrong"], fix["right"],
+                vocabulary=vocab_words, language=language,
+            )
+            if reason:
+                downgraded.append({
+                    "wrong": fix["wrong"], "right": fix["right"],
+                    "reason": f"needs confirmation — {reason}",
+                })
+            else:
+                gated.append(fix)
+        if gated:
+            print(f"\n{BOLD}Auto-corrected{RESET} {DIM}({len(gated)}){RESET}")
+            for fix in gated:
+                sw = sw_by_word.get(fix["wrong"])
+                count = f" {DIM}({sw.count}x){RESET}" if sw else ""
+                cd.add(fix["wrong"], fix["right"])
+                print(f"  {GREEN}✓{RESET} {fix['wrong']} → {BOLD}{fix['right']}{RESET}{count}")
+                auto_fixed += 1
 
-    # ── Bucket 3: Vocabulary (proper nouns/terms) ───────────────────────
+    # ── Bucket 3: Vocabulary (proper nouns/terms) — bulk confirm ─────────
     vocab_added = 0
     if result.vocabulary:
-        print(f"\n{BOLD}Added to vocabulary{RESET} {DIM}({len(result.vocabulary)}){RESET}")
-        for word in result.vocabulary:
-            _add_to_vocabulary(cfg, word)
-            vocab_added += 1
-            print(f"  {CYAN}+{RESET} {word}")
+        vocab_added = _confirm_add_vocabulary(cfg, result.vocabulary, state)
 
     # ── Bucket 2: Ask user (ambiguous) ──────────────────────────────────
-    to_review = list(result.ask_user)
+    to_review = downgraded + list(result.ask_user)
 
     # If no LLM was used, put all suspicious words into manual review
     if not has_api and not has_ollama:
@@ -789,6 +834,7 @@ def _cmd_correct_auto(cd) -> None:
 
     reviewed = 0
     skipped = 0
+    user_quit = False
 
     if to_review:
         import re as _re
@@ -962,25 +1008,38 @@ def _cmd_correct_auto(cd) -> None:
                             print(f"  {YELLOW}⚠{RESET}  LLM analysis failed: {exc}")
                             continue
 
+                        resume_downgraded: list[dict] = []
                         if new_result.auto_fix:
-                            print(f"\n{BOLD}Auto-corrected{RESET} {DIM}({len(new_result.auto_fix)}){RESET}")
+                            gated = []
                             for fix in new_result.auto_fix:
-                                sw = sw_by_word.get(fix["wrong"])
-                                count = f" {DIM}({sw.count}x){RESET}" if sw else ""
-                                cd.add(fix["wrong"], fix["right"])
-                                auto_fixed += 1
-                                print(f"  {GREEN}✓{RESET} {fix['wrong']} → {BOLD}{fix['right']}{RESET}{count}")
+                                reason = gate_correction(
+                                    fix["wrong"], fix["right"],
+                                    vocabulary=vocab_words, language=language,
+                                )
+                                if reason:
+                                    resume_downgraded.append({
+                                        "wrong": fix["wrong"], "right": fix["right"],
+                                        "reason": f"needs confirmation — {reason}",
+                                    })
+                                else:
+                                    gated.append(fix)
+                            if gated:
+                                print(f"\n{BOLD}Auto-corrected{RESET} {DIM}({len(gated)}){RESET}")
+                                for fix in gated:
+                                    sw = sw_by_word.get(fix["wrong"])
+                                    count = f" {DIM}({sw.count}x){RESET}" if sw else ""
+                                    cd.add(fix["wrong"], fix["right"])
+                                    auto_fixed += 1
+                                    print(f"  {GREEN}✓{RESET} {fix['wrong']} → {BOLD}{fix['right']}{RESET}{count}")
 
                         if new_result.vocabulary:
-                            print(f"\n{BOLD}Added to vocabulary{RESET} {DIM}({len(new_result.vocabulary)}){RESET}")
-                            for word in new_result.vocabulary:
-                                _add_to_vocabulary(cfg, word)
-                                vocab_added += 1
-                                print(f"  {CYAN}+{RESET} {word}")
+                            vocab_added += _confirm_add_vocabulary(
+                                cfg, new_result.vocabulary, state,
+                            )
 
                         classified = ({f["wrong"].lower() for f in new_result.auto_fix}
                                       | {v.lower() for v in new_result.vocabulary})
-                        new_remaining = list(new_result.ask_user)
+                        new_remaining = resume_downgraded + list(new_result.ask_user)
                         seen_lc = {a["wrong"].lower() for a in new_remaining}
                         for sw in remaining_sw:
                             wlow = sw.word.lower()
@@ -1000,6 +1059,11 @@ def _cmd_correct_auto(cd) -> None:
                     quit_requested = True
                     break
                 elif cl in ("a", "accept", "y", "yes") and right:
+                    reason = gate_correction(
+                        wrong, right, vocabulary=vocab_words, language=language,
+                    )
+                    if reason:
+                        print(f"  {YELLOW}⚠{RESET}  {reason}")
                     cd.add(wrong, right)
                     print(f"  {GREEN}✓{RESET} {wrong} → {BOLD}{right}{RESET}")
                     reviewed += 1
@@ -1007,13 +1071,25 @@ def _cmd_correct_auto(cd) -> None:
                         cd, wrong, right, to_review, i, sw_by_word, _rl_prompt,
                     )
                 elif cl in ("v", "vocab"):
-                    _add_to_vocabulary(cfg, wrong)
-                    vocab_added += 1
-                    print(f"  {CYAN}+{RESET} Added \"{wrong}\" to vocabulary")
+                    added = _confirm_add_vocabulary(
+                        cfg, [wrong], state, silent=True,
+                    )
+                    vocab_added += added
+                    if added:
+                        print(f"  {CYAN}+{RESET} Added \"{wrong}\" to vocabulary")
+                    else:
+                        print(f"  {DIM}Skipped \"{wrong}\" (not a valid vocabulary term){RESET}")
                 elif cl in ("s", "skip", ""):
+                    # Rejecting a word means never propose it again.
+                    state.dismiss(wrong)
                     skipped += 1
                 else:
-                    # Typed a word — use it as the correction directly
+                    # Typed a word — use it as the correction directly.
+                    reason = gate_correction(
+                        wrong, choice, vocabulary=vocab_words, language=language,
+                    )
+                    if reason:
+                        print(f"  {YELLOW}⚠{RESET}  {reason}")
                     cd.add(wrong, choice)
                     print(f"  {GREEN}✓{RESET} {wrong} → {BOLD}{choice}{RESET}")
                     reviewed += 1
@@ -1023,7 +1099,16 @@ def _cmd_correct_auto(cd) -> None:
                 break
 
             if quit_requested:
+                user_quit = True
                 break
+
+    # ── Persist scan state ──────────────────────────────────────────────
+    # Advance the cursor only on a completed run — quitting mid-review must
+    # leave the un-reviewed (new) entries eligible for the next scan. The
+    # dismissed set is always persisted.
+    if not user_quit:
+        state.last_scan_ts = run_ts
+    save_state(state)
 
     # ── Summary ─────────────────────────────────────────────────────────
     parts = []
@@ -1098,27 +1183,43 @@ def _offer_cluster_apply(
     return applied
 
 
-def _add_to_vocabulary(cfg, word: str) -> None:
-    """Add a word to the user's vocabulary file."""
-    from pathlib import Path
+def _confirm_add_vocabulary(cfg, terms: list[str], state, *, silent: bool = False) -> int:
+    """Offer to bulk-add vocabulary `terms`, returning the count added.
 
-    from voiceio.config import CONFIG_DIR
+    In the `--auto` flow the LLM's vocabulary bucket is presented as a single
+    one-key confirm ("add N terms? [Y/n]") with the list shown. Declined terms
+    are dismissed so they aren't re-proposed. `silent=True` skips the prompt
+    (used for the single-word [v]ocab action inside manual review).
 
-    vocab_path = cfg.model.vocabulary_file
-    if not vocab_path:
-        vocab_path = str(CONFIG_DIR / "vocabulary.txt")
+    Persistence and sanity-checking (dedupe, junk/misspelling skip) live in
+    `vocabulary.add_terms`.
+    """
+    from voiceio.vocabulary import add_terms
 
-    path = Path(vocab_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    terms = [t for t in terms if t and t.strip()]
+    if not terms:
+        return 0
 
-    existing = set()
-    if path.exists():
-        existing = {w.strip().lower() for w in path.read_text(encoding="utf-8").splitlines()}
-    if word.lower() in existing:
-        return
+    if not silent:
+        from voiceio.wizard import BOLD, CYAN, DIM, RESET, _rl_prompt
+        shown = ", ".join(terms[:12])
+        if len(terms) > 12:
+            shown += f", +{len(terms) - 12} more"
+        print(f"\n{BOLD}Vocabulary{RESET} {DIM}({len(terms)}){RESET}")
+        print(f"  {DIM}{shown}{RESET}")
+        try:
+            yn = input(_rl_prompt(
+                f"  {CYAN}›{RESET} Add {len(terms)} term(s) to vocabulary? [Y/n] ",
+            )).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            yn = "n"
+        if yn not in ("", "y", "yes"):
+            for t in terms:
+                state.dismiss(t)
+            return 0
 
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(word + "\n")
+    return add_terms(terms, cfg.model)
 
 
 def _save_api_key(cfg, key: str) -> None:

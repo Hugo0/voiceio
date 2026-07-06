@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from voiceio.autocorrect import (
     _REVIEW_BATCH_SIZE,
@@ -17,7 +17,7 @@ from voiceio.autocorrect import (
     rank_review_score,
     review_suspicious,
 )
-from voiceio.config import AutocorrectConfig, Config, LLMConfig
+from voiceio.config import AutocorrectConfig, Config
 
 
 # ── Levenshtein distance tests ────────────────────────────────────────────
@@ -84,7 +84,60 @@ def test_find_suspicious_skips_short_words():
     result = find_suspicious_words(entries, min_word_length=4)
     words = {s.word for s in result}
     assert "xyz" not in words
-    assert "abc" not in words
+
+
+def test_find_suspicious_prefers_raw_field():
+    """History v2 entries: mine the pre-correction `raw`, not corrected `text`."""
+    entries = [{
+        "text": "the configuration needs fixing",   # already corrected
+        "raw": "the configuraton needs fixing",       # what Whisper heard
+    }]
+    words = {s.word for s in find_suspicious_words(entries)}
+    assert "configuraton" in words
+    assert "configuration" not in words
+
+
+def test_find_suspicious_v1_entry_without_raw():
+    """v1 entries (only `text`) still work."""
+    entries = [{"text": "the configuraton needs fixing"}]
+    words = {s.word for s in find_suspicious_words(entries)}
+    assert "configuraton" in words
+
+
+def test_find_suspicious_skips_dismissed():
+    entries = [{"text": "the configuraton needs fixing"}]
+    result = find_suspicious_words(entries, dismissed={"configuraton"})
+    assert "configuraton" not in {s.word for s in result}
+
+
+# ── Safety gate tests ─────────────────────────────────────────────────────
+
+
+def test_gate_blocks_real_word_as_wrong():
+    """A common real word must never become a correction source."""
+    from voiceio.autocorrect import gate_correction
+    reason = gate_correction("their", "there")
+    assert reason is not None
+
+
+def test_gate_blocks_junk_target():
+    """A non-word target that isn't in vocabulary is rejected."""
+    from voiceio.autocorrect import gate_correction
+    reason = gate_correction("manteka", "wordall")
+    assert reason is not None
+
+
+def test_gate_passes_nonword_to_common():
+    """Non-word wrong + common right passes cleanly."""
+    from voiceio.autocorrect import gate_correction
+    assert gate_correction("configuraton", "configuration") is None
+
+
+def test_gate_passes_target_in_vocabulary():
+    """A non-common target that's in the user's vocabulary is allowed."""
+    from voiceio.autocorrect import gate_correction
+    assert gate_correction("olamma", "Ollama", vocabulary={"Ollama"}) is None
+    assert gate_correction("olamma", "Ollama") is not None
 
 
 def test_find_suspicious_counts():

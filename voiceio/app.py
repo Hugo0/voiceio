@@ -22,7 +22,7 @@ from voiceio.streaming import StreamingSession
 from voiceio.transcriber import Transcriber
 from voiceio.typers import chain as typer_chain
 from voiceio.vad import load_vad
-from voiceio.vocabulary import load_vocabulary
+from voiceio.vocabulary import VocabularyLoader
 
 if TYPE_CHECKING:
     from voiceio.typers.base import TyperBackend
@@ -154,17 +154,14 @@ class VoiceIO:
         vad = load_vad(cfg.audio)
         self.recorder = AudioRecorder(cfg.audio, vad=vad)
 
-        vocab = load_vocabulary(cfg.model)
         self._corrections = CorrectionDict()
-        # Merge correction targets into vocabulary for Whisper conditioning
-        vocab_terms = self._corrections.vocabulary_terms()
-        if vocab_terms:
-            extra = ", ".join(vocab_terms)
-            vocab = f"{vocab}, {extra}" if vocab else extra
+        # mtime-cached loader so `voiceio correct` vocabulary edits are picked
+        # up per-recording without a daemon restart.
+        self._vocab_loader = VocabularyLoader(cfg.model)
         # Vocabulary biases the decoder via hotwords; initial_prompt carries
         # recent-transcript context (rebuilt per recording via PromptBuilder).
-        if vocab:
-            self.transcriber.set_hotwords(vocab)
+        self._hotwords = ""
+        self._refresh_hotwords()
         from voiceio.prompt import PromptBuilder
         self._prompt_builder = PromptBuilder()
 
@@ -277,6 +274,23 @@ class VoiceIO:
             # The generation counter ensures the old finalizer exits cleanly.
             self._do_start()
 
+    def _refresh_hotwords(self) -> None:
+        """Rebuild Whisper hotwords from vocabulary + correction targets.
+
+        The vocabulary read is mtime-cached (only a `stat` when unchanged), and
+        `set_hotwords` is called only when the merged string actually changed,
+        so this stays cheap enough to run on every recording start.
+        """
+        vocab = self._vocab_loader.get()
+        vocab_terms = self._corrections.vocabulary_terms()
+        if vocab_terms:
+            extra = ", ".join(vocab_terms)
+            vocab = f"{vocab}, {extra}" if vocab else extra
+        if vocab != self._hotwords:
+            self._hotwords = vocab
+            if vocab:
+                self.transcriber.set_hotwords(vocab)
+
     def _do_start(self) -> None:
         """Transition to RECORDING."""
         # Pre-flight: ensure audio stream is healthy before recording
@@ -295,6 +309,7 @@ class VoiceIO:
         self._state = _State.RECORDING
         self._activate_ibus()
         self._corrections.load()  # hot-reload corrections on each recording
+        self._refresh_hotwords()  # hot-reload vocabulary (mtime-cached)
         self.transcriber.set_initial_prompt(self._prompt_builder.build())
         if self.cfg.data.capture_context:
             # Snapshot the dictation target now — focus may change by finalize
