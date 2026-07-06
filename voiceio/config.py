@@ -28,6 +28,12 @@ HISTORY_PATH = LOG_DIR / "history.jsonl"
 RECORDINGS_DIR = LOG_DIR / "recordings"
 LOG_PATH = LOG_DIR / "voiceio.log"
 PID_PATH = LOG_DIR / "voiceio.pid"
+# Self-correcting rule lifecycle: fire log, teacher-audit metrics, snapshots,
+# and the retired-rule state consulted by the mining side.
+CORRECTIONS_AUDIT_PATH = LOG_DIR / "corrections_audit.jsonl"
+METRICS_PATH = LOG_DIR / "metrics.jsonl"
+SNAPSHOTS_DIR = CONFIG_DIR / "snapshots"
+AUDIT_STATE_PATH = CONFIG_DIR / "audit_state.json"
 
 
 @dataclass

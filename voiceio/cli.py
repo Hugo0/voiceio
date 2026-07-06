@@ -702,6 +702,16 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
     state = load_state()
     run_ts = _time.time()
 
+    # Snapshot corrections + vocabulary before mining mutates them, so a later
+    # drift audit can roll back a bad batch. Never let this break mining.
+    audit_snapshot = None
+    if batch:
+        try:
+            from voiceio.snapshots import snapshot
+            audit_snapshot = snapshot("pre-mining")
+        except Exception:
+            logging.getLogger("voiceio").debug("pre-mining snapshot failed", exc_info=True)
+
     # ── Banner + stats ──────────────────────────────────────────────────
     existing = cd.list_all()
     vocab_str = load_vocabulary(cfg.model)
@@ -1178,6 +1188,19 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
     if auto_fixed or reviewed or vocab_added:
         from voiceio.hints import hint
         hint("correct_list", "Run 'voiceio correct --list' to see all corrections")
+
+    # ── Teacher-model audit (weekly batch only) ─────────────────────────
+    # Runs after mining so freshly-applied rules are measured against ground
+    # truth. Guarded so an audit failure can never break the mining timer, and
+    # skipped when there's no retained audio to transcribe.
+    if batch:
+        try:
+            from voiceio.config import RECORDINGS_DIR
+            if any(RECORDINGS_DIR.glob("*.wav")):
+                from voiceio.audit import run_audit
+                run_audit(cfg, snapshot_dir=audit_snapshot)
+        except Exception:
+            logging.getLogger("voiceio").debug("teacher audit failed", exc_info=True)
 
 
 def _offer_cluster_apply(
