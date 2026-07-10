@@ -8,11 +8,12 @@ import threading
 import time
 from typing import TYPE_CHECKING, Callable
 
+import numpy as np
+
 from voiceio.transcriber import transcribe_timeout
 from voiceio.typers.base import StreamingTyper
 
 if TYPE_CHECKING:
-    import numpy as np
     from voiceio.commands import CommandProcessor
     from voiceio.corrections import CorrectionDict
     from voiceio.llm import LLMProcessor
@@ -24,6 +25,32 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 DELETE_SETTLE_SECS = 0.05  # delay between delete and type for ydotool reliability
 
+# Incremental finalization: a freeze cut is only safe at a speech pause, so
+# require the tail's trailing window to be quiet before cutting there.
+_FREEZE_SILENCE_WINDOW_SECS = 0.3
+# Quiet is judged RELATIVE to the tail's own level: mic gains vary wildly
+# and the decode path normalizes audio anyway, so an absolute threshold
+# would read a quiet mic's speech as silence (mid-word cuts) and a hot
+# noise floor as speech (freeze never fires).
+_FREEZE_SILENCE_RATIO = 0.15
+_FREEZE_SILENCE_FLOOR = 1e-4  # digital silence is always quiet
+# Whisper conditions on ~224 prompt tokens; more frozen context is wasted.
+_FREEZE_CONTEXT_CHARS = 400
+
+
+def _rms(samples: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(np.square(samples, dtype=np.float64))))
+
+
+def _tail_ends_in_silence(tail: np.ndarray, sample_rate: int) -> bool:
+    """True when the last _FREEZE_SILENCE_WINDOW_SECS of audio are quiet
+    relative to the tail's overall level."""
+    window = tail[-int(_FREEZE_SILENCE_WINDOW_SECS * sample_rate):]
+    if len(window) == 0:
+        return False
+    threshold = max(_FREEZE_SILENCE_RATIO * _rms(tail), _FREEZE_SILENCE_FLOOR)
+    return _rms(window) < threshold
+
 
 def _common_prefix_len(a: str, b: str) -> int:
     """Length of the longest common prefix between two strings."""
@@ -32,6 +59,16 @@ def _common_prefix_len(a: str, b: str) -> int:
         if a[i] != b[i]:
             return i
     return limit
+
+
+def _join_text(a: str, b: str) -> str:
+    """Join two transcript fragments with a single space."""
+    a, b = a.strip(), (b or "").strip()
+    if not a:
+        return b
+    if not b:
+        return a
+    return a + " " + b
 
 
 def _clean_word(w: str) -> str:
@@ -85,6 +122,7 @@ class StreamingSession:
         on_typer_broken: Callable[[], None] | None = None,
         is_current: Callable[[], bool] | None = None,
         on_interim: Callable[[str], None] | None = None,
+        freeze_secs: float = 25.0,
     ):
         self._transcriber = transcriber
         self._typer = typer
@@ -113,10 +151,21 @@ class StreamingSession:
         self._stop_event = threading.Event()
         self._worker_thread: threading.Thread | None = None
         self._final_audio: np.ndarray | None = None  # set on stop
+        # Incremental finalization: audio before _frozen_samples has already
+        # been beam-decoded into _frozen_raw and is never decoded again.
+        # Interim and final passes only decode the tail after this offset.
+        self._freeze_secs = freeze_secs
+        self._frozen_samples = 0
+        self._frozen_raw = ""
+        self._frozen_segments: list[dict] = []
         # Raw (pre-pipeline) text + confidence of the final pass, for history
         self.raw_final_text: str | None = None
         self.final_latency: dict = {}
         self.final_segments: list[dict] = []
+        # Per-pass decode trace (interim/freeze/final) for debugging,
+        # profiling, and future training. Persisted via retention.save_trace.
+        self.trace: list[dict] = []
+        self._t0 = time.monotonic()
 
     @property
     def interim_text(self) -> str:
@@ -213,10 +262,22 @@ class StreamingSession:
             log.exception("Final transcribe/apply error")
         self._final_audio = None  # release memory
 
+    def _frozen_context(self) -> str | None:
+        """Frozen-text suffix used to condition the tail decode."""
+        if not self._frozen_raw:
+            return None
+        return self._frozen_raw[-_FREEZE_CONTEXT_CHARS:]
+
     def _transcribe_and_apply(
         self, min_seconds: float = 1.0, final: bool = False,
     ) -> None:
-        """Get audio, transcribe, apply correction."""
+        """Get audio, transcribe the un-frozen tail, apply correction.
+
+        Incremental finalization: audio before _frozen_samples was already
+        beam-decoded and frozen, so every pass — including the final one —
+        only decodes the tail. Long dictations finalize in O(tail), not
+        O(recording).
+        """
         if final and self._final_audio is not None:
             # Use the snapshot passed to stop() — recorder may be gone
             audio = self._final_audio
@@ -230,22 +291,84 @@ class StreamingSession:
         if len(audio) < self._sample_rate * min_seconds:
             return
 
+        tail = audio[self._frozen_samples:]
+        if not final and len(tail) < self._sample_rate * min_seconds:
+            return  # not enough new audio since the last freeze
+
+        # Freeze when the tail has grown long AND ends at a speech pause
+        # (never cut mid-word). The freeze pass gets beam search because its
+        # text is never decoded again.
+        freeze = (
+            not final
+            and self._freeze_secs > 0
+            and len(tail) >= self._freeze_secs * self._sample_rate
+            and _tail_ends_in_silence(tail, self._sample_rate)
+        )
+
+        tail_text = ""
+        tail_segments: list[dict] = []
         t0 = time.monotonic()
-        try:
-            text = self._transcriber.transcribe(audio, final=final)
-        except Exception:
-            log.exception("Streaming transcription failed")
-            return
+        # The final pass decodes ANY remaining audio (a clipped last word
+        # must not be dropped); interim/freeze passes skip sub-0.3s tails.
+        if len(tail) > (0 if final else self._sample_rate * 0.3):
+            try:
+                tail_text = self._transcriber.transcribe(
+                    tail, final=final or freeze, context=self._frozen_context(),
+                )
+            except Exception:
+                # Decode FAILED (timeout/crash) — this is not silence. Never
+                # advance the freeze boundary or char-diff against a partial
+                # transcript; on final, commit what is already on screen.
+                log.exception("Streaming transcription failed")
+                if final:
+                    self.raw_final_text = ""
+                    self.final_latency = {
+                        "audio_secs": round(len(audio) / self._sample_rate, 2),
+                        "frozen_secs": round(self._frozen_samples / self._sample_rate, 2),
+                        "tail_secs": round(len(tail) / self._sample_rate, 2),
+                        "transcribe": round(time.monotonic() - t0, 3),
+                        "decode_failed": True,
+                    }
+                    self._commit_interim_on_final()
+                return
+            tail_segments = list(getattr(self._transcriber, "last_segments", []))
         t_transcribe = time.monotonic() - t0
 
+        self.trace.append({
+            "t": round(time.monotonic() - self._t0, 2),
+            "kind": "final" if final else ("freeze" if freeze else "interim"),
+            "frozen_secs": round(self._frozen_samples / self._sample_rate, 2),
+            "tail_secs": round(len(tail) / self._sample_rate, 2),
+            "secs": round(t_transcribe, 3),
+            "text": tail_text,
+        })
+
+        if freeze:
+            self._frozen_raw = _join_text(self._frozen_raw, tail_text)
+            self._frozen_samples = len(audio)
+            self._frozen_segments.extend(tail_segments)
+            log.debug(
+                "Froze %.1fs of audio (frozen text now %d chars)",
+                len(tail) / self._sample_rate, len(self._frozen_raw),
+            )
+        raw = self._frozen_raw if freeze else _join_text(self._frozen_raw, tail_text)
+
+        # An interim pass that decoded nothing must not touch the display:
+        # rewriting to frozen-only text would visibly delete the un-frozen
+        # words the previous pass just showed (transient decoder flake).
+        if not final and not tail_text:
+            return
+
         if final:
-            self.raw_final_text = text
-            self.final_segments = getattr(self._transcriber, "last_segments", [])
+            self.raw_final_text = raw
+            self.final_segments = self._frozen_segments + tail_segments
             self.final_latency = {
                 "audio_secs": round(len(audio) / self._sample_rate, 2),
+                "frozen_secs": round(self._frozen_samples / self._sample_rate, 2),
+                "tail_secs": round(len(tail) / self._sample_rate, 2),
                 "transcribe": round(t_transcribe, 3),
             }
-            if not text:
+            if not raw:
                 # The final pass produced nothing. If we already have interim
                 # text (e.g. the final transcription timed out on a long
                 # dictation), commit that instead of silently dropping it —
@@ -253,11 +376,11 @@ class StreamingSession:
                 self._commit_interim_on_final()
                 return
 
-        if text and isinstance(text, str):
+        if raw:
             from voiceio.postprocess import apply_pipeline
             t1 = time.monotonic()
             text, abort = apply_pipeline(
-                text,
+                raw,
                 do_cleanup=self._cleanup,
                 number_conversion=self._number_conversion,
                 language=self._language,
@@ -274,6 +397,11 @@ class StreamingSession:
                 if pc_secs is not None:
                     self.final_latency["postcorrect"] = round(pc_secs, 3)
             if abort:
+                # A voice command wiped the utterance — discard frozen text
+                # too, or the next pass would resurrect it.
+                self._frozen_raw = ""
+                self._frozen_segments = []
+                self._frozen_samples = len(audio)
                 # A superseded session must not touch the typer on the final
                 # path (would corrupt the newer session's output).
                 if final and not self._is_current():

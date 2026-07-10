@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import difflib
 import logging
+import threading
 import time
 
 from voiceio.config import AutocorrectConfig, Config
@@ -90,6 +91,13 @@ class PostCorrector:
         self._vocabulary = ""
         self._recent: list[str] = []
         self._context: str | None = None
+        # Context actually sent with the in-progress correct() call (what
+        # _record must persist — may differ from self._context).
+        self._effective_ctx: str | None = None
+        # A worker abandoned at the deadline may block indefinitely on a hung
+        # endpoint; cap leakage at one thread/socket by skipping new calls
+        # while it is still alive.
+        self._abandoned: threading.Thread | None = None
 
     # ── availability ────────────────────────────────────────────────────
 
@@ -140,6 +148,27 @@ class PostCorrector:
         parts.append(f"Transcript to correct:\n{text}")
         return "\n\n".join(parts)
 
+    def _record(self, before: str, after: str | None, outcome: str) -> None:
+        """Persist one LLM attempt (before/after/outcome) as training data.
+
+        Pairs land in postcorrect_pairs.jsonl — unlike the rotating log they
+        survive, so accepted AND rejected corrections stay available for
+        tuning guards or training a local corrector later.
+        """
+        if not self._cfg.data.capture_intermediates:
+            return
+        from voiceio import retention
+        from voiceio.config import POSTCORRECT_PAIRS_PATH
+        retention.append_jsonl(POSTCORRECT_PAIRS_PATH, {
+            "ts": time.time(),
+            "before": before,
+            "after": after,
+            "outcome": outcome,
+            "secs": round(self.last_secs, 3) if self.last_secs is not None else None,
+            "model": self._pc.model or self._ac.model,
+            "context": self._effective_ctx,
+        })
+
     def correct(
         self, text: str, *, vocabulary: str = "",
         recent: list[str] | None = None, context: str | None = None,
@@ -161,28 +190,65 @@ class PostCorrector:
         vocab = vocabulary or self._vocabulary
         rec = recent if recent is not None else self._recent
         ctx = context if context is not None else self._context
+        self._effective_ctx = ctx
+
+        if self._abandoned is not None:
+            if self._abandoned.is_alive():
+                log.warning(
+                    "PostCorrector: previous request still hung — skipping this one",
+                )
+                self._record(text, None, "skipped_busy")
+                return text
+            self._abandoned = None
 
         from voiceio.llm_api import chat
         user_msg = self._build_user_message(text, vocab, rec, ctx)
+        # timeout_secs must bound the WALL CLOCK the user waits, but urllib's
+        # timeout is per-socket-read — a slowly streaming response can run
+        # far past it (observed ~14s with an 8s config). Run the call in a
+        # thread and abandon it at the deadline.
         t0 = time.monotonic()
-        try:
-            response = chat(self._client_cfg(), _SYSTEM_PROMPT, user_msg, max_tokens=1024)
-        except Exception as e:
-            log.debug("PostCorrector LLM error: %s — keeping original", e)
+        outcome: dict = {}
+
+        def _call() -> None:
+            try:
+                outcome["response"] = chat(
+                    self._client_cfg(), _SYSTEM_PROMPT, user_msg, max_tokens=1024,
+                )
+            except Exception as e:
+                outcome["error"] = e
+
+        worker = threading.Thread(target=_call, daemon=True)
+        worker.start()
+        worker.join(self._pc.timeout_secs)
+        self.last_secs = time.monotonic() - t0
+        if worker.is_alive():
+            log.debug(
+                "PostCorrector deadline (%.1fs) exceeded — keeping original",
+                self._pc.timeout_secs,
+            )
+            self._abandoned = worker
+            self._record(text, None, "timeout")
             return text
-        finally:
-            self.last_secs = time.monotonic() - t0
+        if "error" in outcome:
+            log.debug("PostCorrector LLM error: %s — keeping original", outcome["error"])
+            self._record(text, None, "error")
+            return text
+        response = outcome.get("response")
 
         if not response:
             log.debug("PostCorrector: empty/failed response — keeping original")
+            self._record(text, None, "empty")
             return text
 
         corrected = _strip_wrapping(response)
         if not corrected:
             log.debug("PostCorrector: response empty after stripping — keeping original")
+            self._record(text, None, "empty")
             return text
 
         if corrected == text:
+            self._record(text, corrected, "unchanged")
             return text
 
         # Guard: word-count must not change materially.
@@ -192,6 +258,7 @@ class PostCorrector:
                 "PostCorrector reject: word count %d→%d (>%.0f%%) — keeping original",
                 orig_wc, new_wc, _MAX_WORDCOUNT_DELTA * 100,
             )
+            self._record(text, corrected, "rejected_wordcount")
             return text
 
         # Guard: only a small fraction of words may change.
@@ -201,7 +268,9 @@ class PostCorrector:
                 "PostCorrector reject: edit ratio %.2f > %.2f — keeping original",
                 ratio, _MAX_EDIT_RATIO,
             )
+            self._record(text, corrected, "rejected_editratio")
             return text
 
         log.info("PostCorrector fixed: %s", ", ".join(_changed_words(text, corrected)))
+        self._record(text, corrected, "applied")
         return corrected
