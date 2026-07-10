@@ -5,7 +5,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from voiceio.typers.base import TyperBackend
 
@@ -566,7 +566,7 @@ class TestWorkerLoop:
         call_count = 0
         transcriber = MagicMock()
 
-        def slow_transcribe(audio, final=False):
+        def slow_transcribe(audio, final=False, context=None):
             nonlocal call_count
             call_count += 1
             time.sleep(0.2)
@@ -649,3 +649,221 @@ class TestOnInterim:
         s, _ = self._make_session(None)
         s._apply_correction("Hello world")
         assert s.interim_text == "Hello world"
+
+
+# --- incremental finalization (segment freezing) ---
+
+SR = 16000
+
+
+def _silent(secs):
+    return np.zeros(int(SR * secs), dtype=np.float32)
+
+
+def _loud(secs):
+    return np.full(int(SR * secs), 0.5, dtype=np.float32)
+
+
+class TestSegmentFreeze:
+    def _make_session(self, freeze_secs=2.0):
+        recorder = MagicMock()
+        recorder.sample_rate = SR
+        transcriber = MagicMock()
+        transcriber.last_segments = []
+        session = StreamingSession(
+            transcriber=transcriber,
+            typer=MagicMock(spec=TyperBackend),
+            recorder=recorder,
+            freeze_secs=freeze_secs,
+        )
+        return session, transcriber, recorder
+
+    def test_freeze_triggers_on_long_silent_tail(self):
+        s, tr, rec = self._make_session(freeze_secs=2.0)
+        rec.get_audio_so_far.return_value = _silent(3)
+        tr.transcribe.return_value = "hello there friend"
+        s._transcribe_and_apply()
+        assert s._frozen_raw == "hello there friend"
+        assert s._frozen_samples == SR * 3
+        # Freeze pass gets beam search (final=True)
+        assert tr.transcribe.call_args.kwargs["final"] is True
+
+    def test_no_freeze_when_tail_is_speech(self):
+        s, tr, rec = self._make_session(freeze_secs=2.0)
+        rec.get_audio_so_far.return_value = _loud(3)
+        tr.transcribe.return_value = "hello there friend"
+        s._transcribe_and_apply()
+        assert s._frozen_raw == ""
+        assert s._frozen_samples == 0
+        assert tr.transcribe.call_args.kwargs["final"] is False
+
+    def test_no_freeze_when_disabled(self):
+        s, tr, rec = self._make_session(freeze_secs=0)
+        rec.get_audio_so_far.return_value = _silent(30)
+        tr.transcribe.return_value = "hello there friend"
+        s._transcribe_and_apply()
+        assert s._frozen_raw == ""
+
+    def test_interim_after_freeze_decodes_only_tail(self):
+        s, tr, rec = self._make_session(freeze_secs=2.0)
+        s._frozen_raw = "hello there friend"
+        s._frozen_samples = SR * 3
+        rec.get_audio_so_far.return_value = np.concatenate([_silent(3), _loud(1.5)])
+        tr.transcribe.return_value = "how are"
+        s._transcribe_and_apply()
+        sent_audio = tr.transcribe.call_args.args[0]
+        assert len(sent_audio) == SR * 1.5  # only the un-frozen tail
+        assert "hello there friend" in tr.transcribe.call_args.kwargs["context"]
+        assert s._typed_text == "hello there friend how are"
+
+    def test_final_decodes_only_tail_and_merges(self):
+        s, tr, rec = self._make_session(freeze_secs=2.0)
+        s._frozen_raw = "hello there friend"
+        s._frozen_samples = SR * 3
+        s._final_audio = np.concatenate([_silent(3), _loud(2)])
+        tr.transcribe.return_value = "how are you"
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        sent_audio = tr.transcribe.call_args.args[0]
+        assert len(sent_audio) == SR * 2
+        assert s.raw_final_text == "hello there friend how are you"
+        assert s.final_latency["frozen_secs"] == 3.0
+        assert s.final_latency["tail_secs"] == 2.0
+        assert s._typed_text == "hello there friend how are you"
+
+    def test_final_with_silent_tail_commits_frozen_text(self):
+        s, tr, rec = self._make_session(freeze_secs=2.0)
+        s._frozen_raw = "hello there friend"
+        s._frozen_samples = SR * 3
+        # Tiny trailing tail is still decoded (a clipped last word must not
+        # be dropped); here it is genuinely silent, so frozen text commits.
+        s._final_audio = np.concatenate([_silent(3), _silent(0.1)])
+        tr.transcribe.return_value = ""
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        tr.transcribe.assert_called_once()
+        assert s.raw_final_text == "hello there friend"
+        assert s._typed_text == "hello there friend"
+
+    def test_frozen_segments_accumulate_into_final(self):
+        s, tr, rec = self._make_session(freeze_secs=2.0)
+        rec.get_audio_so_far.return_value = _silent(3)
+        tr.transcribe.return_value = "hello there friend"
+        tr.last_segments = [{"text": "hello there friend", "avg_logprob": -0.2}]
+        s._transcribe_and_apply()  # freeze pass
+        s._final_audio = np.concatenate([_silent(3), _loud(2)])
+        tr.transcribe.return_value = "how are you"
+        tr.last_segments = [{"text": "how are you", "avg_logprob": -0.3}]
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        assert [seg["text"] for seg in s.final_segments] == [
+            "hello there friend", "how are you",
+        ]
+
+    def test_abort_discards_frozen_text(self):
+        s, tr, rec = self._make_session(freeze_secs=2.0)
+        s._frozen_raw = "hello there friend"
+        s._frozen_samples = SR * 3
+        s._typed_text = "hello there friend"
+        rec.get_audio_so_far.return_value = np.concatenate([_silent(3), _loud(1.5)])
+        tr.transcribe.return_value = "scratch that"
+        with patch("voiceio.postprocess.apply_pipeline", return_value=("", True)):
+            s._transcribe_and_apply()
+        assert s._frozen_raw == ""
+        assert s._typed_text == ""
+        # Frozen boundary advances so the wiped audio is never re-decoded
+        assert s._frozen_samples == SR * 4.5
+
+
+class TestDecodeTrace:
+    def test_trace_records_pass_kinds(self):
+        recorder = MagicMock()
+        recorder.sample_rate = SR
+        transcriber = MagicMock()
+        transcriber.last_segments = []
+        s = StreamingSession(
+            transcriber=transcriber,
+            typer=MagicMock(spec=TyperBackend),
+            recorder=recorder,
+            freeze_secs=2.0,
+        )
+        transcriber.transcribe.return_value = "hello there friend"
+        rec_audio = _silent(3)
+        recorder.get_audio_so_far.return_value = rec_audio
+        s._transcribe_and_apply()  # freeze pass
+        s._final_audio = np.concatenate([_silent(3), _loud(1)])
+        transcriber.transcribe.return_value = "bye"
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        kinds = [p["kind"] for p in s.trace]
+        assert kinds == ["freeze", "final"]
+        assert s.trace[0]["text"] == "hello there friend"
+        assert s.trace[1]["tail_secs"] == 1.0
+        assert all("secs" in p for p in s.trace)
+
+
+# --- code-review regressions: decode failures must never lose audio/text ---
+
+class TestDecodeFailureSafety:
+    def _make_session(self, freeze_secs=2.0, typer_spec=TyperBackend):
+        recorder = MagicMock()
+        recorder.sample_rate = SR
+        transcriber = MagicMock()
+        transcriber.last_segments = []
+        s = StreamingSession(
+            transcriber=transcriber,
+            typer=MagicMock(spec=typer_spec),
+            recorder=recorder,
+            freeze_secs=freeze_secs,
+        )
+        return s, transcriber, recorder
+
+    def test_failed_freeze_decode_does_not_advance_boundary(self):
+        s, tr, rec = self._make_session()
+        rec.get_audio_so_far.return_value = _silent(3)
+        tr.transcribe.side_effect = RuntimeError("decode timed out")
+        s._transcribe_and_apply()
+        assert s._frozen_samples == 0  # audio NOT discarded
+        assert s._frozen_raw == ""
+
+    def test_failed_final_decode_commits_interim_text(self):
+        s, tr, rec = self._make_session(typer_spec=StreamingTyper)
+        s._frozen_raw = "hello there friend"
+        s._frozen_samples = SR * 3
+        s._typed_text = "hello there friend how are you"  # shown via preedit
+        s._final_audio = np.concatenate([_silent(3), _loud(2)])
+        tr.transcribe.side_effect = RuntimeError("decode timed out")
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        # Interim text committed, not char-diffed down to frozen-only text
+        s._typer.commit_text.assert_called_once_with("hello there friend how are you")
+        assert s.final_latency.get("decode_failed") is True
+
+    def test_final_decodes_sub_300ms_tail(self):
+        s, tr, rec = self._make_session()
+        s._frozen_raw = "hello there friend"
+        s._frozen_samples = SR * 3
+        s._final_audio = np.concatenate([_silent(3), _loud(0.25)])
+        tr.transcribe.return_value = "yes"
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        tr.transcribe.assert_called_once()  # short last word not dropped
+        assert s.raw_final_text == "hello there friend yes"
+
+    def test_empty_interim_decode_keeps_display(self):
+        s, tr, rec = self._make_session(freeze_secs=0)
+        s._frozen_raw = "hello there friend"
+        s._frozen_samples = SR * 3
+        s._typed_text = "hello there friend how are"
+        rec.get_audio_so_far.return_value = np.concatenate([_silent(3), _loud(1.5)])
+        tr.transcribe.return_value = ""  # transient decoder flake
+        s._transcribe_and_apply()
+        s._typer.type_text.assert_not_called()
+        s._typer.delete_chars.assert_not_called()
+        assert s._typed_text == "hello there friend how are"
+
+    def test_quiet_mic_speech_is_not_silence(self):
+        from voiceio.streaming import _tail_ends_in_silence
+        # Continuous speech on a low-gain mic: quiet in absolute terms but
+        # uniform — trailing window matches overall level, so NOT a pause.
+        quiet_speech = np.full(SR * 3, 0.005, dtype=np.float32)
+        assert not _tail_ends_in_silence(quiet_speech, SR)
+        # Same quiet mic with a real trailing pause IS a pause.
+        with_pause = np.concatenate([
+            np.full(int(SR * 2.5), 0.005, dtype=np.float32), _silent(0.5),
+        ])
+        assert _tail_ends_in_silence(with_pause, SR)

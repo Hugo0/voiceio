@@ -161,3 +161,119 @@ def test_pipeline_runs_postcorrect_only_on_final():
         )
         assert text == "Crisp chat is the best tool"
         assert not abort
+
+
+# ── wall-clock deadline ──────────────────────────────────────────────────
+
+
+def test_deadline_exceeded_keeps_original():
+    """A chat call slower than timeout_secs is abandoned at the deadline."""
+    import time as _time
+    cfg = _cfg()
+    cfg.postcorrect.timeout_secs = 0.2
+
+    def slow_chat(*a, **kw):
+        _time.sleep(2.0)
+        return "Crisp chat is the tool"
+
+    pc = PostCorrector(cfg)
+    with patch("voiceio.llm_api.chat", side_effect=slow_chat):
+        t0 = _time.monotonic()
+        assert pc.correct("Chris chat is the tool") == "Chris chat is the tool"
+        elapsed = _time.monotonic() - t0
+    assert elapsed < 1.0  # returned at the deadline, not after the full call
+    assert pc.last_secs is not None
+
+
+def test_within_deadline_applies_correction():
+    cfg = _cfg()
+    cfg.postcorrect.timeout_secs = 5.0
+    pc = PostCorrector(cfg)
+    with patch("voiceio.llm_api.chat", return_value="Crisp chat is the tool"):
+        assert pc.correct("Chris chat is the tool") == "Crisp chat is the tool"
+
+
+# ── before/after pair persistence ────────────────────────────────────────
+
+
+def _read_pairs(path):
+    import json
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_applied_correction_recorded(tmp_path, monkeypatch):
+    import voiceio.postcorrect as pcmod
+    from voiceio import config as cfgmod
+    pairs = tmp_path / "pairs.jsonl"
+    monkeypatch.setattr(cfgmod, "POSTCORRECT_PAIRS_PATH", pairs)
+    pc = PostCorrector(_cfg())
+    with patch("voiceio.llm_api.chat", return_value="Crisp chat is the tool"):
+        pc.correct("Chris chat is the tool")
+    entries = _read_pairs(pairs)
+    assert len(entries) == 1
+    assert entries[0]["outcome"] == "applied"
+    assert entries[0]["before"] == "Chris chat is the tool"
+    assert entries[0]["after"] == "Crisp chat is the tool"
+    assert entries[0]["secs"] is not None
+
+
+def test_rejected_rewrite_recorded(tmp_path, monkeypatch):
+    from voiceio import config as cfgmod
+    pairs = tmp_path / "pairs.jsonl"
+    monkeypatch.setattr(cfgmod, "POSTCORRECT_PAIRS_PATH", pairs)
+    pc = PostCorrector(_cfg())
+    with patch("voiceio.llm_api.chat", return_value="Completely different rewritten sentence with many other words entirely"):
+        out = pc.correct("Chris chat is the tool")
+    assert out == "Chris chat is the tool"
+    entries = _read_pairs(pairs)
+    assert len(entries) == 1
+    assert entries[0]["outcome"].startswith("rejected")
+
+
+def test_no_recording_when_disabled(tmp_path, monkeypatch):
+    from voiceio import config as cfgmod
+    pairs = tmp_path / "pairs.jsonl"
+    monkeypatch.setattr(cfgmod, "POSTCORRECT_PAIRS_PATH", pairs)
+    cfg = _cfg()
+    cfg.data.capture_intermediates = False
+    pc = PostCorrector(cfg)
+    with patch("voiceio.llm_api.chat", return_value="Crisp chat is the tool"):
+        pc.correct("Chris chat is the tool")
+    assert not pairs.exists()
+
+
+def test_hung_request_blocks_next_call_not_thread_pileup(tmp_path, monkeypatch):
+    """A worker abandoned at the deadline makes the NEXT call skip the LLM."""
+    import threading as _threading
+    import time as _time
+    from voiceio import config as cfgmod
+    monkeypatch.setattr(cfgmod, "POSTCORRECT_PAIRS_PATH", tmp_path / "pairs.jsonl")
+    cfg = _cfg()
+    cfg.postcorrect.timeout_secs = 0.1
+    pc = PostCorrector(cfg)
+    release = _threading.Event()
+
+    def hung_chat(*a, **kw):
+        release.wait(5)
+        return "x"
+
+    with patch("voiceio.llm_api.chat", side_effect=hung_chat) as mock_chat:
+        assert pc.correct("Chris chat is the tool") == "Chris chat is the tool"
+        assert mock_chat.call_count == 1
+        # Second call while the first worker is still hung: no new thread
+        assert pc.correct("Chris chat is the tool") == "Chris chat is the tool"
+        assert mock_chat.call_count == 1
+    release.set()
+    entries = _read_pairs(tmp_path / "pairs.jsonl")
+    assert [e["outcome"] for e in entries] == ["timeout", "skipped_busy"]
+
+
+def test_recorded_context_is_effective_context(tmp_path, monkeypatch):
+    from voiceio import config as cfgmod
+    monkeypatch.setattr(cfgmod, "POSTCORRECT_PAIRS_PATH", tmp_path / "pairs.jsonl")
+    pc = PostCorrector(_cfg())
+    pc.set_context(title="Stale Window")
+    with patch("voiceio.llm_api.chat", return_value="Crisp chat is the tool"):
+        pc.correct("Chris chat is the tool", context="Fresh Window")
+    entries = _read_pairs(tmp_path / "pairs.jsonl")
+    assert entries[0]["context"] == "Fresh Window"

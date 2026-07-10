@@ -65,6 +65,8 @@ voiceio/
 
 **Streaming** — IBus path uses preedit (underlined preview) + commit. Fallback path uses word-level append with char-level diff on final.
 
+**Incremental finalization** — during recording, once the un-frozen audio tail exceeds `output.streaming_freeze_secs` (default 25s) and ends at a speech pause, it is beam-decoded and frozen; interim and stop-time passes only decode the remaining tail. Long dictations finalize in O(tail) instead of O(recording) (~10x faster stop for multi-minute notes). Frozen text conditions the tail decode via per-call `context` prompt.
+
 **Post-processing pipeline** — `postprocess.apply_pipeline()` is the single shared pipeline: cleanup → numbers → commands → corrections → LLM (final only). Used by both streaming and batch modes.
 
 **LLM integration** — Optional Ollama-based grammar/spelling cleanup. Runs on final pass only (never during streaming). `llm.py` has shared helpers (install, start, pull, diagnose) used by wizard, doctor, and app.

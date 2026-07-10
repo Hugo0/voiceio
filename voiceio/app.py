@@ -393,6 +393,7 @@ class VoiceIO:
                 voice_input_prefix=self._voice_input_prefix,
                 on_typer_broken=self._on_typer_broken,
                 on_interim=self._on_interim_text,
+                freeze_secs=self.cfg.output.streaming_freeze_secs,
             )
             self._session.start()
         log.info("Recording... press [%s] again to stop", self.cfg.hotkey.key)
@@ -545,6 +546,16 @@ class VoiceIO:
                 duration=elapsed,
                 extra=extra,
             )
+            from voiceio import retention
+            retention.save_trace(self.cfg.data, {
+                "ts": time.time(),
+                "audio": extra.get("audio"),
+                "duration": round(elapsed, 2),
+                "latency": latency,
+                # Snapshot: a timed-out worker join means the thread may
+                # still be appending while we serialize.
+                "passes": list(session.trace),
+            })
         log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
         # Release the IBus input source now that the final commit is done.
         # Generation-checked inside: if a newer recording started, it already

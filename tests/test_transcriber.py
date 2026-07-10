@@ -130,3 +130,39 @@ class TestRestartBudgetReset:
 
         with pytest.raises(RuntimeError, match="crashed"):
             t._ensure_worker()
+
+
+class TestTimeoutRaises:
+    """Timeout/invalid response raise TranscriptionError (never fake silence)."""
+
+    def _make(self):
+        from voiceio.transcriber import Transcriber
+        mock_proc = MagicMock()
+        mock_proc.stdout.readline.return_value = "READY\n"
+        mock_proc.poll.return_value = None
+        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+            t = Transcriber(ModelConfig())
+        return t, mock_proc
+
+    def test_timeout_raises_and_clears_segments(self):
+        import numpy as np
+        import pytest
+        from voiceio.transcriber import TranscriptionError
+        t, mock_proc = self._make()
+        t.last_segments = [{"text": "stale"}]
+        with patch.object(t, "_read_with_timeout", return_value=None), \
+             patch.object(t, "_kill_worker"), patch.object(t, "_ensure_worker"):
+            with pytest.raises(TranscriptionError):
+                t.transcribe(np.zeros(16000, dtype=np.float32))
+        assert t.last_segments == []
+
+    def test_invalid_response_raises_and_clears_segments(self):
+        import numpy as np
+        import pytest
+        from voiceio.transcriber import TranscriptionError
+        t, mock_proc = self._make()
+        t.last_segments = [{"text": "stale"}]
+        with patch.object(t, "_read_with_timeout", return_value="not json{"):
+            with pytest.raises(TranscriptionError):
+                t.transcribe(np.zeros(16000, dtype=np.float32))
+        assert t.last_segments == []

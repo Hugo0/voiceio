@@ -18,6 +18,12 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 TRANSCRIBE_TIMEOUT = 30  # seconds (floor; scaled up for long audio)
+
+
+class TranscriptionError(RuntimeError):
+    """Decode failed (timeout / worker crash). Distinct from a legitimate
+    empty result ("" = silence) so callers never treat lost audio as decoded
+    silence — the streaming freeze/final paths must not advance state on it."""
 # Realtime-factor headroom for the read timeout. Whisper decodes well faster
 # than realtime, so 1.5x the audio duration is a generous ceiling that still
 # never kills a long dictation mid-decode.
@@ -152,10 +158,17 @@ class Transcriber:
         log.warning("Worker died, restarting (attempt %d/%d)", self._restarts, MAX_RESTARTS)
         self._start_worker()
 
-    def transcribe(self, audio: np.ndarray, final: bool = False) -> str:
+    def transcribe(
+        self, audio: np.ndarray, final: bool = False, context: str | None = None,
+    ) -> str:
         """Transcribe audio. `final=True` marks the pass whose text the user
         keeps (streaming final / batch): it gets beam search; interim streaming
-        passes stay greedy for latency."""
+        passes stay greedy for latency.
+
+        `context` is per-call text appended to the initial_prompt — used by
+        incremental finalization to condition a tail decode on the already-
+        frozen transcript so sentences stay coherent across the cut.
+        """
         with self._lock:
             self._ensure_worker()
 
@@ -165,8 +178,9 @@ class Transcriber:
             audio = normalize_audio(audio)
             audio_b64 = base64.b64encode(audio.tobytes()).decode("ascii")
             req = {"audio_b64": audio_b64, "options": {"beam_size": 5 if final else 1}}
-            if self._initial_prompt:
-                req["initial_prompt"] = self._initial_prompt
+            prompt = "\n".join(p for p in (self._initial_prompt, context) if p)
+            if prompt:
+                req["initial_prompt"] = prompt
             if self._hotwords:
                 req["hotwords"] = self._hotwords
             try:
@@ -184,16 +198,18 @@ class Transcriber:
             timeout = transcribe_timeout(duration)
             result_line = self._read_with_timeout(timeout)
             if result_line is None:
+                self.last_segments = []
                 log.warning("Transcription timed out after %.0fs, restarting worker", timeout)
                 self._kill_worker()
                 self._ensure_worker()
-                return ""
+                raise TranscriptionError(f"decode timed out after {timeout:.0f}s")
 
             try:
                 result = json.loads(result_line)
             except (json.JSONDecodeError, TypeError):
+                self.last_segments = []
                 log.warning("Invalid response from worker: %s", repr(result_line)[:100])
-                return ""
+                raise TranscriptionError("invalid worker response")
             text = result.get("text", "")
             self.last_segments = result.get("segments", [])
 

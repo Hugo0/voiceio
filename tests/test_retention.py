@@ -97,3 +97,72 @@ class TestHistoryExtra:
         entry = json.loads(p.read_text())
         assert entry["text"] == "hello"
         assert entry["ts"] != 0
+
+
+# ── intermediate data capture + disk floor ──────────────────────────────
+
+
+class TestAppendJsonl:
+    def test_appends_lines(self, tmp_path):
+        from voiceio import retention
+        p = tmp_path / "pairs.jsonl"
+        retention.append_jsonl(p, {"a": 1})
+        retention.append_jsonl(p, {"b": 2})
+        import json
+        lines = [json.loads(line) for line in p.read_text().splitlines()]
+        assert lines == [{"a": 1}, {"b": 2}]
+
+    def test_never_raises_on_bad_entry(self, tmp_path):
+        from voiceio import retention
+        retention.append_jsonl(tmp_path / "x.jsonl", {"bad": object()})  # not JSON-able
+
+
+class TestSaveTrace:
+    def test_writes_when_enabled(self, tmp_path, monkeypatch):
+        from voiceio import retention
+        from voiceio.config import DataConfig
+        monkeypatch.setattr(retention, "TRACES_PATH", tmp_path / "trace.jsonl")
+        retention.save_trace(DataConfig(), {"ts": 1, "passes": []})
+        assert (tmp_path / "trace.jsonl").exists()
+
+    def test_skips_when_disabled(self, tmp_path, monkeypatch):
+        from voiceio import retention
+        from voiceio.config import DataConfig
+        monkeypatch.setattr(retention, "TRACES_PATH", tmp_path / "trace.jsonl")
+        retention.save_trace(DataConfig(capture_intermediates=False), {"ts": 1})
+        assert not (tmp_path / "trace.jsonl").exists()
+
+
+class TestDiskFloor:
+    def test_save_audio_skips_below_floor(self, monkeypatch):
+        import numpy as np
+        from voiceio import retention
+        from voiceio.config import DataConfig
+        monkeypatch.setattr(retention, "_free_gb", lambda p: 1.0)
+        name = retention.save_audio(
+            np.zeros(1600, dtype=np.float32), 0.0, DataConfig(min_free_gb=5.0),
+        )
+        assert name is None
+
+    def test_save_audio_ok_above_floor(self, tmp_path, monkeypatch):
+        import numpy as np
+        from voiceio import retention
+        from voiceio.config import DataConfig
+        monkeypatch.setattr(retention, "RECORDINGS_DIR", tmp_path)
+        monkeypatch.setattr(retention, "_free_gb", lambda p: 100.0)
+        name = retention.save_audio(
+            np.zeros(1600, dtype=np.float32), 0.0, DataConfig(min_free_gb=5.0),
+        )
+        assert name is not None and (tmp_path / name).exists()
+
+    def test_prune_shrinks_budget_below_floor(self, tmp_path, monkeypatch):
+        from voiceio import retention
+        from voiceio.config import DataConfig
+        monkeypatch.setattr(retention, "RECORDINGS_DIR", tmp_path)
+        monkeypatch.setattr(retention, "_free_gb", lambda p: 1.0)
+        for i in range(4):
+            (tmp_path / f"r{i}.wav").write_bytes(b"x" * 1000)
+        retention.prune(DataConfig(max_audio_mb=1024, min_free_gb=5.0))
+        # Budget halved from 4000 bytes total → keep <= 2000 bytes
+        remaining = sum(p.stat().st_size for p in tmp_path.glob("*.wav"))
+        assert remaining <= 2000
