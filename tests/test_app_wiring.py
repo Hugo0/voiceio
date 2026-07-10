@@ -27,7 +27,10 @@ def _make_vio(mock_transcriber=None):
         mock_detect.return_value = MagicMock(display_server="wayland", desktop="gnome")
 
         from voiceio.app import VoiceIO
-        vio = VoiceIO(Config())
+        cfg = Config()
+        # Tests must never touch the real system clipboard
+        cfg.output.copy_to_clipboard = "off"
+        vio = VoiceIO(cfg)
         mock_stream = MagicMock()
         mock_stream.active = True
         mock_stream.closed = False
@@ -209,3 +212,51 @@ class TestStateMachine:
         vio._request_stop()
         assert vio._state == _State.IDLE
         assert not vio.recorder.is_recording
+
+
+class TestClipboardMirror:
+    """copy_to_clipboard: interim/final text mirrored to the clipboard."""
+
+    def test_interim_copy_skipped_for_clipboard_typer(self):
+        vio, mock_typer, _ = _make_vio()
+        mock_typer.name = "clipboard"
+        vio.cfg.output.copy_to_clipboard = "live"
+        with patch("voiceio.clipboard_read.copy_text") as mock_copy:
+            vio._on_interim_text("hello")
+            mock_copy.assert_not_called()
+
+    def test_interim_copy_fires_for_other_typers(self):
+        vio, mock_typer, _ = _make_vio()
+        mock_typer.name = "ibus"
+        vio.cfg.output.copy_to_clipboard = "live"
+        with patch("voiceio.clipboard_read.copy_text") as mock_copy:
+            vio._on_interim_text("hello")
+            mock_copy.assert_called_once_with("hello")
+
+    def test_interim_copy_off_unless_live(self):
+        vio, mock_typer, _ = _make_vio()
+        mock_typer.name = "ibus"
+        vio.cfg.output.copy_to_clipboard = "final"
+        with patch("voiceio.clipboard_read.copy_text") as mock_copy:
+            vio._on_interim_text("hello")
+            mock_copy.assert_not_called()
+
+    def test_final_copy_respects_off(self):
+        vio, mock_typer, _ = _make_vio()
+        mock_typer.name = "ibus"
+        vio.cfg.output.copy_to_clipboard = "off"
+        with patch("voiceio.clipboard_read.copy_text") as mock_copy:
+            vio._copy_result_async("hello")
+            time.sleep(0.1)
+            mock_copy.assert_not_called()
+
+    def test_final_copy_runs_async(self):
+        vio, mock_typer, _ = _make_vio()
+        mock_typer.name = "ibus"
+        vio.cfg.output.copy_to_clipboard = "final"
+        done = threading.Event()
+        with patch("voiceio.clipboard_read.copy_text",
+                   side_effect=lambda t: done.set()) as mock_copy:
+            vio._copy_result_async("hello world")
+            assert done.wait(timeout=2)
+            mock_copy.assert_called_once_with("hello world")

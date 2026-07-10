@@ -84,6 +84,7 @@ class StreamingSession:
         voice_input_prefix: str = "",
         on_typer_broken: Callable[[], None] | None = None,
         is_current: Callable[[], bool] | None = None,
+        on_interim: Callable[[str], None] | None = None,
     ):
         self._transcriber = transcriber
         self._typer = typer
@@ -104,6 +105,7 @@ class StreamingSession:
         self._llm = llm
         self._voice_input_prefix = voice_input_prefix
         self._on_typer_broken = on_typer_broken
+        self._on_interim = on_interim
         self._typer_fail_count = 0
         self._typer_broken_signalled = False
         self._typed_text = ""
@@ -115,6 +117,11 @@ class StreamingSession:
         self.raw_final_text: str | None = None
         self.final_latency: dict = {}
         self.final_segments: list[dict] = []
+
+    @property
+    def interim_text(self) -> str:
+        """Best-so-far text (post-pipeline). Safe to read while finalizing."""
+        return self._typed_text
 
     def set_is_current(self, is_current: Callable[[], bool]) -> None:
         """Install the output-ownership gate (see __init__).
@@ -280,7 +287,13 @@ class StreamingSession:
                 return
 
             if text:
+                prev = self._typed_text
                 self._apply_correction(text, final=final)
+                if not final and self._on_interim and self._typed_text != prev:
+                    try:
+                        self._on_interim(self._typed_text)
+                    except Exception:
+                        log.debug("on_interim callback failed", exc_info=True)
 
     def _commit_interim_on_final(self) -> None:
         """Commit whatever interim text we have when the final pass yields none.

@@ -89,3 +89,57 @@ def test_read_text_no_tools():
         from voiceio.clipboard_read import read_text
         result = read_text()
         assert result is None
+
+
+# --- copy_text ---
+
+def test_copy_text_wayland():
+    """Wayland copies via wl-copy with text on stdin."""
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="wayland")), \
+         patch("shutil.which", return_value="/usr/bin/wl-copy"), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        from voiceio.clipboard_read import copy_text
+        assert copy_text("hello") is True
+        args = mock_run.call_args[0][0]
+        assert "wl-copy" in args
+        assert mock_run.call_args.kwargs["input"] == b"hello"
+
+
+def test_copy_text_x11_xclip():
+    """X11 copies to the CLIPBOARD selection via xclip."""
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="x11")), \
+         patch("shutil.which", lambda t: "/usr/bin/xclip" if t == "xclip" else None), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        from voiceio.clipboard_read import copy_text
+        assert copy_text("hello") is True
+        args = mock_run.call_args[0][0]
+        assert args[:1] == ["xclip"]
+        assert "clipboard" in args
+
+
+def test_copy_text_no_tools():
+    """Returns False (no raise) when no clipboard tools available."""
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="x11")), \
+         patch("shutil.which", return_value=None):
+        from voiceio.clipboard_read import copy_text
+        assert copy_text("hello") is False
+
+
+def test_copy_text_empty():
+    """Empty text is never copied."""
+    with patch("subprocess.run") as mock_run:
+        from voiceio.clipboard_read import copy_text
+        assert copy_text("") is False
+        mock_run.assert_not_called()
+
+
+def test_copy_text_command_failure():
+    """Nonzero exit from the copy tool reports False."""
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="wayland")), \
+         patch("shutil.which", return_value="/usr/bin/wl-copy"), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1)
+        from voiceio.clipboard_read import copy_text
+        assert copy_text("hello") is False

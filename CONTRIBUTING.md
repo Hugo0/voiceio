@@ -38,7 +38,7 @@ voiceio/
 ├── vad.py           # Voice Activity Detection (Silero neural net / RMS fallback)
 ├── vocabulary.py    # Custom vocabulary for Whisper conditioning
 ├── history.py       # Transcription history (JSONL log)
-├── clipboard_read.py # Read text from system clipboard / primary selection
+├── clipboard_read.py # Read/write text from/to system clipboard / primary selection
 ├── demo.py          # Interactive guided tour (voiceio demo)
 ├── health.py        # Diagnostic probes for all backends + features
 ├── feedback.py      # Sound playback (persistent sounddevice stream) + notifications

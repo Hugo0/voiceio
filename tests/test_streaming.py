@@ -595,3 +595,57 @@ class TestWorkerLoop:
         session._worker_thread.join(timeout=5)
 
         assert transcriber.transcribe.call_count < 5
+
+
+# --- on_interim callback ---
+
+class TestOnInterim:
+    def _make_session(self, cb):
+        recorder = MagicMock()
+        recorder.sample_rate = 16000
+        transcriber = MagicMock()
+        session = StreamingSession(
+            transcriber=transcriber,
+            typer=MagicMock(spec=TyperBackend),
+            recorder=recorder,
+            on_interim=cb,
+        )
+        recorder.get_audio_so_far.return_value = np.zeros(16000 * 2, dtype=np.float32)
+        return session, transcriber
+
+    def test_fires_on_new_text(self):
+        calls = []
+        s, tr = self._make_session(calls.append)
+        tr.transcribe.return_value = "Hello world"
+        s._transcribe_and_apply()
+        assert calls == ["Hello world"]
+
+    def test_no_fire_when_text_unchanged(self):
+        calls = []
+        s, tr = self._make_session(calls.append)
+        tr.transcribe.return_value = "Hello world"
+        s._transcribe_and_apply()
+        s._transcribe_and_apply()
+        assert calls == ["Hello world"]
+
+    def test_no_fire_on_final(self):
+        calls = []
+        s, tr = self._make_session(calls.append)
+        tr.transcribe.return_value = "Hello world"
+        s._final_audio = np.zeros(16000 * 2, dtype=np.float32)
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        assert calls == []
+        assert s.interim_text == "Hello world"
+
+    def test_callback_error_is_swallowed(self):
+        def boom(_text):
+            raise RuntimeError("clipboard exploded")
+        s, tr = self._make_session(boom)
+        tr.transcribe.return_value = "Hello world"
+        s._transcribe_and_apply()  # must not raise
+        assert s.interim_text == "Hello world"
+
+    def test_interim_text_property(self):
+        s, _ = self._make_session(None)
+        s._apply_correction("Hello world")
+        assert s.interim_text == "Hello world"

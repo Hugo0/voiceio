@@ -79,6 +79,12 @@ class OutputConfig:
     punctuation_cleanup: bool = True
     number_conversion: bool = True
     voice_input_prefix: str = ""           # e.g. "[voice]" — empty disables
+    # Mirror transcribed text to the system clipboard so it can be pasted:
+    #   "off"   — never
+    #   "final" — the corrected final text, once ready
+    #   "live"  — also the best-so-far text at each streaming update and the
+    #             instant recording stops (pasteable while the final decode runs)
+    copy_to_clipboard: str = "final"
 
 
 @dataclass

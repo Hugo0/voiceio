@@ -392,6 +392,7 @@ class VoiceIO:
                 llm=self._llm,
                 voice_input_prefix=self._voice_input_prefix,
                 on_typer_broken=self._on_typer_broken,
+                on_interim=self._on_interim_text,
             )
             self._session.start()
         log.info("Recording... press [%s] again to stop", self.cfg.hotkey.key)
@@ -516,12 +517,19 @@ class VoiceIO:
     ) -> None:
         """Run final transcription and commit in background thread."""
         t_final = time.monotonic()
+        # Snappy clipboard: make the best-so-far text pasteable the moment
+        # the user stops, instead of after the (possibly long) final decode.
+        if (self.cfg.output.copy_to_clipboard == "live"
+                and self._typer.name != "clipboard" and session.interim_text):
+            from voiceio import clipboard_read
+            clipboard_read.copy_text(session.interim_text)
         extra = self._retention_extra(audio)
         final_text = session.stop(audio)
         if self._generation != gen:
             log.debug("Finalize cancelled (gen %d, current %d)", gen, self._generation)
             return
         if final_text:
+            self._copy_result_async(final_text)
             self._play_feedback(final_text)
             stored = self._strip_voice_prefix(final_text)
             self._prompt_builder.add_transcript(stored)
@@ -589,6 +597,7 @@ class VoiceIO:
                 # Superseded by a newer recording — do not touch the typer.
                 if text and self._generation == gen:
                     self._type_with_fallback(text)
+                    self._copy_result_async(text)
                     self._play_feedback(text)
                     stored = self._strip_voice_prefix(text)
                     self._prompt_builder.add_transcript(stored)
@@ -683,6 +692,35 @@ class VoiceIO:
         else:
             from voiceio.feedback import play_record_stop
             play_record_stop()
+
+    def _on_interim_text(self, text: str) -> None:
+        """Streaming update: mirror the best-so-far text to the clipboard.
+
+        Runs on the streaming worker thread (a copy is a few ms). Skipped for
+        the clipboard typer, which pastes FROM the clipboard — overwriting it
+        here could race a pending Ctrl+V and paste the full text twice.
+        """
+        if self.cfg.output.copy_to_clipboard != "live":
+            return
+        if self._typer.name == "clipboard":
+            return
+        from voiceio import clipboard_read
+        clipboard_read.copy_text(text)
+
+    def _copy_result_async(self, text: str) -> None:
+        """Mirror the final text to the clipboard, off the commit hot path."""
+        if self.cfg.output.copy_to_clipboard not in ("final", "live"):
+            return
+
+        def _copy() -> None:
+            # Give a just-sent paste keystroke time to consume the clipboard
+            # before we overwrite it with the full text.
+            if self._typer.name == "clipboard":
+                time.sleep(0.3)
+            from voiceio import clipboard_read
+            clipboard_read.copy_text(text)
+
+        threading.Thread(target=_copy, daemon=True).start()
 
     def _play_feedback(self, text: str) -> None:
         if self.cfg.feedback.sound_enabled:
