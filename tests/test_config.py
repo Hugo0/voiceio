@@ -61,3 +61,16 @@ def test_migrate_x11_to_pynput():
     raw = {"hotkey": {"backend": "x11"}}
     result = _migrate_v1(raw)
     assert result["hotkey"]["backend"] == "pynput"
+
+
+def test_copy_to_clipboard_default_and_override(tmp_path):
+    cfg = load(path=tmp_path / "nonexistent.toml")
+    assert cfg.output.copy_to_clipboard == "final"
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(textwrap.dedent("""\
+        [output]
+        copy_to_clipboard = "live"
+    """))
+    cfg = load(path=config_file)
+    assert cfg.output.copy_to_clipboard == "live"
