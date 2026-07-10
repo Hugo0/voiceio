@@ -867,3 +867,84 @@ class TestDecodeFailureSafety:
             np.full(int(SR * 2.5), 0.005, dtype=np.float32), _silent(0.5),
         ])
         assert _tail_ends_in_silence(with_pause, SR)
+
+
+class TestFreezeCalibration:
+    def test_hot_noise_floor_pause_is_silence(self):
+        """Real-mic calibration: noise floor ~0.3x of tail RMS IS a pause."""
+        from voiceio.streaming import _tail_ends_in_silence
+        speech = np.full(int(SR * 2.5), 0.12, dtype=np.float32)
+        pause = np.full(int(SR * 0.5), 0.03, dtype=np.float32)  # noise floor
+        assert _tail_ends_in_silence(np.concatenate([speech, pause]), SR)
+
+    def test_speech_level_window_is_not_silence(self):
+        from voiceio.streaming import _tail_ends_in_silence
+        tail = np.full(SR * 3, 0.12, dtype=np.float32)
+        assert not _tail_ends_in_silence(tail, SR)
+
+
+class TestDecodeBackpressure:
+    def _make_session(self):
+        recorder = MagicMock()
+        recorder.sample_rate = SR
+        transcriber = MagicMock()
+        transcriber.last_segments = []
+        s = StreamingSession(
+            transcriber=transcriber,
+            typer=MagicMock(spec=TyperBackend),
+            recorder=recorder,
+        )
+        return s, transcriber, recorder
+
+    def test_interim_skipped_while_behind(self):
+        """No new interim until new audio >= duration of the last decode."""
+        s, tr, rec = self._make_session()
+        s._last_decode_end = SR * 10
+        s._last_decode_secs = 8.0  # last decode took 8s (contended CPU)
+        rec.get_audio_so_far.return_value = _loud(13)  # only 3s new audio
+        s._transcribe_and_apply()
+        tr.transcribe.assert_not_called()
+
+    def test_interim_runs_once_caught_up(self):
+        s, tr, rec = self._make_session()
+        s._last_decode_end = SR * 10
+        s._last_decode_secs = 8.0
+        rec.get_audio_so_far.return_value = _loud(19)  # 9s new audio > 8s
+        tr.transcribe.return_value = "hello"
+        s._transcribe_and_apply()
+        tr.transcribe.assert_called_once()
+        assert s._last_decode_end == SR * 19
+
+    def test_final_never_skipped_by_backpressure(self):
+        s, tr, rec = self._make_session()
+        s._last_decode_end = SR * 10
+        s._last_decode_secs = 60.0
+        s._final_audio = _loud(11)
+        tr.transcribe.return_value = "hello"
+        s._transcribe_and_apply(min_seconds=0.5, final=True)
+        tr.transcribe.assert_called_once()
+
+
+class TestStaleInterimAfterStop:
+    def test_interim_completing_after_stop_is_discarded(self):
+        """A slow interim decode finishing post-stop must not touch the display."""
+        recorder = MagicMock()
+        recorder.sample_rate = SR
+        transcriber = MagicMock()
+        transcriber.last_segments = []
+        s = StreamingSession(
+            transcriber=transcriber,
+            typer=MagicMock(spec=StreamingTyper),
+            recorder=recorder,
+        )
+        s._typed_text = "Okay."
+        recorder.get_audio_so_far.return_value = _loud(8)
+
+        def slow_then_stopped(audio, final=False, context=None):
+            s._stop_event.set()  # stop pressed while decode in flight
+            return "Okay, two things. One, is it"
+
+        transcriber.transcribe.side_effect = slow_then_stopped
+        s._transcribe_and_apply()
+        s._typer.update_preedit.assert_not_called()
+        assert s._typed_text == "Okay."  # display state untouched
