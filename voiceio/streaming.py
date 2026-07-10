@@ -32,7 +32,10 @@ _FREEZE_SILENCE_WINDOW_SECS = 0.3
 # and the decode path normalizes audio anyway, so an absolute threshold
 # would read a quiet mic's speech as silence (mid-word cuts) and a hot
 # noise floor as speech (freeze never fires).
-_FREEZE_SILENCE_RATIO = 0.15
+# Calibrated on real recordings: between-words noise floor sits at
+# ~0.27-0.38 of overall tail RMS, speech windows at >=0.9. 0.6 separates
+# both with margin; 0.15 never fired on a mic with a normal noise floor.
+_FREEZE_SILENCE_RATIO = 0.6
 _FREEZE_SILENCE_FLOOR = 1e-4  # digital silence is always quiet
 # Whisper conditions on ~224 prompt tokens; more frozen context is wasted.
 _FREEZE_CONTEXT_CHARS = 400
@@ -158,6 +161,12 @@ class StreamingSession:
         self._frozen_samples = 0
         self._frozen_raw = ""
         self._frozen_segments: list[dict] = []
+        # Decode backpressure: when the CPU is contended, decodes slow down
+        # and 1s-tick interim passes would queue back-to-back, each covering
+        # a longer tail — a starvation spiral. Require at least as much NEW
+        # audio as the last decode took before starting another interim.
+        self._last_decode_end = 0     # samples covered by the last decode
+        self._last_decode_secs = 0.0  # how long that decode took
         # Raw (pre-pipeline) text + confidence of the final pass, for history
         self.raw_final_text: str | None = None
         self.final_latency: dict = {}
@@ -294,6 +303,9 @@ class StreamingSession:
         tail = audio[self._frozen_samples:]
         if not final and len(tail) < self._sample_rate * min_seconds:
             return  # not enough new audio since the last freeze
+        grown_secs = (len(audio) - self._last_decode_end) / self._sample_rate
+        if not final and grown_secs < max(min_seconds, self._last_decode_secs):
+            return  # backpressure: don't decode faster than we can keep up
 
         # Freeze when the tail has grown long AND ends at a speech pause
         # (never cut mid-word). The freeze pass gets beam search because its
@@ -333,6 +345,8 @@ class StreamingSession:
                 return
             tail_segments = list(getattr(self._transcriber, "last_segments", []))
         t_transcribe = time.monotonic() - t0
+        self._last_decode_end = len(audio)
+        self._last_decode_secs = t_transcribe
 
         self.trace.append({
             "t": round(time.monotonic() - self._t0, 2),
@@ -353,6 +367,13 @@ class StreamingSession:
             )
         raw = self._frozen_raw if freeze else _join_text(self._frozen_raw, tail_text)
 
+        # A slow interim decode can complete AFTER the user pressed stop
+        # (observed: 29s under CPU contention). Applying it would overwrite
+        # the preedit with stale partial text moments before the final
+        # commit rewrites it again — discard it. Freeze bookkeeping above
+        # is kept: it is beam-quality and shrinks the final tail.
+        if not final and self._stop_event.is_set():
+            return
         # An interim pass that decoded nothing must not touch the display:
         # rewriting to frozen-only text would visibly delete the un-frozen
         # words the previous pass just showed (transient decoder flake).

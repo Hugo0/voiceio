@@ -147,7 +147,12 @@ class PostCorrectConfig:
     model can be overridden here; empty falls back to the autocorrect model.
     """
     enabled: bool = False
-    model: str = ""              # empty = use [autocorrect].model
+    # Latency-critical (blocks the commit): default to a fast cheap model.
+    # Bake-off on the real correction prompt: gemini-2.5-flash-lite 0.44s
+    # with fixes identical to kimi-k2's 2.0s. OpenRouter model id — on a
+    # custom base_url set a model your endpoint serves (empty = use
+    # [autocorrect].model).
+    model: str = "google/gemini-2.5-flash-lite"
     timeout_secs: float = 8.0
     min_words: int = 4           # skip utterances shorter than this
 

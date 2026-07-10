@@ -5,15 +5,72 @@ local Ollama (via /v1/chat/completions), etc. Zero dependencies beyond stdlib.
 """
 from __future__ import annotations
 
+import http.client
+import io
 import json
 import logging
 import os
+import threading
 import urllib.error
-import urllib.request
+from urllib.parse import urlsplit
 
 from voiceio.config import AutocorrectConfig
 
 log = logging.getLogger(__name__)
+
+# Keep-alive connection pool: a fresh TLS handshake costs ~0.2-0.5s per call,
+# which lands directly on postcorrect's stop-to-commit latency. Connections
+# are checked OUT for the duration of a request and returned only on clean
+# completion, so a deadline-abandoned postcorrect thread can never share a
+# socket with a later call.
+_POOL_LOCK = threading.Lock()
+_CONN_POOL: dict[str, http.client.HTTPConnection] = {}
+
+
+def _post_json(url: str, headers: dict, body: dict, timeout: float) -> dict:
+    """POST JSON over a pooled keep-alive connection; return the parsed reply.
+
+    A stale pooled connection (server closed it while idle) gets one retry on
+    a fresh one. Non-2xx raises urllib.error.HTTPError so callers keep their
+    existing status-code handling.
+    """
+    parts = urlsplit(url)
+    pool_key = f"{parts.scheme}://{parts.netloc}"
+    path = parts.path or "/"
+    payload = json.dumps(body).encode()
+
+    for attempt in (1, 2):
+        with _POOL_LOCK:
+            conn = _CONN_POOL.pop(pool_key, None)
+        pooled = conn is not None
+        if conn is None:
+            cls = (http.client.HTTPSConnection if parts.scheme == "https"
+                   else http.client.HTTPConnection)
+            conn = cls(parts.hostname, parts.port, timeout=timeout)
+        elif conn.sock is not None:
+            conn.sock.settimeout(timeout)
+        try:
+            conn.request("POST", path, body=payload, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+        except (http.client.HTTPException, OSError):
+            conn.close()
+            if not pooled or attempt == 2:
+                raise
+            continue  # stale keep-alive — retry once on a fresh connection
+        if resp.status // 100 != 2:
+            conn.close()
+            raise urllib.error.HTTPError(
+                url, resp.status, resp.reason, dict(resp.getheaders()),
+                io.BytesIO(data),
+            )
+        with _POOL_LOCK:
+            if pool_key in _CONN_POOL:
+                conn.close()  # keep at most one idle connection per host
+            else:
+                _CONN_POOL[pool_key] = conn
+        return json.loads(data)
+    raise AssertionError("unreachable")
 
 
 _LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1")
@@ -94,11 +151,7 @@ def _anthropic_request(
         "anthropic-version": "2023-06-01",
     }
 
-    req = urllib.request.Request(
-        url, data=json.dumps(body).encode(), headers=headers, method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read())
+    data = _post_json(url, headers, body, timeout)
     # Anthropic returns content as a list of blocks; some thinking models
     # may also include `thinking` blocks which we ignore.
     blocks = data.get("content") or []
@@ -137,11 +190,7 @@ def _openai_request(
         "Authorization": f"Bearer {api_key}",
     }
 
-    req = urllib.request.Request(
-        url, data=json.dumps(body).encode(), headers=headers, method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read())
+    data = _post_json(url, headers, body, timeout)
     # Be defensive: thinking models (Kimi K2.6, GPT reasoning, etc.) can
     # return content=None when the answer is in `reasoning` / `reasoning_content`
     # instead. Also some malformed responses lack `choices` entirely.
