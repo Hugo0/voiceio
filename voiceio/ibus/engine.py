@@ -43,9 +43,13 @@ class VoiceIOEngine(IBus.Engine):
         log.info("VoiceIOEngine instance created (path=%s)", kwargs.get("object_path"))
 
     def do_focus_in(self):
+        # Focus transitions also discard any visible preedit (IBus default
+        # mode), so log them — a flickering preedit is usually focus churn.
+        log.debug("focus_in")
         self._focused = True
 
     def do_focus_out(self):
+        log.debug("focus_out (preedit discarded by client if visible)")
         self._focused = False
 
     def do_process_key_event(self, keyval, keycode, state):

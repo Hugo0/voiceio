@@ -260,3 +260,128 @@ class TestClipboardMirror:
             vio._copy_result_async("hello world")
             assert done.wait(timeout=2)
             mock_copy.assert_called_once_with("hello world")
+
+
+class TestEngineLifecycle:
+    """Dormant-engine reaping is normal; recovery must not steal the source."""
+
+    def _vio_ibus(self, proc_poll=-15):
+        vio, mock_typer, _ = _make_vio()
+        mock_typer.name = "ibus"
+        proc = MagicMock()
+        proc.poll.return_value = proc_poll
+        proc.returncode = -15
+        vio._engine_proc = proc
+        return vio, proc
+
+    def test_idle_engine_death_not_recovered(self):
+        """ibus-daemon reaping a dormant engine must NOT trigger the
+        activate/dormant dance (it grabbed the input source every cycle)."""
+        vio, proc = self._vio_ibus(proc_poll=-15)
+        with patch.object(vio, "_ensure_ibus_engine") as ensure, \
+             patch.object(vio, "_health_typer_upkeep"):
+            vio._check_health()
+        ensure.assert_not_called()
+        assert vio._engine_proc is None
+
+    def test_mid_recording_engine_death_recovered(self):
+        from voiceio.app import _State
+        vio, proc = self._vio_ibus(proc_poll=-15)
+        vio._state = _State.RECORDING
+        with patch.object(vio, "_ensure_ibus_engine") as ensure:
+            vio._check_health()
+        ensure.assert_called_once()
+
+    def test_single_missed_ping_tolerated(self):
+        """One missed ping on a loaded system is not a zombie."""
+        vio, proc = self._vio_ibus(proc_poll=None)
+        with patch.object(vio, "_ping_ibus_engine", return_value=False), \
+             patch.object(vio, "_ensure_ibus_engine") as ensure, \
+             patch.object(vio, "_health_typer_upkeep"):
+            vio._check_health()
+        ensure.assert_not_called()
+        proc.kill.assert_not_called()
+        assert vio._engine_ping_fails == 1
+
+    def test_two_missed_pings_restart_zombie(self):
+        vio, proc = self._vio_ibus(proc_poll=None)
+        with patch.object(vio, "_ping_ibus_engine", return_value=False), \
+             patch.object(vio, "_ensure_ibus_engine") as ensure, \
+             patch.object(vio, "_health_typer_upkeep"):
+            vio._check_health()
+            vio._check_health()
+        ensure.assert_called_once()
+        proc.kill.assert_called_once()
+
+    def test_successful_ping_resets_counter(self):
+        vio, proc = self._vio_ibus(proc_poll=None)
+        vio._engine_ping_fails = 1
+        with patch.object(vio, "_ping_ibus_engine", return_value=True), \
+             patch.object(vio, "_ensure_ibus_engine") as ensure, \
+             patch.object(vio, "_health_typer_upkeep"):
+            vio._check_health()
+        ensure.assert_not_called()
+        assert vio._engine_ping_fails == 0
+
+    def test_record_start_respawns_reaped_engine(self):
+        vio, mock_typer, _ = _make_vio()
+        mock_typer.name = "ibus"
+        vio._engine_proc = None  # reaped while dormant
+        spawned = threading.Event()
+        with patch.object(vio, "_ensure_ibus_engine", side_effect=lambda: spawned.set()), \
+             patch.object(vio, "_switch_gnome_input_source"):
+            vio.on_hotkey()  # start recording
+            assert spawned.wait(timeout=2), "engine respawn not triggered"
+        assert vio.recorder.is_recording
+
+
+class TestEngineRelease:
+    """Going dormant must release ibus's GLOBAL engine, not just gsettings."""
+
+    def test_release_sets_user_engine_unconditionally(self):
+        """Release must not query first: a stale reading during the async
+        activation made it skip itself and leave voiceio globally active."""
+        vio, _, _ = _make_vio()
+        vio._prev_ibus_engine = "xkb:us::eng"
+        with patch("voiceio.app.subprocess.run") as run:
+            run.return_value = MagicMock(returncode=0)
+            vio._release_ibus_engine()
+        assert run.call_count == 1
+        assert run.call_args[0][0] == ["ibus", "engine", "xkb:us::eng"]
+
+    def test_fallback_derived_from_sources_when_prev_stale(self):
+        """A stale 'voiceio' prev (inherited from a crashed daemon) must not
+        be restored; derive the user's xkb layout instead."""
+        vio, _, _ = _make_vio()
+        vio._prev_ibus_engine = "voiceio"
+        with patch("voiceio.app.subprocess.run") as run:
+            run.return_value = MagicMock(
+                returncode=0, stdout="[('xkb', 'de'), ('ibus', 'voiceio')]\n",
+            )
+            assert vio._ibus_engine_fallback() == "xkb:de::eng"
+
+    def test_restore_input_source_releases_engine(self):
+        vio, _, _ = _make_vio()
+        vio.platform.is_gnome = True
+        with patch.object(vio, "_set_gnome_input_source_index"), \
+             patch.object(vio, "_release_ibus_engine") as release:
+            vio._restore_input_source()
+        release.assert_called_once()
+
+
+def test_activation_claims_global_engine():
+    """gsettings 'current' is legacy/no-op on newer GNOME — activation must
+    also claim the global engine directly (mirror of the dormant release)."""
+    vio, _, _ = _make_vio()
+    vio.platform.is_gnome = True
+    with patch("voiceio.app.subprocess.run") as run:
+        run.side_effect = [
+            MagicMock(returncode=0, stdout="[('xkb', 'us'), ('ibus', 'voiceio')]\n"),  # sources
+            MagicMock(returncode=0, stdout="0\n"),   # current (prev)
+            MagicMock(returncode=0),                 # gsettings set current
+            MagicMock(returncode=0),                 # ibus engine voiceio
+        ]
+        with patch("time.sleep"):
+            vio._switch_gnome_input_source("voiceio")
+    cmds = [c[0][0] for c in run.call_args_list]
+    assert ["ibus", "engine", "voiceio"] in cmds

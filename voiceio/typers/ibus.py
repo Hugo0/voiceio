@@ -476,25 +476,17 @@ class IBusTyper:
     def _copy_to_clipboard(self, text: str) -> None:
         """Copy text to clipboard as backup for non-IBus apps (terminals).
 
-        Fire-and-forget. wl-copy stays alive to serve paste requests.
-        Kill previous instance to avoid accumulating processes.
+        Routed through clipboard_read.copy_text (xclip / XWayland bridge
+        first): wl-copy momentarily steals keyboard focus on GNOME, and the
+        focus-out discards any visible preedit.
         """
-        if not self._wl_copy:
-            return
-        # Kill previous wl-copy (it's replaced by the new one)
+        # Kill any wl-copy left over from the pre-xclip implementation.
         if self._wl_copy_proc is not None:
             try:
                 self._wl_copy_proc.kill()
             except OSError:
                 pass
-        try:
-            proc = subprocess.Popen(
-                ["wl-copy"],
-                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            proc.stdin.write(text.encode())
-            proc.stdin.close()
-            self._wl_copy_proc = proc
-        except OSError as e:
-            log.debug("wl-copy failed to start: %s", e)
+            self._wl_copy_proc = None
+        from voiceio import clipboard_read
+        if not clipboard_read.copy_text(text):
+            log.debug("Clipboard copy failed (no working tool)")
