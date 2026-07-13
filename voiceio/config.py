@@ -85,10 +85,12 @@ class OutputConfig:
     number_conversion: bool = True
     voice_input_prefix: str = ""           # e.g. "[voice]" — empty disables
     # Incremental finalization: once the un-finalized audio tail grows past
-    # this many seconds AND ends in silence, beam-decode and freeze it during
-    # recording, so interim passes and the stop-time final decode only cover
-    # the short remaining tail. 0 disables (full re-decode at stop).
-    streaming_freeze_secs: float = 25.0
+    # this many seconds, it is cut at the nearest interior speech pause,
+    # beam-decoded and frozen during recording, so interim passes and the
+    # stop-time final decode only cover the short remaining tail. Smaller
+    # chunks decode faster (less worker blocking) at slightly more boundary
+    # risk. 0 disables (full re-decode at stop).
+    streaming_freeze_secs: float = 15.0
     # Mirror transcribed text to the system clipboard so it can be pasted:
     #   "off"   — never
     #   "final" — the corrected final text, once ready

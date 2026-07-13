@@ -25,8 +25,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 DELETE_SETTLE_SECS = 0.05  # delay between delete and type for ydotool reliability
 
-# Incremental finalization: a freeze cut is only safe at a speech pause, so
-# require the tail's trailing window to be quiet before cutting there.
+# Incremental finalization: a freeze cut is only safe at a speech pause.
 _FREEZE_SILENCE_WINDOW_SECS = 0.3
 # Quiet is judged RELATIVE to the tail's own level: mic gains vary wildly
 # and the decode path normalizes audio anyway, so an absolute threshold
@@ -37,6 +36,10 @@ _FREEZE_SILENCE_WINDOW_SECS = 0.3
 # both with margin; 0.15 never fired on a mic with a normal noise floor.
 _FREEZE_SILENCE_RATIO = 0.6
 _FREEZE_SILENCE_FLOOR = 1e-4  # digital silence is always quiet
+# How far past freeze_secs to look for a pause. Real speech has a usable
+# pause every ~5s (measured: longest pause-free stretch 5.6s in a 3min
+# "continuous" note), so 20s of search span practically always finds one.
+_FREEZE_SEARCH_SECS = 20.0
 # Whisper conditions on ~224 prompt tokens; more frozen context is wasted.
 _FREEZE_CONTEXT_CHARS = 400
 
@@ -45,14 +48,31 @@ def _rms(samples: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(samples, dtype=np.float64))))
 
 
-def _tail_ends_in_silence(tail: np.ndarray, sample_rate: int) -> bool:
-    """True when the last _FREEZE_SILENCE_WINDOW_SECS of audio are quiet
-    relative to the tail's overall level."""
-    window = tail[-int(_FREEZE_SILENCE_WINDOW_SECS * sample_rate):]
-    if len(window) == 0:
-        return False
-    threshold = max(_FREEZE_SILENCE_RATIO * _rms(tail), _FREEZE_SILENCE_FLOOR)
-    return _rms(window) < threshold
+def _find_freeze_cut(
+    tail: np.ndarray, sample_rate: int, min_secs: float,
+) -> int | None:
+    """Sample index of the best freeze cut in `tail`, or None.
+
+    Searches tail[min_secs : min_secs+_FREEZE_SEARCH_SECS] for the quietest
+    300ms window below the relative silence threshold and cuts at that
+    window's end. Searching the interior (rather than requiring the pass to
+    land on a trailing pause) is what makes freezing actually fire on real
+    speech: a pass's trailing 300ms is almost never a pause, but the
+    interior of a 15-35s span almost always contains one.
+    """
+    win = int(_FREEZE_SILENCE_WINDOW_SECS * sample_rate)
+    start = int(min_secs * sample_rate)
+    end = min(len(tail), int((min_secs + _FREEZE_SEARCH_SECS) * sample_rate))
+    if end - start < win:
+        return None
+    threshold = max(_FREEZE_SILENCE_RATIO * _rms(tail[:end]), _FREEZE_SILENCE_FLOOR)
+    best_cut, best_rms = None, threshold
+    for i in range(start, end - win + 1, win // 2):
+        window_rms = _rms(tail[i:i + win])
+        if window_rms < best_rms:
+            best_rms = window_rms
+            best_cut = i + win
+    return best_cut
 
 
 def _common_prefix_len(a: str, b: str) -> int:
@@ -277,6 +297,40 @@ class StreamingSession:
             return None
         return self._frozen_raw[-_FREEZE_CONTEXT_CHARS:]
 
+    def _freeze_chunk(self, audio: np.ndarray, chunk: np.ndarray) -> None:
+        """Beam-decode `chunk` (the tail up to a pause cut) and freeze it.
+
+        On decode failure the boundary is left untouched — the audio will be
+        decoded again by a later pass (never treat lost audio as silence).
+        """
+        t0 = time.monotonic()
+        try:
+            chunk_text = self._transcriber.transcribe(
+                chunk, final=True, context=self._frozen_context(),
+            )
+        except Exception:
+            log.exception("Freeze decode failed (boundary unchanged)")
+            return
+        t_decode = time.monotonic() - t0
+        self._frozen_raw = _join_text(self._frozen_raw, chunk_text)
+        self._frozen_samples += len(chunk)
+        self._frozen_segments.extend(
+            list(getattr(self._transcriber, "last_segments", [])))
+        self._last_decode_end = len(audio)
+        self._last_decode_secs = t_decode
+        self.trace.append({
+            "t": round(time.monotonic() - self._t0, 2),
+            "kind": "freeze",
+            "frozen_secs": round(self._frozen_samples / self._sample_rate, 2),
+            "tail_secs": round(len(chunk) / self._sample_rate, 2),
+            "secs": round(t_decode, 3),
+            "text": chunk_text,
+        })
+        log.debug(
+            "Froze %.1fs of audio in %.1fs (frozen text now %d chars)",
+            len(chunk) / self._sample_rate, t_decode, len(self._frozen_raw),
+        )
+
     def _transcribe_and_apply(
         self, min_seconds: float = 1.0, final: bool = False,
     ) -> None:
@@ -307,25 +361,26 @@ class StreamingSession:
         if not final and grown_secs < max(min_seconds, self._last_decode_secs):
             return  # backpressure: don't decode faster than we can keep up
 
-        # Freeze when the tail has grown long AND ends at a speech pause
-        # (never cut mid-word). The freeze pass gets beam search because its
-        # text is never decoded again.
-        freeze = (
-            not final
-            and self._freeze_secs > 0
-            and len(tail) >= self._freeze_secs * self._sample_rate
-            and _tail_ends_in_silence(tail, self._sample_rate)
-        )
+        # Freeze: once the tail is long enough, cut it at an interior speech
+        # pause and beam-decode ONLY that chunk (its text is never decoded
+        # again). The freeze pass does not touch the display — the interim
+        # text already covers this audio; the next interim refreshes it.
+        if (not final and self._freeze_secs > 0
+                and len(tail) >= self._freeze_secs * self._sample_rate):
+            cut = _find_freeze_cut(tail, self._sample_rate, self._freeze_secs)
+            if cut is not None:
+                self._freeze_chunk(audio, tail[:cut])
+                return
 
         tail_text = ""
         tail_segments: list[dict] = []
         t0 = time.monotonic()
         # The final pass decodes ANY remaining audio (a clipped last word
-        # must not be dropped); interim/freeze passes skip sub-0.3s tails.
+        # must not be dropped); interim passes skip sub-0.3s tails.
         if len(tail) > (0 if final else self._sample_rate * 0.3):
             try:
                 tail_text = self._transcriber.transcribe(
-                    tail, final=final or freeze, context=self._frozen_context(),
+                    tail, final=final, context=self._frozen_context(),
                 )
             except Exception:
                 # Decode FAILED (timeout/crash) — this is not silence. Never
@@ -350,22 +405,14 @@ class StreamingSession:
 
         self.trace.append({
             "t": round(time.monotonic() - self._t0, 2),
-            "kind": "final" if final else ("freeze" if freeze else "interim"),
+            "kind": "final" if final else "interim",
             "frozen_secs": round(self._frozen_samples / self._sample_rate, 2),
             "tail_secs": round(len(tail) / self._sample_rate, 2),
             "secs": round(t_transcribe, 3),
             "text": tail_text,
         })
 
-        if freeze:
-            self._frozen_raw = _join_text(self._frozen_raw, tail_text)
-            self._frozen_samples = len(audio)
-            self._frozen_segments.extend(tail_segments)
-            log.debug(
-                "Froze %.1fs of audio (frozen text now %d chars)",
-                len(tail) / self._sample_rate, len(self._frozen_raw),
-            )
-        raw = self._frozen_raw if freeze else _join_text(self._frozen_raw, tail_text)
+        raw = _join_text(self._frozen_raw, tail_text)
 
         # A slow interim decode can complete AFTER the user pressed stop
         # (observed: 29s under CPU contention). Applying it would overwrite
