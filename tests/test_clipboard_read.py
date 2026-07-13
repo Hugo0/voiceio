@@ -94,9 +94,9 @@ def test_read_text_no_tools():
 # --- copy_text ---
 
 def test_copy_text_wayland():
-    """Wayland copies via wl-copy with text on stdin."""
+    """Wayland without xclip copies via wl-copy with text on stdin."""
     with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="wayland")), \
-         patch("shutil.which", return_value="/usr/bin/wl-copy"), \
+         patch("shutil.which", lambda t: "/usr/bin/wl-copy" if t == "wl-copy" else None), \
          patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
         from voiceio.clipboard_read import copy_text
@@ -143,3 +143,31 @@ def test_copy_text_command_failure():
         mock_run.return_value = MagicMock(returncode=1)
         from voiceio.clipboard_read import copy_text
         assert copy_text("hello") is False
+
+
+def test_copy_text_wayland_prefers_xclip_bridge():
+    """On Wayland prefer xclip (XWayland bridge): wl-copy can steal focus
+    on GNOME, and a focus-out discards a visible IBus preedit."""
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="wayland")), \
+         patch("shutil.which", lambda t: f"/usr/bin/{t}" if t in ("xclip", "wl-copy") else None), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        from voiceio.clipboard_read import copy_text
+        assert copy_text("hello") is True
+        assert mock_run.call_args[0][0][0] == "xclip"
+
+
+def test_copy_text_wayland_falls_back_to_wl_copy():
+    """xclip failing (no DISPLAY etc.) falls through to wl-copy."""
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd[0])
+        return MagicMock(returncode=1 if cmd[0] == "xclip" else 0)
+
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="wayland")), \
+         patch("shutil.which", lambda t: f"/usr/bin/{t}" if t in ("xclip", "wl-copy") else None), \
+         patch("subprocess.run", side_effect=run):
+        from voiceio.clipboard_read import copy_text
+        assert copy_text("hello") is True
+    assert calls == ["xclip", "wl-copy"]

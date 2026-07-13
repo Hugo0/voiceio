@@ -103,16 +103,13 @@ class TestIBusTyper:
         typer.delete_chars(10)  # should not raise
 
     def test_commit_copies_to_clipboard(self, mock_socket):
-        """commit_text also copies text to clipboard as backup."""
+        """commit_text also copies text to clipboard as backup (via the
+        focus-safe clipboard_read.copy_text, never wl-copy directly)."""
         typer = IBusTyper()
-        typer._wl_copy = "/usr/bin/wl-copy"
-        mock_proc = MagicMock()
-        mock_proc.stdin = MagicMock()
-        with patch("voiceio.typers.ibus.subprocess.Popen", return_value=mock_proc), \
+        with patch("voiceio.clipboard_read.copy_text", return_value=True) as mock_copy, \
              patch("voiceio.typers.ibus.subprocess.run"):
             typer.commit_text("Hello")
-            mock_proc.stdin.write.assert_called_once_with(b"Hello")
-            mock_proc.stdin.close.assert_called_once()
+            mock_copy.assert_called_once_with("Hello")
 
     def test_probe_no_ibus(self):
         with patch("voiceio.typers.ibus.shutil.which", return_value=None):

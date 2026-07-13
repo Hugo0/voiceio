@@ -70,10 +70,19 @@ def read_text() -> str | None:
 
 
 def _copy_via(cmd: list[str], text: str) -> bool:
-    """Pipe text into a copy command. Returns True on success."""
+    """Pipe text into a copy command. Returns True on success.
+
+    stdout/stderr go to DEVNULL, NOT pipes: xclip daemonizes (forks a child
+    that owns the selection and inherits the fds), so captured pipes never
+    reach EOF and run() would block for the full timeout, then report a
+    bogus failure — which used to trigger the wl-copy fallback and its
+    focus steal on every single copy.
+    """
     try:
         result = subprocess.run(
-            cmd, input=text.encode(), capture_output=True, timeout=_TIMEOUT,
+            cmd, input=text.encode(),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=_TIMEOUT,
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -103,6 +112,13 @@ def copy_text(text: str) -> bool:
         return _copy_via(["pbcopy"], text)
 
     if p.is_wayland:
+        # Prefer xclip via the XWayland clipboard bridge: wl-copy can
+        # momentarily steal keyboard focus on GNOME (fallback surface),
+        # and a focus-out discards any visible IBus preedit — streaming
+        # milestone copies were wiping the underlined preview one frame
+        # after it painted. X11 selections never touch Wayland focus.
+        if shutil.which("xclip") and _copy_via(["xclip", "-selection", "clipboard"], text):
+            return True
         if shutil.which("wl-copy"):
             return _copy_via(["wl-copy", "--"], text)
     else:
