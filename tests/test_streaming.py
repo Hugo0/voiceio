@@ -678,15 +678,21 @@ class TestSegmentFreeze:
         )
         return session, transcriber, recorder
 
-    def test_freeze_triggers_on_long_silent_tail(self):
+    def test_freeze_cuts_at_interior_pause(self):
         s, tr, rec = self._make_session(freeze_secs=2.0)
-        rec.get_audio_so_far.return_value = _silent(3)
+        # 2.5s speech, 0.5s pause, 2s speech: cut must land in the pause
+        rec.get_audio_so_far.return_value = np.concatenate(
+            [_loud(2.5), _silent(0.5), _loud(2.0)])
         tr.transcribe.return_value = "hello there friend"
         s._transcribe_and_apply()
         assert s._frozen_raw == "hello there friend"
-        assert s._frozen_samples == SR * 3
-        # Freeze pass gets beam search (final=True)
+        # Boundary inside the pause (2.5s..3.0s), NOT at the end of audio
+        assert SR * 2.5 <= s._frozen_samples <= SR * 3.0
+        # Freeze pass gets beam search and decodes ONLY the chunk
         assert tr.transcribe.call_args.kwargs["final"] is True
+        assert len(tr.transcribe.call_args.args[0]) == s._frozen_samples
+        # Display untouched: interim text already covers this audio
+        s._typer.type_text.assert_not_called()
 
     def test_no_freeze_when_tail_is_speech(self):
         s, tr, rec = self._make_session(freeze_secs=2.0)
@@ -785,16 +791,15 @@ class TestDecodeTrace:
             freeze_secs=2.0,
         )
         transcriber.transcribe.return_value = "hello there friend"
-        rec_audio = _silent(3)
-        recorder.get_audio_so_far.return_value = rec_audio
-        s._transcribe_and_apply()  # freeze pass
+        recorder.get_audio_so_far.return_value = _silent(3)
+        s._transcribe_and_apply()  # freeze pass (interior cut in silence)
         s._final_audio = np.concatenate([_silent(3), _loud(1)])
         transcriber.transcribe.return_value = "bye"
         s._transcribe_and_apply(min_seconds=0.5, final=True)
         kinds = [p["kind"] for p in s.trace]
         assert kinds == ["freeze", "final"]
         assert s.trace[0]["text"] == "hello there friend"
-        assert s.trace[1]["tail_secs"] == 1.0
+        assert s.trace[1]["tail_secs"] > 0
         assert all("secs" in p for p in s.trace)
 
 
@@ -856,31 +861,34 @@ class TestDecodeFailureSafety:
         s._typer.delete_chars.assert_not_called()
         assert s._typed_text == "hello there friend how are"
 
-    def test_quiet_mic_speech_is_not_silence(self):
-        from voiceio.streaming import _tail_ends_in_silence
+    def test_quiet_mic_speech_finds_no_cut(self):
+        from voiceio.streaming import _find_freeze_cut
         # Continuous speech on a low-gain mic: quiet in absolute terms but
-        # uniform — trailing window matches overall level, so NOT a pause.
+        # uniform — no window is quiet relative to the tail, so no cut.
         quiet_speech = np.full(SR * 3, 0.005, dtype=np.float32)
-        assert not _tail_ends_in_silence(quiet_speech, SR)
-        # Same quiet mic with a real trailing pause IS a pause.
+        assert _find_freeze_cut(quiet_speech, SR, 2.0) is None
+        # Same quiet mic with a real pause after the threshold IS cuttable.
         with_pause = np.concatenate([
-            np.full(int(SR * 2.5), 0.005, dtype=np.float32), _silent(0.5),
+            np.full(int(SR * 2.2), 0.005, dtype=np.float32), _silent(0.5),
+            np.full(int(SR * 0.3), 0.005, dtype=np.float32),
         ])
-        assert _tail_ends_in_silence(with_pause, SR)
+        cut = _find_freeze_cut(with_pause, SR, 2.0)
+        assert cut is not None and SR * 2.2 <= cut <= SR * 2.8
 
 
 class TestFreezeCalibration:
-    def test_hot_noise_floor_pause_is_silence(self):
+    def test_hot_noise_floor_pause_is_cuttable(self):
         """Real-mic calibration: noise floor ~0.3x of tail RMS IS a pause."""
-        from voiceio.streaming import _tail_ends_in_silence
+        from voiceio.streaming import _find_freeze_cut
         speech = np.full(int(SR * 2.5), 0.12, dtype=np.float32)
         pause = np.full(int(SR * 0.5), 0.03, dtype=np.float32)  # noise floor
-        assert _tail_ends_in_silence(np.concatenate([speech, pause]), SR)
+        cut = _find_freeze_cut(np.concatenate([speech, pause]), SR, 2.0)
+        assert cut is not None and cut >= SR * 2.3
 
-    def test_speech_level_window_is_not_silence(self):
-        from voiceio.streaming import _tail_ends_in_silence
+    def test_speech_level_tail_has_no_cut(self):
+        from voiceio.streaming import _find_freeze_cut
         tail = np.full(SR * 3, 0.12, dtype=np.float32)
-        assert not _tail_ends_in_silence(tail, SR)
+        assert _find_freeze_cut(tail, SR, 2.0) is None
 
 
 class TestDecodeBackpressure:
