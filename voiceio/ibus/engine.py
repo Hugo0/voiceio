@@ -24,7 +24,7 @@ import gi
 gi.require_version("IBus", "1.0")
 from gi.repository import GLib, GObject, IBus
 
-from voiceio.ibus import READY_PATH, SOCKET_PATH
+from voiceio.ibus import READY_PATH, SOCKET_PATH, ping_engine
 from voiceio.ibus.pending import PendingBuffer
 
 log = logging.getLogger(__name__)
@@ -146,6 +146,7 @@ def _socket_listener(mainloop: GLib.MainLoop) -> None:
         except socket.timeout:
             continue
         except OSError:
+            log.exception("Socket listener error — listener exiting")
             break
 
         msg = data.decode("utf-8", errors="replace")
@@ -228,6 +229,15 @@ def main() -> None:
             ),
         ],
     )
+
+    # Refuse to double-run. ibus-daemon can exec-spawn its own copy of this
+    # engine (component XML) when something activates the voiceio source —
+    # e.g. GNOME's per-window source memory. Binding SOCKET_PATH here would
+    # steal it from the healthy daemon-spawned engine and silently starve it
+    # (alive, but never sees another command or ping → zombie recovery).
+    if ping_engine(timeout=0.5):
+        log.info("Healthy VoiceIO engine already serving %s — exiting duplicate", SOCKET_PATH)
+        return
 
     IBus.init()
     bus = IBus.Bus()

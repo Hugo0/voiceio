@@ -49,15 +49,7 @@ def main() -> None:
         gi.require_version("AppIndicator3", "0.1")
         from gi.repository import AppIndicator3
 
-    from gi.repository import GLib, Gtk
-
-    indicator = AppIndicator3.Indicator.new_with_path(
-        "voiceio",
-        idle_icon_names[0],
-        AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
-        args.theme_dir,
-    )
-    indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+    from gi.repository import Gio, GLib, Gtk
 
     recording = [False]
 
@@ -105,8 +97,6 @@ def main() -> None:
     menu.append(quit_item)
 
     menu.show_all()
-    indicator.set_menu(menu)
-    indicator.set_secondary_activate_target(toggle_item)
 
     # Animation state
     anim_frame = [0]
@@ -114,10 +104,36 @@ def main() -> None:
     anim_icons = [rec_icon_names]  # current icon set for animation
     anim_interval = [args.interval]
 
+    indicator = [None]
+    ind_serial = [0]
+
+    def _make_indicator() -> None:
+        """(Re)create the AppIndicator and register it with the watcher.
+
+        A fresh id per rebuild gives a fresh D-Bus object path, so a
+        rebuilt indicator never collides with the half-dead export of
+        the previous one.
+        """
+        old = indicator[0]
+        if old is not None:
+            old.set_status(AppIndicator3.IndicatorStatus.PASSIVE)
+        ind_serial[0] += 1
+        ind_id = "voiceio" if ind_serial[0] == 1 else f"voiceio-{ind_serial[0]}"
+        ind = AppIndicator3.Indicator.new_with_path(
+            ind_id,
+            anim_icons[0][anim_frame[0] % len(anim_icons[0])],
+            AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
+            args.theme_dir,
+        )
+        ind.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+        ind.set_menu(menu)
+        ind.set_secondary_activate_target(toggle_item)
+        indicator[0] = ind
+
     def _animate() -> bool:
         icons = anim_icons[0]
         frame = anim_frame[0] % len(icons)
-        indicator.set_icon_full(icons[frame], "animating")
+        indicator[0].set_icon_full(icons[frame], "animating")
         anim_frame[0] = frame + 1
         return True
 
@@ -168,8 +184,43 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, lambda *_: GLib.idle_add(Gtk.main_quit))
 
+    _make_indicator()
+
     # Start with idle animation
     _start_animation(idle_icon_names, idle_interval, "Start recording")
+
+    # Registration watchdog: GNOME Shell's appindicator extension can drop
+    # items when it restarts (lock screen, extension reload) — its watcher
+    # re-seeks existing items and one D-Bus hiccup during that scan loses
+    # the icon for good while this process keeps running. Poll the watcher
+    # and rebuild the indicator if our item is gone.
+    session_bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+    def _registration_ok() -> bool:
+        try:
+            reply = session_bus.call_sync(
+                "org.kde.StatusNotifierWatcher",
+                "/StatusNotifierWatcher",
+                "org.freedesktop.DBus.Properties",
+                "Get",
+                GLib.Variant("(ss)", ("org.kde.StatusNotifierWatcher",
+                                      "RegisteredStatusNotifierItems")),
+                GLib.VariantType.new("(v)"),
+                Gio.DBusCallFlags.NONE,
+                2000,
+                None,
+            )
+        except GLib.Error:
+            return True  # no watcher (extension off / shell starting) — nothing to fix
+        items = reply.unpack()[0]
+        return any("voiceio" in item for item in items)
+
+    def _check_registration() -> bool:
+        if not _registration_ok():
+            _make_indicator()
+        return True
+
+    GLib.timeout_add_seconds(60, _check_registration)
 
     reader = threading.Thread(target=_stdin_reader, daemon=True)
     reader.start()

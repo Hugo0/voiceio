@@ -274,14 +274,16 @@ class TestEngineLifecycle:
         vio._engine_proc = proc
         return vio, proc
 
-    def test_idle_engine_death_not_recovered(self):
-        """ibus-daemon reaping a dormant engine must NOT trigger the
-        activate/dormant dance (it grabbed the input source every cycle)."""
+    def test_idle_engine_death_respawns_without_activation(self):
+        """ibus-daemon reaping a dormant engine must respawn it registered
+        but NEVER activated — the activate/dormant dance grabbed the input
+        source every cycle, and leaving the engine dead let ibus-daemon
+        exec-spawn a socket-stealing duplicate on accidental activation."""
         vio, proc = self._vio_ibus(proc_poll=-15)
         with patch.object(vio, "_ensure_ibus_engine") as ensure, \
              patch.object(vio, "_health_typer_upkeep"):
             vio._check_health()
-        ensure.assert_not_called()
+        ensure.assert_called_once_with(activate=False)
         assert vio._engine_proc is None
 
     def test_mid_recording_engine_death_recovered(self):
@@ -290,7 +292,7 @@ class TestEngineLifecycle:
         vio._state = _State.RECORDING
         with patch.object(vio, "_ensure_ibus_engine") as ensure:
             vio._check_health()
-        ensure.assert_called_once()
+        ensure.assert_called_once_with()  # default activate=True
 
     def test_single_missed_ping_tolerated(self):
         """One missed ping on a loaded system is not a zombie."""
@@ -310,8 +312,27 @@ class TestEngineLifecycle:
              patch.object(vio, "_health_typer_upkeep"):
             vio._check_health()
             vio._check_health()
-        ensure.assert_called_once()
+        ensure.assert_called_once_with(activate=False)
         proc.kill.assert_called_once()
+
+    def test_dormant_spawn_never_touches_input_source(self):
+        """activate=False must not run `ibus engine voiceio` or gsettings —
+        idle spawns that claimed the source were the focus churn that wiped
+        visible preedits and stole the keyboard mid-typing."""
+        vio, _, _ = _make_vio()
+        with patch("voiceio.app.subprocess.run") as run, \
+             patch("voiceio.app.subprocess.Popen") as popen, \
+             patch.object(vio, "_kill_stale_engine"), \
+             patch("voiceio.ibus.SOCKET_PATH") as sock_path, \
+             patch("voiceio.ibus.READY_PATH"):
+            sock_path.exists.return_value = True
+            run.return_value = MagicMock(returncode=0, stdout="xkb:us::eng\n")
+            vio._spawn_ibus_engine(activate=False)
+        assert vio._engine_proc is not None  # engine process was spawned
+        run_cmds = [c[0][0] for c in run.call_args_list]
+        popen_cmds = [c[0][0] for c in popen.call_args_list if c[0]]
+        assert ["ibus", "engine", "voiceio"] not in run_cmds + popen_cmds
+        assert not any("gsettings" in cmd[0] for cmd in run_cmds + popen_cmds)
 
     def test_successful_ping_resets_counter(self):
         vio, proc = self._vio_ibus(proc_poll=None)
