@@ -61,6 +61,7 @@ PartOf=graphical-session.target
 [Service]
 Type=simple
 ExecStart={bin_path}
+Nice=10
 Restart=on-failure
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
@@ -80,6 +81,8 @@ Documentation=https://github.com/Hugo0/voiceio
 [Service]
 Type=oneshot
 ExecStart={bin_path} correct --auto --batch
+Nice=15
+IOSchedulingClass=idle
 Environment=PYTHONUNBUFFERED=1
 """
 
