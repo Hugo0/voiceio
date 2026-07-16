@@ -34,6 +34,10 @@ _DEBOUNCE_SECS = 0.8
 # IBus input source configuration.
 _GRAPHICAL_ENV_VARS = (
     "DISPLAY",
+    # Without the X auth cookie, X11 tools (xclip via the XWayland bridge)
+    # fail silently inside the daemon and clipboard copies fall back to
+    # wl-copy — whose focus steal discards any visible IBus preedit.
+    "XAUTHORITY",
     "WAYLAND_DISPLAY",
     "XDG_SESSION_TYPE",
     "XDG_CURRENT_DESKTOP",
@@ -893,7 +897,8 @@ class VoiceIO:
                 return False
             if new_typer.name == "ibus" and self._engine_proc is None:
                 try:
-                    self._ensure_ibus_engine()  # subprocess ops, outside the lock
+                    # subprocess ops, outside the lock; IDLE → never activate
+                    self._ensure_ibus_engine(activate=False)
                 except Exception:
                     log.exception("Upgrade (%s): failed to start IBus engine", reason)
             return True
@@ -919,8 +924,12 @@ class VoiceIO:
         except Exception:
             log.exception("IBus engine respawn at record start failed")
 
-    def _ensure_ibus_engine(self) -> None:
-        """Start the VoiceIO IBus engine and activate it.
+    def _ensure_ibus_engine(self, activate: bool = True) -> None:
+        """Start the VoiceIO IBus engine, optionally pre-creating its instance.
+
+        ``activate=False`` spawns and registers the engine process without
+        ever touching the input source — the only safe mode while IDLE.
+        Claiming the source (``activate=True``) is reserved for record start.
 
         Single-flight: a concurrent spawn (health loop vs record start)
         is skipped rather than queued — two dances would fight over the
@@ -930,11 +939,11 @@ class VoiceIO:
             log.debug("IBus engine spawn already in progress, skipping")
             return
         try:
-            self._spawn_ibus_engine()
+            self._spawn_ibus_engine(activate)
         finally:
             self._engine_spawn_lock.release()
 
-    def _spawn_ibus_engine(self) -> None:
+    def _spawn_ibus_engine(self, activate: bool = True) -> None:
         from voiceio.ibus import READY_PATH, SOCKET_PATH
         from voiceio.typers.ibus import LAUNCHER_PATH, _ibus_env
 
@@ -984,6 +993,16 @@ class VoiceIO:
                 log.warning("IBus engine started but socket not found, commands may fail")
             return
 
+        if not activate:
+            # Registered-but-dormant mode (health loop, daemon start): the
+            # factory now owns the component name, so ibus-daemon won't
+            # exec-spawn a duplicate engine, and an accidental switch onto
+            # the voiceio source lands on a live pass-through engine. The
+            # engine INSTANCE is created on first activation (record start,
+            # or GNOME switching sources) — no input-source claim needed.
+            log.info("VoiceIO IBus engine ready (registered, dormant)")
+            return
+
         # Remember the source the user is on now so we can return the engine
         # to dormancy without hardcoding index 0 (which may not be the user's
         # keyboard). Phase 2 briefly activates voiceio to spawn the instance.
@@ -1025,22 +1044,12 @@ class VoiceIO:
     def _ping_ibus_engine(self) -> bool:
         """Check if the IBus engine's socket listener is alive.
 
-        Returns True if the engine responds to a ping within 1 second.
         A False result means the engine process is alive but its socket
-        listener / GLib loop is dead (zombie engine).
+        listener is dead or starved (zombie engine) — e.g. a duplicate
+        engine process stole the socket path.
         """
-        import socket as _socket
-        from voiceio.ibus import SOCKET_PATH
-        try:
-            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_DGRAM)
-            sock.settimeout(2.0)
-            sock.bind("")
-            sock.sendto(b"ping", str(SOCKET_PATH))
-            data, _ = sock.recvfrom(64)
-            sock.close()
-            return data == b"pong"
-        except (OSError, _socket.timeout):
-            return False
+        from voiceio.ibus import ping_engine
+        return ping_engine(timeout=2.0)
 
     def _detect_input_source_hijack(self) -> None:
         """If the user switched input source away from voiceio mid-recording,
@@ -1084,7 +1093,7 @@ class VoiceIO:
                 try:
                     typer = typer_chain.select(self.platform, self.cfg.output.method)
                     if typer.name == "ibus":
-                        self._ensure_ibus_engine()
+                        self._ensure_ibus_engine(activate=False)
                         return typer
                 except RuntimeError:
                     pass
@@ -1388,20 +1397,30 @@ class VoiceIO:
 
         # Check IBus engine liveness. A dormant engine dying is NORMAL:
         # ibus-daemon reaps deactivated engine processes (SIGTERM ~10s after
-        # the input source switches away). Eagerly respawning here created a
-        # spawn→activate→dormant→reap loop that grabbed the user's input
-        # source every cycle — the focus churn wiped any visible preedit
-        # (flickering underline). Respawn lazily at the next record start.
+        # the input source switches away). Respawn it REGISTERED BUT NEVER
+        # ACTIVATED (activate=False): while our factory owns the component
+        # name, ibus-daemon won't exec-spawn a duplicate engine (a duplicate
+        # rebinds the command socket and silently starves the healthy one),
+        # and an accidental switch onto the voiceio source (Super+Space,
+        # GNOME's per-window source memory) lands on a live pass-through
+        # engine instead of a seconds-long cold spawn that eats keystrokes.
+        # Activation — claiming the input source — happens ONLY at record
+        # start: idle activation was the focus churn that wiped visible
+        # preedits and stole the source mid-typing.
         if self._typer.name == "ibus" and self._engine_proc is not None:
             if self._engine_proc.poll() is not None:
                 rc = self._engine_proc.returncode
                 self._engine_proc = None
                 self._engine_ping_fails = 0
                 if self._state == _State.IDLE:
-                    log.debug(
-                        "IBus engine exited while dormant (rc=%s) — normal "
-                        "reaping, will respawn at next recording", rc,
+                    log.info(
+                        "IBus engine exited while dormant (rc=%s) — "
+                        "respawning registered, without activation", rc,
                     )
+                    try:
+                        self._ensure_ibus_engine(activate=False)
+                    except Exception:
+                        log.exception("IBus engine respawn failed")
                 else:
                     log.warning("IBus engine died mid-recording (rc=%s), restarting", rc)
                     try:
@@ -1412,9 +1431,9 @@ class VoiceIO:
             elif self._state == _State.IDLE:
                 # Engine process alive — check if its socket listener is
                 # actually responding. A zombie engine (process alive but
-                # GLib loop stuck / socket thread dead) silently drops all
-                # preedit and commit messages. One missed ping on a loaded
-                # system is not a zombie — require two consecutive misses.
+                # socket stolen by a duplicate / listener dead) silently
+                # drops all preedit and commit messages. One missed ping on
+                # a loaded system is not a zombie — require two consecutive.
                 if not self._ping_ibus_engine():
                     self._engine_ping_fails += 1
                     if self._engine_ping_fails < 2:
@@ -1432,7 +1451,7 @@ class VoiceIO:
                         pass
                     self._engine_proc = None
                     try:
-                        self._ensure_ibus_engine()
+                        self._ensure_ibus_engine(activate=False)
                         log.info("IBus engine recovered (was zombie)")
                     except Exception:
                         log.exception("IBus engine recovery failed")
@@ -1510,7 +1529,9 @@ class VoiceIO:
                     self._typer.ensure_installed()
             except Exception:
                 log.exception("IBus ensure_installed failed (continuing)")
-            self._ensure_ibus_engine()
+            # Register the engine but never claim the input source at boot —
+            # the instance is created on first activation (record start).
+            self._ensure_ibus_engine(activate=False)
         else:
             # IBus daemon may not be ready at startup (race with graphical
             # session). If IBus is in the preferred chain but wasn't selected,

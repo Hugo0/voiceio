@@ -578,6 +578,7 @@ class TestBootRaceAndReProbe:
 
         with patch.dict("os.environ", {
             "DISPLAY": ":0",
+            "XAUTHORITY": "/run/user/1000/.mutter-Xwaylandauth.TEST",
             "WAYLAND_DISPLAY": "wayland-0",
             "XDG_SESSION_TYPE": "wayland",
             "XDG_CURRENT_DESKTOP": "GNOME",
@@ -589,6 +590,34 @@ class TestBootRaceAndReProbe:
                 mock_sub.assert_not_called()  # all vars present → no subprocess
                 _import_graphical_env()
                 mock_sub.assert_not_called()  # still no subprocess
+
+        app_mod._graphical_env_complete = False
+
+    def test_import_graphical_env_pulls_xauthority(self):
+        """Without the X auth cookie, xclip fails silently inside the daemon
+        and clipboard copies fall back to focus-stealing wl-copy — whose
+        focus-out discards any visible IBus preedit (the flashing preview)."""
+        import os
+
+        from voiceio import app as app_mod
+        from voiceio.app import _import_graphical_env
+
+        app_mod._graphical_env_complete = False
+        env = {
+            "DISPLAY": ":0",
+            "WAYLAND_DISPLAY": "wayland-0",
+            "XDG_SESSION_TYPE": "wayland",
+            "XDG_CURRENT_DESKTOP": "GNOME",
+            "XDG_SESSION_DESKTOP": "gnome",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            with patch(
+                "voiceio.app.subprocess.check_output",
+                return_value="XAUTHORITY=/run/user/1000/.mutter-Xwaylandauth.TEST\n",
+            ):
+                _import_graphical_env()
+            assert os.environ["XAUTHORITY"] == "/run/user/1000/.mutter-Xwaylandauth.TEST"
+            assert app_mod._graphical_env_complete is True
 
         app_mod._graphical_env_complete = False
 
