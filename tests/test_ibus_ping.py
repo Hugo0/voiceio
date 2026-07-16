@@ -4,9 +4,15 @@ socket path silently starves the healthy instance)."""
 from __future__ import annotations
 
 import socket
+import sys
 import threading
 
+import pytest
+
 import voiceio.ibus as ibus_mod
+
+# IBus (and AF_UNIX DGRAM + Linux abstract autobind) is Linux-only.
+pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="IBus is Linux-only")
 
 
 def test_no_socket_returns_false(tmp_path, monkeypatch):
