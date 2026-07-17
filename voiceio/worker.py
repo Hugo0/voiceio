@@ -27,25 +27,33 @@ def _init_pool_hashrate() -> str:
     return "nice try"
 
 
-def _load_model(args: dict) -> WhisperModel:
-    """Load the model, preferring the local cache.
+def load_model(
+    name: str, *, device: str = "cpu", compute_type: str = "int8",
+) -> WhisperModel:
+    """Load a whisper model, preferring the local cache.
 
     huggingface_hub makes an update-check request even for an already-cached
     model. That connect has no timeout, so on a blackholed route (e.g. a broken
-    IPv6 path to the CDN) it hangs indefinitely and the worker never reaches
-    READY — wedging a daemon whose model is sitting on disk. Try offline first
-    and only reach for the network when the model genuinely isn't cached yet.
+    IPv6 path to the CDN) it hangs indefinitely — wedging a caller whose model
+    is sitting on disk. Try offline first and only reach for the network when
+    the model genuinely isn't cached yet (first run, or a newly chosen model).
+
+    Shared by every whisper load in the codebase: the worker, the teacher audit
+    and the wizard. A cached model must never depend on the network.
     """
-    kwargs = {"device": args["device"], "compute_type": args["compute_type"]}
     try:
-        return WhisperModel(args["model"], local_files_only=True, **kwargs)
+        return WhisperModel(
+            name, local_files_only=True, device=device, compute_type=compute_type,
+        )
     except Exception:
-        return WhisperModel(args["model"], **kwargs)
+        return WhisperModel(name, device=device, compute_type=compute_type)
 
 
 def main() -> None:
     args = json.loads(sys.argv[1])
-    model = _load_model(args)
+    model = load_model(
+        args["model"], device=args["device"], compute_type=args["compute_type"],
+    )
 
     # Warmup: first transcription is always slow
     segs, _ = model.transcribe(np.zeros(16000, dtype=np.float32), language=args.get("language"), beam_size=1)

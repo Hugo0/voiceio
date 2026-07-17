@@ -233,13 +233,11 @@ class TestDecodeTimeoutIsLazy:
 class TestWorkerModelLoad:
     """A cached model must load without touching the network."""
 
-    ARGS = {"model": "small", "device": "auto", "compute_type": "int8"}
-
     def test_prefers_local_cache(self):
         from voiceio import worker
 
         with patch("voiceio.worker.WhisperModel") as wm:
-            worker._load_model(dict(self.ARGS))
+            worker.load_model("small", device="auto", compute_type="int8")
         assert wm.call_args.kwargs["local_files_only"] is True
 
     def test_falls_back_to_network_when_not_cached(self):
@@ -248,6 +246,23 @@ class TestWorkerModelLoad:
         sentinel = object()
         with patch("voiceio.worker.WhisperModel",
                    side_effect=[OSError("not cached"), sentinel]) as wm:
-            got = worker._load_model(dict(self.ARGS))
+            got = worker.load_model("small")
         assert got is sentinel
         assert "local_files_only" not in wm.call_args.kwargs
+
+    def test_every_whisper_load_goes_through_the_guarded_helper(self):
+        """A raw WhisperModel(...) anywhere else reintroduces the hang: the
+        teacher audit and the wizard both load models on this same box."""
+        import re
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parent.parent / "voiceio"
+        offenders = []
+        for py in src.rglob("*.py"):
+            for i, line in enumerate(py.read_text().splitlines(), 1):
+                if re.search(r"(?<!def )\bWhisperModel\(", line):
+                    # worker.load_model is the one sanctioned construction site.
+                    if py.name == "worker.py":
+                        continue
+                    offenders.append(f"{py.relative_to(src)}:{i}")
+        assert not offenders, f"unguarded WhisperModel loads: {offenders}"

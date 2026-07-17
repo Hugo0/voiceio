@@ -169,9 +169,11 @@ def _read_metrics(path: Path | None = None) -> list[dict]:
 
 def _default_teacher():
     """Lazily build the offline teacher transcriber (distil-large-v3)."""
-    from faster_whisper import WhisperModel
+    from voiceio.worker import load_model
 
-    model = WhisperModel("distil-large-v3", device="cpu", compute_type="int8")
+    # Cache-first: the module docstring's "nothing here uses the network" only
+    # holds if the load itself can't reach out and hang (see load_model).
+    model = load_model("distil-large-v3")
 
     def _transcribe(wav_path: Path) -> str:
         segments, _ = model.transcribe(
