@@ -101,6 +101,54 @@ uv run pytest tests/ -x -q
 - Add tests for new backends or bug fixes
 - One logical change per PR
 
+## Model choice: why Whisper, and what would change it
+
+Short version: **Parakeet is faster and we still don't use it.** If you're about
+to open "switch to Parakeet / Canary / Moonshine, it's Nx faster" — read this
+first, then open the issue anyway if you have data that contradicts it.
+
+Our errors are almost entirely proper nouns and jargon (`HyperNEAT` →
+`hyperneed`, `Kalshi` → `kalchi`). So the axis that matters is **contextual
+biasing**, not raw WER or speed. Whisper's only lever is `hotwords`, and it is
+small and hard-capped: faster-whisper truncates hotwords at 223 tokens
+(`max_length // 2 - 1`), they share one 448-token budget with the transcription
+*output*, and proper nouns cost 5-7 tokens each — so ~35 terms, permanently.
+That ceiling is architectural. There is no upstream fix coming, and it's why
+`voiceio/vocabulary.py` ranks terms instead of just listing them.
+
+**Measured on this project's own retained audio (2026-07-17, Ryzen 9 7940HS,
+CPU int8)** — reproduce before trusting:
+
+| | speed | notes |
+|---|---|---|
+| whisper-small (current) | 4.8x realtime | hotwords work; ~35-term ceiling |
+| Parakeet-TDT-0.6b-v3 int8, greedy | **12.7x** | clean, but **greedy ignores hotwords** |
+| Parakeet-TDT, `modified_beam_search` | — | **lost/truncated speech on ~8/20 real clips** |
+
+[sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/hotwords/index.html) hotwords
+are the prize: an Aho-Corasick automaton with **no token cap**, which would
+delete the ~35-term ceiling entirely. But they require `modified_beam_search`
+(greedy silently ignores them), and MBS on NeMo TDT is broken — see
+[#3267](https://github.com/k2-fsa/sherpa-onnx/issues/3267). We reproduced it on
+sherpa-onnx **1.13.4**: 3/20 clips returned empty on real speech, ~8/20 lost or
+truncated it (greedy 47 words → MBS 0). A genuinely silent clip came back empty
+from both, so that's real speech loss, not VAD.
+
+So biasing and model choice are **one decision**, and today it costs 40% speech
+loss. Without biasing, Parakeet recovers *fewer* of our vocabulary terms than
+whisper-small does with hotwords (3 vs 5 over 20 clips). Speed is not the
+bottleneck — whisper-small already runs 4.8x realtime on an 18s median
+utterance.
+
+**The trigger to revisit:** when
+[PR #3657](https://github.com/k2-fsa/sherpa-onnx/pull/3657) ("Fix
+modified_beam_search hallucination/empty text for NeMo TDT") merges, Parakeet
+becomes faster *and* unbounded-biasing, and this decision flips. Re-run the
+spike before migrating: decode ~20 real clips with greedy and MBS, compare word
+counts per clip, and only proceed if MBS matches greedy. Note Parakeet is
+offline-only (no true streaming) and crashes on multi-minute audio — chunk at
+30s, which the freeze path already does.
+
 ## Platform notes
 
 - **IBus** is the only reliable streaming text injection on Wayland. Keystroke simulation drops characters on rapid corrections.
