@@ -512,8 +512,10 @@ def _get_or_load_model(model_name: str | None = None):
     if _cached_model is not None and _cached_model_name == model_name:
         return _cached_model
 
-    from faster_whisper import WhisperModel
-    _cached_model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    from voiceio.worker import load_model
+    # Cache-first, falling back to the network — which is what makes this the
+    # download path too (_download_model calls here for a not-yet-cached model).
+    _cached_model = load_model(model_name)
     _cached_model_name = model_name
     return _cached_model
 
