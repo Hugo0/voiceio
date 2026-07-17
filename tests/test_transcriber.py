@@ -166,3 +166,88 @@ class TestTimeoutRaises:
             with pytest.raises(TranscriptionError):
                 t.transcribe(np.zeros(16000, dtype=np.float32))
         assert t.last_segments == []
+
+
+class TestWorkerStartTimeout:
+    """A worker that never reports READY must not wedge the daemon.
+
+    faster-whisper's model load contacts huggingface_hub even for a cached
+    model; on a blackholed route that connect hangs indefinitely. An unbounded
+    READY handshake then holds the transcribe lock forever and every later
+    dictation silently returns "".
+    """
+
+    def test_start_raises_instead_of_hanging(self):
+        import threading
+        from voiceio.transcriber import Transcriber, TranscriptionError
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.stdout.readline.side_effect = lambda: threading.Event().wait()
+
+        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc), \
+             patch("voiceio.transcriber.WORKER_START_TIMEOUT", 0.1):
+            with pytest.raises(TranscriptionError, match="failed to start"):
+                Transcriber(ModelConfig())
+
+        # The hung process is reaped, not leaked.
+        assert mock_proc.terminate.called or mock_proc.kill.called
+
+    def test_start_raises_on_garbage_handshake(self):
+        from voiceio.transcriber import Transcriber, TranscriptionError
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.stdout.readline.return_value = "Traceback: boom\n"
+
+        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+            with pytest.raises(TranscriptionError, match="failed to start"):
+                Transcriber(ModelConfig())
+
+
+class TestDecodeTimeoutIsLazy:
+    """The timed-out call fails regardless, so reloading the model inline would
+    hold the lock through a multi-second start and starve the final pass."""
+
+    def test_decode_timeout_does_not_reload_inline(self):
+        import numpy as np
+        from voiceio.transcriber import Transcriber, TranscriptionError
+
+        mock_proc = MagicMock()
+        mock_proc.stdout.readline.return_value = "READY\n"
+        mock_proc.poll.return_value = None
+        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+            t = Transcriber(ModelConfig())
+
+        with patch.object(t, "_read_with_timeout", return_value=None), \
+             patch.object(t, "_kill_worker") as kill, \
+             patch.object(t, "_ensure_worker") as ensure:
+            with pytest.raises(TranscriptionError):
+                t.transcribe(np.zeros(16000, dtype=np.float32))
+
+        assert kill.called
+        # Only the entry call — never a second, restarting one.
+        assert ensure.call_count == 1
+
+
+class TestWorkerModelLoad:
+    """A cached model must load without touching the network."""
+
+    ARGS = {"model": "small", "device": "auto", "compute_type": "int8"}
+
+    def test_prefers_local_cache(self):
+        from voiceio import worker
+
+        with patch("voiceio.worker.WhisperModel") as wm:
+            worker._load_model(dict(self.ARGS))
+        assert wm.call_args.kwargs["local_files_only"] is True
+
+    def test_falls_back_to_network_when_not_cached(self):
+        from voiceio import worker
+
+        sentinel = object()
+        with patch("voiceio.worker.WhisperModel",
+                   side_effect=[OSError("not cached"), sentinel]) as wm:
+            got = worker._load_model(dict(self.ARGS))
+        assert got is sentinel
+        assert "local_files_only" not in wm.call_args.kwargs

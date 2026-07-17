@@ -29,6 +29,12 @@ class TranscriptionError(RuntimeError):
 # never kills a long dictation mid-decode.
 TIMEOUT_PER_SECOND = 1.5
 MAX_RESTARTS = 3
+# Ceiling on the worker's model-load handshake. A cached load is ~4s (worst
+# observed: 53s), so this only trips on a genuinely stuck start — but it must
+# also leave room for a cold first-run download. Unbounded, a start that hangs
+# (blackholed network, see worker._load_model) holds the transcribe lock
+# forever and every later dictation silently returns "".
+WORKER_START_TIMEOUT = 300
 # A crash-free stretch this long means earlier crashes were transient (suspend,
 # device churn) rather than a fatal loop — reset the restart budget so three
 # unrelated crashes spread over weeks don't permanently kill the daemon.
@@ -118,9 +124,13 @@ class Transcriber:
         )
 
         t0 = time.monotonic()
-        ready = self._proc.stdout.readline().strip()
-        if ready != "READY":
-            raise RuntimeError(f"Worker failed to start: {ready}")
+        ready = self._read_with_timeout(WORKER_START_TIMEOUT)
+        if ready is None or ready.strip() != "READY":
+            self._kill_worker()
+            detail = "timed out" if ready is None else f"said {ready.strip()!r}"
+            raise TranscriptionError(
+                f"worker failed to start ({detail} after {time.monotonic() - t0:.0f}s)"
+            )
         elapsed = time.monotonic() - t0
         log.info("Model ready (%.1fs)", elapsed)
 
@@ -199,9 +209,12 @@ class Transcriber:
             result_line = self._read_with_timeout(timeout)
             if result_line is None:
                 self.last_segments = []
-                log.warning("Transcription timed out after %.0fs, restarting worker", timeout)
+                log.warning("Transcription timed out after %.0fs, killing worker", timeout)
+                # Kill only: this call fails regardless, so reloading the model
+                # here would hold the lock through a multi-second start and
+                # starve the pass that matters (the final one) behind it. The
+                # next transcribe — or the health watchdog — restarts lazily.
                 self._kill_worker()
-                self._ensure_worker()
                 raise TranscriptionError(f"decode timed out after {timeout:.0f}s")
 
             try:
