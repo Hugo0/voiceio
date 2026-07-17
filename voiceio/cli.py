@@ -83,6 +83,8 @@ def main() -> None:
     p_correct.add_argument("wrong", nargs="?", help="Misheard word/phrase")
     p_correct.add_argument("right", nargs="?", help="Correct replacement")
     p_correct.add_argument("--list", action="store_true", help="List all corrections")
+    p_correct.add_argument("--vocab", action="store_true",
+                           help="Show vocabulary and which terms fit the decoder budget")
     p_correct.add_argument("--remove", metavar="WORD", help="Remove a correction")
     p_correct.add_argument("--flagged", action="store_true",
                            help="Show words flagged by 'correct that'")
@@ -718,6 +720,53 @@ def _cmd_uninstall() -> None:
             print("\nvoiceio fully removed.")
 
 
+def _show_vocab() -> None:
+    """Show the vocabulary split by what actually reaches the decoder.
+
+    Whisper can only be biased with ~35 terms (a hard 223-token hotwords cap,
+    and proper nouns cost 5-7 tokens each). Everything past that is not wasted —
+    it still reaches the post-correction LLM — but it does NOT bias decoding,
+    and until now there was no way to see which side of the line a term fell on.
+    """
+    from voiceio.app import _HOTWORDS_TOKEN_BUDGET
+    from voiceio.config import load
+    from voiceio.tokens import count_tokens
+    from voiceio.vocab_stats import VocabStats
+    from voiceio.vocabulary import load_terms, select_terms
+    from voiceio.wizard import BOLD, DIM, GREEN, RESET
+
+    cfg = load()
+    terms = load_terms(cfg.model)
+    if not terms:
+        print("No vocabulary configured.")
+        print("\nTerms are learned automatically: voiceio correct --auto")
+        return
+
+    stats = VocabStats()
+    stats.load()
+    selected = select_terms(terms, token_budget=_HOTWORDS_TOKEN_BUDGET,
+                            model_name=cfg.model.name, stats=stats)
+    used = count_tokens(", ".join(selected), cfg.model.name)
+    sel = set(selected)
+
+    print(f"{BOLD}Biasing the decoder{RESET} "
+          f"{DIM}({used}/{_HOTWORDS_TOKEN_BUDGET} tokens){RESET}")
+    for t in selected:
+        rec = stats.get(t)
+        hits = rec.get("hits", 0)
+        print(f"  {GREEN}●{RESET} {t}" + (f" {DIM}({hits} uses){RESET}" if hits else ""))
+
+    tail = [t for t in terms if t not in sel]
+    if tail:
+        print(f"\n{BOLD}Post-correction only{RESET} "
+              f"{DIM}({len(tail)} terms — past the decoder's token budget,{RESET}")
+        print(f"  {DIM}still used by the correction pass){RESET}")
+        shown = ", ".join(tail[:12])
+        print(f"  {DIM}{shown}{'...' if len(tail) > 12 else ''}{RESET}")
+
+    print(f"\n{len(terms)} term(s): {len(selected)} biasing, {len(tail)} tail")
+
+
 def _cmd_correct(args: argparse.Namespace) -> None:
     """Manage the corrections dictionary."""
     from voiceio.corrections import CorrectionDict
@@ -732,6 +781,10 @@ def _cmd_correct(args: argparse.Namespace) -> None:
         for wrong, right in sorted(corrections.items()):
             print(f"  {wrong} → {right}")
         print(f"\n{len(corrections)} correction(s)")
+        return
+
+    if args.vocab:
+        _show_vocab()
         return
 
     if args.remove:
