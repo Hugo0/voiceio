@@ -10,13 +10,25 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from voiceio.tokens import (
     HOTWORDS_TOKEN_CAP,
     MAX_SEQUENCE_TOKENS,
     OUTPUT_RESERVE_TOKENS,
     PROMPT_TOKEN_BUDGET,
+    _tokenizer,
     count_tokens,
     truncate_to_tokens,
+)
+
+# Most tests here are self-consistent — they count and assert with the same
+# function, so the estimate fallback is fine. A few assert properties of the
+# REAL tokenizer and are meaningless against a fixed chars/token constant; those
+# need a cached model, which CI runners don't have.
+needs_tokenizer = pytest.mark.skipif(
+    _tokenizer("small") is None,
+    reason="no cached whisper tokenizer (CI runners have no model cache)",
 )
 
 
@@ -28,8 +40,13 @@ class TestCountTokens:
         n = count_tokens("Grafana, Hetzner, OpenRouter", "small")
         assert 5 < n < 30
 
+    @needs_tokenizer
     def test_proper_nouns_cost_more_than_prose_per_char(self):
-        """The measured fact the whole redesign rests on."""
+        """The measured fact the whole redesign rests on.
+
+        Only meaningful against the real tokenizer: the fallback is a fixed
+        chars/token constant, which makes both ratios equal by construction.
+        """
         nouns = "Kalshi, Metaculus, HyperNEAT, Kubernetes, Hetzner, Grafana"
         prose = "the quick brown fox jumps over the lazy dog and then it runs"
         nouns_ratio = len(nouns) / count_tokens(nouns, "small")
