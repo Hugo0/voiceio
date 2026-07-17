@@ -125,10 +125,31 @@ class TestPromptBudget:
     output. Oversized bias inputs truncated real transcriptions mid-utterance
     (2026-07-05 regression). These bounds must hold."""
 
-    def test_hotwords_capped(self):
-        from unittest.mock import MagicMock, patch
-        from voiceio.app import _HOTWORDS_MAX_CHARS
-        assert _HOTWORDS_MAX_CHARS <= 700
+    def test_hotwords_budget_leaves_room_to_transcribe(self):
+        """The bound that actually matters, in the unit that actually matters.
+
+        The old assertion was `_HOTWORDS_MAX_CHARS <= 700` — but chars are the
+        wrong unit: proper nouns tokenize at ~2.6 chars/token, so 600 chars was
+        really 238 tokens, already past faster-whisper's 223 cap.
+        """
+        from voiceio.app import _HOTWORDS_TOKEN_BUDGET
+        from voiceio.tokens import (
+            HOTWORDS_TOKEN_CAP,
+            MAX_SEQUENCE_TOKENS,
+            OUTPUT_RESERVE_TOKENS,
+            PROMPT_TOKEN_BUDGET,
+        )
+
+        # Past this, faster-whisper silently discards the tail of the list.
+        assert _HOTWORDS_TOKEN_BUDGET <= HOTWORDS_TOKEN_CAP
+        # The invariant that actually protects the user: hotwords + prompt must
+        # leave enough to transcribe with. Violating it truncated freeze chunks
+        # mid-sentence (~37 words of room for a 45-60 word chunk) and, worst
+        # case, drove the decode budget to <=0 (ValueError).
+        overhead = 4  # sot_prev + sot_sequence
+        left = (MAX_SEQUENCE_TOKENS - _HOTWORDS_TOKEN_BUDGET
+                - PROMPT_TOKEN_BUDGET - overhead)
+        assert left >= OUTPUT_RESERVE_TOKENS
 
     def test_prompt_builder_default_budget_small(self):
         from voiceio.prompt import PromptBuilder

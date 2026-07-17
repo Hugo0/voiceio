@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from voiceio.tokens import PROMPT_TOKEN_BUDGET, truncate_to_tokens
+
 if TYPE_CHECKING:
     from voiceio.config import ModelConfig
 
@@ -188,8 +190,16 @@ class Transcriber:
             audio = normalize_audio(audio)
             audio_b64 = base64.b64encode(audio.tobytes()).decode("ascii")
             req = {"audio_b64": audio_b64, "options": {"beam_size": 5 if final else 1}}
+            # Cap the combined prompt. initial_prompt (recent transcripts) and
+            # `context` (streaming's frozen-text tail) are both bounded in CHARS
+            # by their callers, but nothing bounded their SUM in tokens — and
+            # Whisper shares one 448-token budget across hotwords + prompt +
+            # output. At ~171 tokens of prompt on top of a 223-token hotwords
+            # list, only ~50 tokens were left to transcribe: freeze chunks hold
+            # 45-60 words and were being cut off mid-sentence.
             prompt = "\n".join(p for p in (self._initial_prompt, context) if p)
             if prompt:
+                prompt = truncate_to_tokens(prompt, PROMPT_TOKEN_BUDGET, self._cfg.name)
                 req["initial_prompt"] = prompt
             if self._hotwords:
                 req["hotwords"] = self._hotwords

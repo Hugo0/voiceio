@@ -325,14 +325,42 @@ def run_audit(
     return report
 
 
+def _last_seen_map(terms: list[str]) -> dict[str, float]:
+    """When each term was last dictated.
+
+    Prefers vocab_stats.json, which the runtime maintains per utterance. Falls
+    back to scanning history only when no stats exist yet (fresh install, or a
+    daemon that hasn't finalized a dictation since stats landed) — that scan is
+    O(entries x terms) over the whole history, which at 6k entries and 300+
+    terms is not worth running when the answer is already recorded.
+    """
+    from voiceio.vocab_stats import VocabStats
+
+    stats = VocabStats()
+    stats.load()
+    if stats.as_dict():
+        return {t: float(stats.get(t).get("last_seen_ts", 0.0) or 0.0) for t in terms}
+
+    from voiceio import history
+
+    last_seen: dict[str, float] = {}
+    for e in history.read(limit=0):
+        text = (e.get("text") or "").lower()
+        ts = e.get("ts", 0.0)
+        for term in terms:
+            if term.lower() in text and ts > last_seen.get(term, 0.0):
+                last_seen[term] = ts
+    return last_seen
+
+
 def _audit_vocabulary(cfg, teacher_texts, now, report) -> None:
     """Confirm vocab terms the teacher heard; age out terms unseen for 90 days.
 
-    Aging moves a term to the bottom of vocabulary.txt rather than deleting it:
-    the 800-char loader truncates the tail, so stale terms fall out of the
-    hotword budget but can rejoin if used again.
+    Aging moves a term to the bottom of vocabulary.txt rather than deleting it.
+    File order is now only the tie-break for terms with no usage signal —
+    vocabulary.select_terms ranks by vocab_stats first — but keeping stale terms
+    at the bottom still means they lose ties, and they rejoin on next use.
     """
-    from voiceio import history
     from voiceio.vocabulary import _read_terms, resolve_vocab_path
 
     path = resolve_vocab_path(cfg.model)
@@ -343,16 +371,7 @@ def _audit_vocabulary(cfg, teacher_texts, now, report) -> None:
         return
 
     teacher_blob = "\n".join(teacher_texts)
-    # Last time each term appeared in a live transcript.
-    entries = history.read(limit=0)
-    last_seen: dict[str, float] = {}
-    for e in entries:
-        text = e.get("text", "")
-        ts = e.get("ts", 0.0)
-        low = text.lower()
-        for term in terms:
-            if term.lower() in low and ts > last_seen.get(term, 0.0):
-                last_seen[term] = ts
+    last_seen = _last_seen_map(terms)
 
     fresh: list[str] = []
     aged: list[str] = []

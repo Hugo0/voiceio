@@ -1,4 +1,16 @@
-"""Load custom vocabulary for Whisper initial_prompt conditioning."""
+"""Load and rank custom vocabulary for Whisper hotword conditioning.
+
+The hotwords channel is small and fixed: faster-whisper caps it at 223 tokens
+and proper nouns — the entire reason a custom vocabulary exists — cost 5-7
+tokens each. So only ~40-60 terms can ever reach the decoder, while
+vocabulary.txt grows without bound and is never pruned.
+
+That makes *selection* permanent, not incidental. It used to be decided by line
+position: `add_terms` appends and the loader dropped from the tail, so the loop
+deleted exactly what it learned and the surviving terms were simply the oldest.
+Selection is now by usage (see vocab_stats), measured against a real token
+budget (see tokens) rather than a character-count proxy.
+"""
 from __future__ import annotations
 
 import logging
@@ -8,12 +20,13 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from voiceio.config import ModelConfig
+    from voiceio.vocab_stats import VocabStats
 
 log = logging.getLogger(__name__)
 
-# Vocabulary feeds the hotwords channel, which has its own ~224-token budget
-# (separate from initial_prompt). ~800 chars ≈ 200 tokens of typical terms.
-MAX_VOCAB_CHARS = 800
+# Recency half-life for the usage score. A term dictated today should outrank a
+# term used heavily months ago: vocabulary tracks what you're working on now.
+_RECENCY_HALFLIFE_SECS = 30 * 86400.0
 
 
 def resolve_vocab_path(model_cfg: ModelConfig) -> Path:
@@ -41,33 +54,105 @@ def _read_terms(path: Path) -> list[str]:
     return terms
 
 
-def load_vocabulary(model_cfg: ModelConfig) -> str:
-    """Load vocabulary terms and return a comma-separated string.
+def load_terms(model_cfg: ModelConfig) -> list[str]:
+    """Load every vocabulary term, unranked and untruncated.
 
-    Checks model_cfg.vocabulary_file first, then the default location.
-    Returns empty string if no vocabulary file found.
+    The full list — callers that must not see a truncated view (postcorrect's
+    LLM, which has no token budget; the mining gate, which asks "is this term
+    already in your vocabulary?") use this.
     """
     path = resolve_vocab_path(model_cfg)
 
     if not path.exists():
         if model_cfg.vocabulary_file:
             log.warning("Vocabulary file not found: %s", path)
-        return ""
+        return []
 
-    terms = _read_terms(path)
-    if not terms:
-        return ""
+    return _read_terms(path)
 
-    result = ", ".join(terms)
-    if len(result) > MAX_VOCAB_CHARS:
-        # Truncate by dropping terms from the end
-        while len(result) > MAX_VOCAB_CHARS and terms:
-            terms.pop()
-            result = ", ".join(terms)
-        log.warning("Vocabulary truncated to %d terms (%d chars)", len(terms), len(result))
 
-    log.info("Loaded %d vocabulary terms from %s", len(terms), path)
-    return result
+def _score(term: str, stats: VocabStats | None, now: float) -> float:
+    """Usage score: hits, decayed by how long since the term was last dictated.
+
+    Unscored terms score 0 and keep their file order, so a cold start (no stats
+    yet) degrades exactly to the previous behaviour rather than to something
+    arbitrary.
+    """
+    if stats is None:
+        return 0.0
+    rec = stats.get(term)
+    hits = float(rec.get("hits", 0) or 0)
+    if hits <= 0:
+        return 0.0
+    last = float(rec.get("last_seen_ts", 0) or 0)
+    if last <= 0:
+        return hits
+    age = max(0.0, now - last)
+    return hits * (0.5 ** (age / _RECENCY_HALFLIFE_SECS))
+
+
+def select_terms(
+    terms: list[str],
+    *,
+    token_budget: int,
+    model_name: str,
+    stats: VocabStats | None = None,
+    now: float | None = None,
+) -> list[str]:
+    """Pick the highest-scoring terms that fit `token_budget`, whole terms only.
+
+    Ranked by usage so the budget goes to what you actually dictate, then filled
+    term-by-term. Never slices mid-term: the old code did `vocab[:600]`, which
+    could emit a half-word and feed the decoder a partial token.
+
+    Ties (including the all-zero cold start) fall back to file order, so this is
+    a strict improvement on the previous behaviour rather than a reshuffle.
+    """
+    import time
+
+    from voiceio.tokens import count_tokens
+
+    if not terms or token_budget <= 0:
+        return []
+
+    now = now if now is not None else time.time()
+    ranked = [t for _, t in sorted(
+        enumerate(terms),
+        key=lambda it: (-_score(it[1], stats, now), it[0]),
+    )]
+
+    # Binary-search the longest ranked prefix that fits. Costing terms one by
+    # one and summing overcounts badly — BPE merges across the ", " separators,
+    # so per-term counts double-count the joins and spend the budget ~2x too
+    # fast. Measuring the joined string is the only honest count, and a prefix
+    # search needs ~log2(n) encodes instead of n.
+    lo, hi = 0, len(ranked)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if count_tokens(", ".join(ranked[:mid]), model_name) <= token_budget:
+            lo = mid
+        else:
+            hi = mid - 1
+
+    selected = ranked[:lo]
+    # Emit in ranked order — faster-whisper truncates hotwords from the tail, so
+    # anything dropped downstream is the lowest-scoring term.
+    if len(selected) < len(terms):
+        log.info(
+            "Vocabulary: %d/%d terms fit the %d-token hotword budget (%d tokens)",
+            len(selected), len(terms), token_budget,
+            count_tokens(", ".join(selected), model_name),
+        )
+    return selected
+
+
+def load_vocabulary(model_cfg: ModelConfig) -> str:
+    """Load vocabulary as a comma-separated string, unranked and untruncated.
+
+    Kept for callers that just want the raw list as text. The decoder path goes
+    through `select_terms` instead — this string is NOT budget-safe.
+    """
+    return ", ".join(load_terms(model_cfg))
 
 
 # A vocabulary term is a word or short phrase of letters (allowing internal
@@ -161,26 +246,71 @@ def add_terms(terms: list[str], model_cfg: ModelConfig) -> int:
 class VocabularyLoader:
     """mtime-cached vocabulary loader for the per-recording hot path.
 
-    `get()` re-reads the file only when its mtime changed; otherwise it just
-    pays a single `stat` and returns the cached comma-separated string. This
-    lets the daemon pick up `voiceio correct` vocabulary edits without a
-    restart while keeping `_do_start` cheap.
+    `get()` re-reads and re-ranks only when vocabulary.txt or vocab_stats.json
+    changed; otherwise it pays two `stat` calls and returns the cached result.
+    This lets the daemon pick up `voiceio correct` edits without a restart while
+    keeping `_do_start` cheap — the tokenizer load (~53ms) and ranking (~17ms)
+    happen on a cache miss, which is rare, never on every recording.
     """
 
     def __init__(self, model_cfg: ModelConfig):
         self._model_cfg = model_cfg
         self._mtime: float | None = None
-        self._cached: str = ""
-        self._loaded = False
+        self._stats_mtime: float | None = None
+        self._budget: int | None = None
+        self._all: list[str] = []
+        self._selected: list[str] = []
+        self._loaded_all = False
+        self._selection_valid = False
+
+    @staticmethod
+    def _mtime_of(path: Path) -> float | None:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return None
+
+    def _ensure_all(self) -> None:
+        mtime = self._mtime_of(resolve_vocab_path(self._model_cfg))
+        if self._loaded_all and mtime == self._mtime:
+            return
+        self._all = load_terms(self._model_cfg)
+        self._mtime = mtime
+        self._loaded_all = True
+        self._selection_valid = False  # terms changed → re-rank
+
+    def get_all(self) -> list[str]:
+        """Every term, untruncated — for postcorrect, which has no token budget."""
+        self._ensure_all()
+        return self._all
+
+    def get_selected(self, *, token_budget: int) -> list[str]:
+        """Highest-scoring terms that fit the hotword token budget.
+
+        Re-ranks only when the vocabulary, the usage stats, or the budget
+        changed — the tokenizer load and encode happen here, not per recording.
+        """
+        from voiceio.vocab_stats import VocabStats, _path as stats_path
+
+        self._ensure_all()
+        smtime = self._mtime_of(stats_path())
+        if (self._selection_valid and smtime == self._stats_mtime
+                and self._budget == token_budget):
+            return self._selected
+
+        stats = VocabStats()
+        stats.load()
+        self._selected = select_terms(
+            self._all,
+            token_budget=token_budget,
+            model_name=self._model_cfg.name,
+            stats=stats,
+        )
+        self._stats_mtime = smtime
+        self._budget = token_budget
+        self._selection_valid = True
+        return self._selected
 
     def get(self) -> str:
-        path = resolve_vocab_path(self._model_cfg)
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            mtime = None
-        if not self._loaded or mtime != self._mtime:
-            self._cached = load_vocabulary(self._model_cfg)
-            self._mtime = mtime
-            self._loaded = True
-        return self._cached
+        """Full vocabulary as a string (NOT budget-safe — see get_selected)."""
+        return ", ".join(self.get_all())

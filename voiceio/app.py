@@ -97,10 +97,20 @@ def _import_graphical_env() -> None:
 _HEALTH_CHECK_INTERVAL = 10  # seconds between health checks
 
 # Whisper's decoder has a hard 448-token sequence budget shared by hotwords,
-# initial_prompt AND the transcription output. Hotwords + prompt must stay
-# well under half of it or output gets truncated mid-utterance.
-# ~600 chars ≈ 150 tokens.
-_HOTWORDS_MAX_CHARS = 600
+# initial_prompt AND the transcription output. Hotwords + prompt must stay well
+# under half of it or output gets truncated mid-utterance.
+#
+# This is a TOKEN budget, counted for real (voiceio.tokens) — the old 600-char
+# proxy assumed ~4 chars/token, but proper nouns (the whole point of a custom
+# vocabulary) run ~2.6, so "600 chars" was really 238 tokens: already past
+# faster-whisper's own 223-token hotwords cap, which then silently dropped the
+# tail.
+#
+# Derived, not guessed: 448 total - 200 output reserve - 120 prompt - 4 overhead
+# = 124. At ~3.5 tokens/term that is ~34 terms. Fewer terms than the old config
+# pretended to carry, but they are real: the old 223-token list left ~50 tokens
+# to transcribe with and truncated freeze chunks mid-sentence.
+_HOTWORDS_TOKEN_BUDGET = 120
 
 
 class _State(enum.Enum):
@@ -309,30 +319,56 @@ class VoiceIO:
             self._do_start()
 
     def _refresh_hotwords(self) -> None:
-        """Rebuild Whisper hotwords from vocabulary + correction targets.
+        """Rebuild Whisper hotwords: rank by usage, fill the token budget.
 
-        The vocabulary read is mtime-cached (only a `stat` when unchanged), and
-        `set_hotwords` is called only when the merged string actually changed,
-        so this stays cheap enough to run on every recording start.
+        Selection is mandatory and permanent — the budget holds ~40-60 terms and
+        the vocabulary only grows — so the slots go to the terms actually being
+        dictated (voiceio.vocab_stats), highest-scoring first.
+
+        Both reads are mtime-cached and `set_hotwords` only fires when the string
+        changed, so the steady-state cost here is a couple of `stat` calls. That
+        matters: this runs synchronously before `recorder.start()`.
         """
-        vocab = self._vocab_loader.get()
+        terms = self._vocab_loader.get_selected(token_budget=_HOTWORDS_TOKEN_BUDGET)
         # Only merge RARE correction targets (proper nouns, technical terms):
         # common-word targets ("review", "company") add nothing to decoder bias
         # and hundreds of them blow Whisper's 448-token prompt+output budget,
         # which truncates transcriptions mid-utterance.
-        from voiceio.wordfreq import is_common
-        vocab_terms = [
-            t for t in self._corrections.vocabulary_terms()
-            if not is_common(t, self.cfg.model.language)
-        ]
-        if vocab_terms:
-            extra = ", ".join(vocab_terms)
-            vocab = f"{vocab}, {extra}" if vocab else extra
-        vocab = vocab[:_HOTWORDS_MAX_CHARS]
+        vocab = ", ".join(terms + self._rare_correction_targets())
         if vocab != self._hotwords:
             self._hotwords = vocab
-            if vocab:
-                self.transcriber.set_hotwords(vocab)
+            # Set unconditionally: an emptied vocabulary must CLEAR the hotwords,
+            # not leave the previous string biasing every future decode.
+            self.transcriber.set_hotwords(vocab or None)
+
+    def _record_vocab_usage(self, text: str) -> None:
+        """Record which vocabulary terms this utterance used (finalize path only).
+
+        This is the feedback signal that decides who gets the hotword budget next
+        time. Deliberately not on the recording-start path, and never fatal — a
+        usage counter must not be able to break a dictation.
+        """
+        try:
+            from voiceio import vocab_stats
+            vocab_stats.update_from_text(text, self._vocab_loader.get_all())
+        except Exception:  # noqa: BLE001
+            log.debug("vocab usage update failed", exc_info=True)
+
+    def _rare_correction_targets(self) -> list[str]:
+        """Correction targets worth biasing, cached against corrections mtime.
+
+        `is_common` over every target used to be recomputed on each recording
+        start; the result only changes when corrections.json does.
+        """
+        mtime = getattr(self._corrections, "_mtime", None)
+        if getattr(self, "_rare_targets_mtime", object()) != mtime:
+            from voiceio.wordfreq import is_common
+            self._rare_targets = [
+                t for t in self._corrections.vocabulary_terms()
+                if not is_common(t, self.cfg.model.language)
+            ]
+            self._rare_targets_mtime = mtime
+        return self._rare_targets
 
     def _do_start(self) -> None:
         """Transition to RECORDING."""
@@ -432,8 +468,13 @@ class VoiceIO:
         if self._postcorrect is not None:
             # Freshest context for the finalize pass: this recording's window
             # title (captured at start) and the latest transcripts/vocabulary.
+            #
+            # The FULL vocabulary, not the hotwords string: the decoder can only
+            # be biased with ~40-60 terms, but this is an LLM with no 448-token
+            # budget. The long tail that can never fit in hotwords gets its only
+            # chance to be corrected here.
             self._postcorrect.set_context(
-                vocabulary=self._hotwords,
+                vocabulary=", ".join(self._vocab_loader.get_all()),
                 recent=self._prompt_builder.recent(3),
                 title=self._context_title,
             )
@@ -552,6 +593,7 @@ class VoiceIO:
             self._play_feedback(final_text)
             stored = self._strip_voice_prefix(final_text)
             self._prompt_builder.add_transcript(stored)
+            self._record_vocab_usage(stored)
             latency = dict(session.final_latency)
             # stop-to-commit: what the user actually waits for
             latency["finalize_total"] = round(time.monotonic() - t_final, 3)
