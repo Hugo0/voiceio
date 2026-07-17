@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-voiceio"
-version = "0.8.1"
+version = "0.8.2"
 description = "Voice dictation for Linux. Speak → text, locally, instantly."
 readme = "README.md"
 license = "MIT"
