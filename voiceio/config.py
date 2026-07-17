@@ -138,6 +138,17 @@ class AutocorrectConfig:
     # Languages you also dictate in: mined corrections never rewrite words
     # that are real in these (e.g. ["es"] protects Spanish "harina").
     protect_languages: list[str] = field(default_factory=list)
+    # Mine find/replace CORRECTION rules from history. Off by default: measured
+    # over months of real use, mining produced 387 rules of which 4 ever fired
+    # (1%), while the runtime postcorrect pass applied 288 edits over the same
+    # period. Rules are exact-string matches, so they only fire when Whisper
+    # repeats a misrecognition verbatim — and the errors worth fixing are
+    # common words ("nuance" for "neurons") that the safety gate must refuse
+    # anyway. Meanwhile a bad rule is a silent regression: one run learned rules
+    # destroying real Spanish words. Poor odds, real downside, and postcorrect
+    # already does this contextually. Vocabulary mining is unaffected and stays
+    # on — those terms bias the decoder and demonstrably help.
+    mine_corrections: bool = False
 
 
 @dataclass

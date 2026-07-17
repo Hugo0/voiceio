@@ -110,6 +110,14 @@ def main() -> None:
     p_history.add_argument("--path", action="store_true",
                            help="Print history file path")
 
+    # ── voiceio eval ───────────────────────────────────────────────────
+    p_eval = sub.add_parser(
+        "eval", help="Replay your retained audio across decoder configs and score them")
+    p_eval.add_argument("--max-audio-secs", type=float, default=900,
+                        help="Audio budget to replay (default: 900 = 15min)")
+    p_eval.add_argument("--json", action="store_true",
+                        help="Emit raw results as JSON")
+
     # ── voiceio demo ──────────────────────────────────────────────────
     sub.add_parser("demo", help="Interactive guided tour of voiceio features")
 
@@ -136,6 +144,8 @@ def main() -> None:
         _cmd_correct(args)
     elif args.command == "history":
         _cmd_history(args)
+    elif args.command == "eval":
+        _cmd_eval(args)
     elif args.command == "demo":
         _cmd_demo()
     elif args.command == "logs":
@@ -720,6 +730,91 @@ def _cmd_uninstall() -> None:
             print("\nvoiceio fully removed.")
 
 
+def _cmd_eval(args: argparse.Namespace) -> None:
+    """Score decoder configs against a teacher model on your own audio."""
+    import json as _json
+    import sys
+    import time
+
+    from voiceio.config import load
+    from voiceio.evaluate import default_matrix, evaluate
+    from voiceio.wizard import BOLD, DIM, GREEN, RESET, YELLOW
+
+    cfg = load()
+    matrix = default_matrix()
+
+    print(f"{BOLD}Evaluating {len(matrix)} decoder configs{RESET} "
+          f"{DIM}on up to {args.max_audio_secs:.0f}s of your retained audio{RESET}")
+    print(f"{DIM}Scored against a teacher model (distil-large-v3) — a proxy for")
+    print(f"ground truth, good for ranking configs, not for absolute accuracy.{RESET}\n")
+
+    last = [""]
+
+    def progress(name, i, n):
+        if name != last[0]:
+            last[0] = name
+            sys.stderr.write(f"\n  {name}: ")
+        sys.stderr.write(".")
+        sys.stderr.flush()
+
+    t0 = time.time()
+    scores = evaluate(cfg, matrix, max_audio_secs=args.max_audio_secs,
+                      on_progress=progress)
+    sys.stderr.write("\n\n")
+
+    if not scores:
+        print("No retained audio to evaluate. Dictate a few notes first "
+              "(audio is kept under [data] retain_audio).")
+        return
+
+    if args.json:
+        print(_json.dumps([{
+            "config": s.config.name, **s.config.as_dict(),
+            "clips": s.clips, "audio_secs": round(s.audio_secs, 1),
+            "wer": s.wer, "hallucinations": s.hallucinations,
+            "repetitions": s.repetitions, "empties": s.empties,
+            "crashes": s.crashes, "decode_secs": round(s.decode_secs, 1),
+        } for s in scores], indent=2))
+        return
+
+    best = scores[0]
+    shipped = next((s for s in scores if s.config.name == "shipped"), None)
+
+    print(f"  {'config':<24} {'WER':>7} {'halluc':>7} {'repeat':>7} "
+          f"{'empty':>6} {'crash':>6}")
+    print(f"  {'-'*24} {'-'*7} {'-'*7} {'-'*7} {'-'*6} {'-'*6}")
+    for s in scores:
+        mark = f" {GREEN}<- best{RESET}" if s is best else ""
+        if s is shipped and s is not best:
+            mark = f" {DIM}<- shipped{RESET}"
+        elif s is shipped:
+            mark = f" {GREEN}<- best (shipped){RESET}"
+        print(f"  {s.config.name:<24} {s.wer:>7.3f} {s.hallucinations:>7} "
+              f"{s.repetitions:>7} {s.empties:>6} {s.crashes:>6}{mark}")
+
+    print(f"\n  {DIM}{best.clips} clips, {best.audio_secs:.0f}s audio, "
+          f"{time.time()-t0:.0f}s total{RESET}")
+
+    if shipped and best is not shipped:
+        delta = (shipped.wer - best.wer) / shipped.wer * 100 if shipped.wer else 0
+        print(f"\n  {YELLOW}'{best.config.name}' beats the shipped config by "
+              f"{delta:.0f}% WER.{RESET}")
+        # A WER win means nothing if it comes from the failure mode the knob
+        # exists to prevent, so make that trade explicit rather than implied.
+        if best.hallucinations > shipped.hallucinations:
+            print(f"  {YELLOW}But it hallucinates more "
+                  f"({best.hallucinations} vs {shipped.hallucinations}) — "
+                  f"that's what vad_filter is for.{RESET}")
+        if best.repetitions > shipped.repetitions:
+            print(f"  {YELLOW}But it loops more "
+                  f"({best.repetitions} vs {shipped.repetitions}) — "
+                  f"that's what condition_on_previous_text=False is for.{RESET}")
+        print(f"  {DIM}The teacher is a proxy, not truth. Spot-check before "
+              f"changing a default.{RESET}")
+    elif shipped:
+        print(f"\n  {GREEN}The shipped config wins. No change indicated.{RESET}")
+
+
 def _show_vocab() -> None:
     """Show the vocabulary split by what actually reaches the decoder.
 
@@ -989,12 +1084,20 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
     # Build lookup for O(1) access to suspicious word metadata
     sw_by_word = {sw.word: sw for sw in suspicious}
 
+    # Correction mining is retired by default ([autocorrect] mine_corrections).
+    # The vocabulary bucket below is unaffected: those terms bias the decoder
+    # and measurably help, whereas mined find/replace rules fired 4 times in 387
+    # while postcorrect applied 288 edits over the same span. Skipping the
+    # correction buckets also skips adjudication — the expensive part, at
+    # votes x ceil(N/25) LLM calls per run.
+    mine_corrections = cfg.autocorrect.mine_corrections
+
     # ── Bucket 1: Auto-fix (high confidence, safety-gated) ──────────────
     # Pairs failing the gate (real word being "corrected", or target that is
     # itself junk) are downgraded to manual review rather than persisted.
     auto_fixed = 0
     downgraded: list[dict] = []
-    if result.auto_fix:
+    if result.auto_fix and mine_corrections:
         gated = []
         for fix in result.auto_fix:
             reason = gate_correction(
@@ -1028,10 +1131,13 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
         )
 
     # ── Bucket 2: Ask user (ambiguous) ──────────────────────────────────
-    to_review = downgraded + list(result.ask_user)
+    # Empty when correction mining is retired — nothing to adjudicate or review.
+    to_review = (downgraded + list(result.ask_user)) if mine_corrections else []
 
     # If no LLM was used, put all suspicious words into manual review
-    if not has_api and not has_ollama:
+    if not mine_corrections:
+        pass  # correction mining retired — nothing to review or adjudicate
+    elif not has_api and not has_ollama:
         for sw in suspicious:
             to_review.append({
                 "wrong": sw.word,
@@ -1087,8 +1193,13 @@ def _cmd_correct_auto(cd, *, full: bool = False, batch: bool = False) -> None:
         print(f"  {DIM}{len(capped)} lower-frequency item(s) deferred "
               f"to next run{RESET}")
 
-    adj = adjudicate(cfg, to_review, sw_by_word,
-                     vocabulary=vocab_words, language=language)
+    if to_review:
+        adj = adjudicate(cfg, to_review, sw_by_word,
+                         vocabulary=vocab_words, language=language)
+    else:
+        # Nothing to weigh — don't spend votes x ceil(N/25) LLM calls proving it.
+        from voiceio.autocorrect import AdjudicationResult
+        adj = AdjudicationResult()
 
     # Unanimous corrections (already gate-passed inside adjudicate).
     adj_applied = 0

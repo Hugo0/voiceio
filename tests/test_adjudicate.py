@@ -212,6 +212,17 @@ def _suspicious():
 
 
 class TestBatchFlow:
+    """The adjudication flow. Correction mining is retired by default
+    ([autocorrect] mine_corrections = false, see test_correct_batch.py), so
+    these opt it back in — the machinery still has to be correct for anyone who
+    turns it on, and for the vocabulary path that shares it."""
+
+    def _cfg(self):
+        from voiceio.config import load
+        cfg = load()
+        cfg.autocorrect.mine_corrections = True
+        return cfg
+
     def _run(self, tmp_path, adj, *, review=None, suspicious=None, notify=None):
         from voiceio.autocorrect import ReviewResult
         cd = CorrectionDict(path=tmp_path / "c.json")
@@ -219,7 +230,8 @@ class TestBatchFlow:
             ask_user=[{"wrong": "mantekka", "right": "", "reason": "?"}],
         )
         suspicious = suspicious if suspicious is not None else _suspicious()
-        with patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
+        with patch("voiceio.config.load", return_value=self._cfg()), \
+             patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
              patch("voiceio.history.read", return_value=_entries()), \
              patch("voiceio.autocorrect.find_suspicious_words",
                    return_value=suspicious), \
@@ -274,6 +286,7 @@ class TestBatchFlow:
 
         cd = CorrectionDict(path=tmp_path / "c.json")
         with caplog.at_level(logging.INFO, logger="voiceio.cli"), \
+             patch("voiceio.config.load", return_value=self._cfg()), \
              patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
              patch("voiceio.history.read", return_value=_entries()), \
              patch("voiceio.autocorrect.find_suspicious_words", return_value=many), \
