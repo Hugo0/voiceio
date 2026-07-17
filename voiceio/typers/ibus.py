@@ -444,18 +444,48 @@ class IBusTyper:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
+    def _release_stuck_modifiers(self) -> None:
+        """Force-release modifiers a half-executed ydotool may have left down.
+
+        `ydotool key 29:1 … 29:0` emits press and release as separate uinput
+        events. If the process is killed between them — timeout, OOM, ydotoold
+        dying mid-call — Ctrl stays held at the *uinput* level: below the
+        compositor, in every application, and clearable only by the user
+        physically tapping Ctrl. That is indistinguishable from a broken
+        keyboard, so never leave it to chance.
+
+        29=LeftCtrl, 42=LeftShift, 56=LeftAlt. Releasing an already-released
+        key is a no-op, so this is always safe to call.
+        """
+        if not self._ydotool:
+            return
+        try:
+            subprocess.run([self._ydotool, "key", "29:0", "42:0", "56:0"],
+                           capture_output=True, timeout=2)
+            log.debug("Released modifiers after ydotool failure")
+        except (OSError, subprocess.TimeoutExpired):
+            log.warning("Could not release modifiers after a failed ydotool "
+                        "paste — if Ctrl seems stuck, tap it once to clear")
+
     def _simulate_paste(self) -> None:
         """Simulate Ctrl+V to paste clipboard into non-IBus apps (terminals)."""
         try:
             if self._ydotool and self._ydotoold_running():
                 # ydotool key scancodes: 29=LCtrl, 47=V
-                result = subprocess.run(
-                    [self._ydotool, "key", "29:1", "47:1", "47:0", "29:0"],
-                    capture_output=True, timeout=3,
-                )
+                try:
+                    result = subprocess.run(
+                        [self._ydotool, "key", "29:1", "47:1", "47:0", "29:0"],
+                        capture_output=True, timeout=3,
+                    )
+                except subprocess.TimeoutExpired:
+                    # Killed mid-chord — Ctrl may be down with no release coming.
+                    self._release_stuck_modifiers()
+                    raise
                 if result.returncode != 0:
                     log.warning("ydotool paste failed (rc=%d): %s",
                                 result.returncode, result.stderr.decode(errors="replace").strip())
+                    # A non-zero exit can still have emitted the press.
+                    self._release_stuck_modifiers()
                 else:
                     log.debug("Pasted via ydotool")
             elif self._wtype:

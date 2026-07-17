@@ -20,6 +20,14 @@ def _suspicious():
                            contexts=["check the mantekka transfers"])]
 
 
+def _cfg_with_mining():
+    """Config with the retired correction mining explicitly opted back in."""
+    from voiceio.config import load
+    cfg = load()
+    cfg.autocorrect.mine_corrections = True
+    return cfg
+
+
 class TestBatchMode:
     def test_no_api_key_bails_quietly(self, tmp_path, capsys):
         cd = CorrectionDict(path=tmp_path / "c.json")
@@ -29,7 +37,11 @@ class TestBatchMode:
         assert "skipping batch" in capsys.readouterr().out.lower()
 
     def test_ambiguous_item_deferred_no_notify_cursor_advances(self, tmp_path):
-        """No consensus → silently deferred; no queue, no notification, cursor advances."""
+        """No consensus → silently deferred; no queue, no notification, cursor advances.
+
+        Opts mining back in: it's retired by default (see
+        TestCorrectionMiningRetired) but the machinery must still be correct.
+        """
         cd = CorrectionDict(path=tmp_path / "c.json")
         review = ReviewResult()
         review.ask_user.append({"wrong": "mantekka", "right": "Manteca",
@@ -37,7 +49,8 @@ class TestBatchMode:
         adj = AdjudicationResult(
             deferred=[{"wrong": "mantekka", "right": "Manteca", "votes": []}],
         )
-        with patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
+        with patch("voiceio.config.load", return_value=_cfg_with_mining()), \
+             patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
              patch("voiceio.history.read", return_value=_entries()), \
              patch("voiceio.autocorrect.find_suspicious_words",
                    return_value=_suspicious()), \
@@ -54,11 +67,13 @@ class TestBatchMode:
         assert "mantekka" in state.deferred
 
     def test_unanimous_correction_applied_and_notified(self, tmp_path):
+        """Mining opted back in — it's retired by default, not deleted."""
         cd = CorrectionDict(path=tmp_path / "c.json")
         review = ReviewResult()
         review.ask_user.append({"wrong": "mantekka", "right": "", "reason": "?"})
         adj = AdjudicationResult(apply=[{"wrong": "mantekka", "right": "manteca"}])
-        with patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
+        with patch("voiceio.config.load", return_value=_cfg_with_mining()), \
+             patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
              patch("voiceio.history.read", return_value=_entries()), \
              patch("voiceio.autocorrect.find_suspicious_words",
                    return_value=_suspicious()), \
@@ -127,3 +142,70 @@ class TestProtectLanguages:
         assert gate_correction("ngroc", "ngrok",
                                vocabulary={"ngrok"},
                                protect_languages=["es", "ca"]) is None
+
+
+class TestCorrectionMiningRetired:
+    """Correction mining is off by default.
+
+    Measured over months: 387 rules mined, 4 ever fired (1%), while the runtime
+    postcorrect pass applied 288 edits. Rules are exact-string matches, so they
+    only fire if Whisper repeats a misrecognition verbatim — and the errors
+    worth fixing ("nuance" for "neurons") are common words the safety gate must
+    refuse. One run learned rules that destroyed real Spanish words. Vocabulary
+    mining is a different story and stays on.
+    """
+
+    def _review(self):
+        # "compain" -> "company" passes gate_correction: the target is a common
+        # word. ("olamma" -> "Ollama" would be rejected because the target is
+        # neither common nor already in the vocabulary — pre-existing gate
+        # behaviour, unrelated to mining being retired.)
+        from voiceio.autocorrect import ReviewResult
+        return ReviewResult(
+            auto_fix=[{"wrong": "compain", "right": "company", "reason": "typo"}],
+            ask_user=[{"wrong": "wordal", "right": "Wordle", "reason": "maybe"}],
+            vocabulary=["Kubernetes"],
+        )
+
+    def test_default_is_off(self):
+        from voiceio.config import AutocorrectConfig
+        assert AutocorrectConfig().mine_corrections is False
+
+    def test_no_rules_learned_by_default(self):
+        """The whole point: a batch run must not grow corrections.json."""
+        from voiceio.corrections import CorrectionDict
+
+        cd = CorrectionDict()
+        with patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
+             patch("voiceio.history.read", return_value=_entries()), \
+             patch("voiceio.autocorrect.find_suspicious_words", return_value=_suspicious()), \
+             patch("voiceio.autocorrect.review_suspicious", return_value=self._review()), \
+             patch("voiceio.autocorrect.adjudicate") as adj, \
+             patch("voiceio.vocabulary.add_terms", return_value=1) as add_terms, \
+             patch("voiceio.feedback.notify"):
+            _cmd_correct_auto(cd, batch=True)
+
+        assert cd.list_all() == {}       # no rules learned
+        assert not adj.called            # and no LLM spend adjudicating them
+        assert add_terms.called          # vocabulary mining still runs
+
+    def test_opt_in_still_mines(self):
+        """The machinery is retired, not deleted — it must still work if asked."""
+        from voiceio.autocorrect import AdjudicationResult
+        from voiceio.corrections import CorrectionDict
+
+        cfg = _cfg_with_mining()
+        cd = CorrectionDict()
+        adj = AdjudicationResult(apply=[], vocabulary=[], deferred=[])
+        with patch("voiceio.config.load", return_value=cfg), \
+             patch("voiceio.llm_api.resolve_api_key", return_value="sk-x"), \
+             patch("voiceio.history.read", return_value=_entries()), \
+             patch("voiceio.autocorrect.find_suspicious_words", return_value=_suspicious()), \
+             patch("voiceio.autocorrect.review_suspicious", return_value=self._review()), \
+             patch("voiceio.autocorrect.adjudicate", return_value=adj) as adjudicate, \
+             patch("voiceio.vocabulary.add_terms", return_value=1), \
+             patch("voiceio.feedback.notify"):
+            _cmd_correct_auto(cd, batch=True)
+
+        assert "compain" in cd.list_all()  # gate-passing auto_fix applied
+        assert adjudicate.called           # ambiguous ones still adjudicated

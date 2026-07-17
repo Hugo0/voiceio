@@ -123,7 +123,32 @@ class ClipboardTyper:
 
         subprocess.run(self._copy_cmd, input=text.encode(), check=True, capture_output=True)
         if self._paste_tool:
-            subprocess.run(self._paste_tool, check=True, capture_output=True)
+            try:
+                subprocess.run(self._paste_tool, check=True, capture_output=True,
+                               timeout=3)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                # `ydotool key 29:1 … 29:0` emits press and release as separate
+                # uinput events. Dying between them leaves Ctrl held BELOW the
+                # compositor — every app, every keystroke, until the user taps
+                # Ctrl themselves. Never let that be the failure mode.
+                self._release_stuck_modifiers()
+                raise
+
+    def _release_stuck_modifiers(self) -> None:
+        """Force-release modifiers a half-executed paste may have left down.
+
+        29=LeftCtrl, 42=LeftShift, 56=LeftAlt. Releasing an already-released key
+        is a no-op, so this is safe to call on any failure path.
+        """
+        if not self._paste_tool or self._paste_tool[0] != "ydotool":
+            return
+        try:
+            subprocess.run(["ydotool", "key", "29:0", "42:0", "56:0"],
+                           capture_output=True, timeout=2)
+            log.debug("Released modifiers after failed ydotool paste")
+        except (OSError, subprocess.TimeoutExpired):
+            log.warning("Could not release modifiers after a failed ydotool "
+                        "paste — if Ctrl seems stuck, tap it once to clear")
 
     def delete_chars(self, n: int) -> None:
         if n <= 0:
