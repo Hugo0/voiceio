@@ -8,7 +8,11 @@ from voiceio.autocorrect import AdjudicationResult, ReviewResult, SuspiciousWord
 from voiceio.autocorrect_state import load_state
 from voiceio.cli import _cmd_correct_auto
 from voiceio.corrections import CorrectionDict
-from voiceio.service import _correct_service_unit, _correct_timer_unit
+from voiceio.service import (
+    _correct_service_unit,
+    _correct_timer_unit,
+    _service_unit,
+)
 
 
 def _entries():
@@ -113,6 +117,20 @@ class TestBatchMode:
              patch("voiceio.feedback.notify"):
             _cmd_correct_auto(cd, batch=True)  # must not block on input()
         assert "Grafana" in (tmp_path / "vocabulary.txt").read_text()
+
+
+class TestServiceUnit:
+    def test_restarts_on_graphical_relogin(self):
+        """PartOf stops the service on logout; WantedBy must pull it back in on
+        the next login. Both must name graphical-session.target or the service
+        dies on logout and never returns until a full reboot (GNOME re-login
+        leaves the systemd --user manager — and default.target — untouched)."""
+        unit = _service_unit("/usr/bin/voiceio")
+        assert "PartOf=graphical-session.target" in unit
+        assert "WantedBy=graphical-session.target" in unit
+        # default.target is reached once at user-manager start and never
+        # re-entered on re-login, so it must NOT be the wake-up trigger.
+        assert "WantedBy=default.target" not in unit
 
 
 class TestTimerUnits:

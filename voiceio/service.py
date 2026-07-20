@@ -68,7 +68,7 @@ Environment=PYTHONUNBUFFERED=1
 PassEnvironment=DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_RUNTIME_DIR
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
 """
 
 
@@ -188,6 +188,13 @@ def install_service() -> bool:
     try:
         subprocess.run(
             ["systemctl", "--user", "daemon-reload"],
+            capture_output=True, timeout=5,
+        )
+        # disable before enable so a prior [Install] target (older versions
+        # wired WantedBy=default.target, which never restarts the service on a
+        # GNOME logout/login) is unlinked instead of left as a stale want.
+        subprocess.run(
+            ["systemctl", "--user", "disable", SERVICE_NAME],
             capture_output=True, timeout=5,
         )
         subprocess.run(
