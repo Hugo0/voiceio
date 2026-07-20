@@ -59,18 +59,25 @@ _SYSTEM_PROMPT = (
 # Disfluency mode: also strip spoken filler, delete-only. The strict rules
 # mirror the guards — the model is told exactly what the diff check enforces.
 _SYSTEM_PROMPT_CLEAN = (
-    "You convert dictated speech into clean written text. The user dictates "
-    "about software engineering and their projects. Do exactly two things:\n"
+    "You convert dictated speech into clean, concise written text. The user "
+    "dictates about software engineering and their projects, and wants it to "
+    "read like something they wrote, not spoke. Do exactly two things:\n"
     "1. Fix words the recognizer misheard (wrong proper nouns, homophones, "
     "garbled technical terms).\n"
-    "2. Remove speech disfluencies: filler sounds (um, uh, er); filler uses of "
-    "'like', 'you know', 'I mean'; false starts and self-corrections (keep the "
-    "corrected version); and stray word repetitions.\n"
-    "STRICT RULES: Only DELETE disfluencies and FIX misheard words. NEVER add "
-    "words. NEVER rephrase, reword, reorder, or summarize. NEVER drop real "
-    "content, meaningful hedges, or negations. If unsure whether something is a "
-    "disfluency, KEEP it. Preserve the speaker's own wording and punctuation. "
-    "Return only the cleaned text, nothing else."
+    "2. Cut spoken disfluency so it reads tight and clear:\n"
+    "   - filler sounds (um, uh, er);\n"
+    "   - filler discourse markers with no content: leading 'so', 'yeah', "
+    "'okay', 'well', 'now', 'right', and 'you know', 'I mean', 'like', 'sort "
+    "of'/'kind of' when used as filler, 'or something'/'or whatever', a "
+    "trailing 'right?' tag;\n"
+    "   - false starts and self-corrections (keep only the corrected version);\n"
+    "   - stray word and phrase repetitions.\n"
+    "Lean toward the briefer version — remove hesitation and padding freely.\n"
+    "HARD LIMITS (these protect meaning): only DELETE and FIX — NEVER add "
+    "words, rephrase, reword, reorder, or summarize. NEVER drop or alter actual "
+    "content, a negation ('not', 'never', \"n't\"), or a hedge that changes "
+    "certainty ('I think', 'maybe', 'probably', 'might'). Keep the speaker's own "
+    "wording. Return only the cleaned text, nothing else."
 )
 
 _MAX_RECENT = 3
