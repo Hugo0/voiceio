@@ -311,8 +311,14 @@ def system_deps_install_cmd(keys: list[str] | None = None) -> str:
     return f"{prefix} {' '.join(pkgs)}"
 
 
-def open_in_terminal(cmd: list[str]) -> bool:
-    """Launch a command in the user's terminal emulator. Returns success."""
+def open_in_terminal(cmd: list[str], *, hold: bool = False) -> bool:
+    """Launch a command in the user's terminal emulator. Returns success.
+
+    ``hold=True`` keeps the window open after the command exits — required for
+    print-and-exit commands (history, doctor, logs) that would otherwise flash
+    a terminal that closes the instant they finish.
+    """
+    import shlex
     import subprocess
 
     plat_os = _detect_os()
@@ -334,11 +340,20 @@ def open_in_terminal(cmd: list[str]) -> bool:
             log.warning("Failed to open cmd.exe")
             return False
 
-    # Linux: try common terminal emulators
+    # Linux: try common terminal emulators. When holding, wrap the command in a
+    # shell that pauses at the end so the window survives a print-and-exit.
+    launch = cmd
+    if hold:
+        inner = " ".join(shlex.quote(c) for c in cmd)
+        launch = [
+            "sh", "-c",
+            f'{inner}; printf "\\n[voiceio] Press Enter to close…"; read _',
+        ]
+
     term = os.environ.get("TERMINAL")
     if term and shutil.which(term):
         try:
-            subprocess.Popen([term, "-e", *cmd])
+            subprocess.Popen([term, "-e", *launch])
             return True
         except OSError:
             pass
@@ -346,7 +361,7 @@ def open_in_terminal(cmd: list[str]) -> bool:
     # x-terminal-emulator (Debian/Ubuntu alternative)
     if shutil.which("x-terminal-emulator"):
         try:
-            subprocess.Popen(["x-terminal-emulator", "-e", *cmd])
+            subprocess.Popen(["x-terminal-emulator", "-e", *launch])
             return True
         except OSError:
             pass
@@ -365,7 +380,7 @@ def open_in_terminal(cmd: list[str]) -> bool:
     for prefix, binary in _TERMINALS:
         if shutil.which(binary):
             try:
-                subprocess.Popen([*prefix, *cmd])
+                subprocess.Popen([*prefix, *launch])
                 return True
             except OSError:
                 continue

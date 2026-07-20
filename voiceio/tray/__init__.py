@@ -146,7 +146,7 @@ def _read_stdout(proc: subprocess.Popen, toggle_cb: Callable[[], None]) -> None:
                 action = cmd[5:]
                 cli_cmd = _MENU_COMMANDS.get(action)
                 if cli_cmd:
-                    if not open_in_terminal(cli_cmd):
+                    if not open_in_terminal(cli_cmd, hold=True):
                         log.warning("Failed to open terminal for: %s", action)
     except (OSError, ValueError):
         pass

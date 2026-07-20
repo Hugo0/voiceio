@@ -45,7 +45,7 @@ def start(
             from voiceio.platform import open_in_terminal
             cli_cmd = _MENU_COMMANDS.get(action)
             if cli_cmd:
-                open_in_terminal(cli_cmd)
+                open_in_terminal(cli_cmd, hold=True)
         return _handler
 
     _icon = pystray.Icon(
