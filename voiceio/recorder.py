@@ -108,9 +108,12 @@ class AudioRecorder:
 
         # Auto-stop on sustained silence
         self._auto_stop_secs = cfg.auto_stop_silence_secs
+        self._no_speech_secs = cfg.auto_stop_no_speech_secs
         self._sustained_silence = 0.0
         self._heard_speech = False
-        self._on_auto_stop: Callable[[], None] | None = None
+        # Called with a reason: "silence" (spoke then paused) or "no_speech"
+        # (nothing ever heard — a muted mic or a forgotten hotkey).
+        self._on_auto_stop: Callable[[str], None] | None = None
 
         # Heartbeat: updated by _callback, checked by health watchdog
         self._last_callback_time: float = 0.0
@@ -260,7 +263,7 @@ class AudioRecorder:
         """Set/clear the speech pause callback (used by streaming session)."""
         self._on_speech_pause = callback
 
-    def set_on_auto_stop(self, callback: Callable[[], None] | None) -> None:
+    def set_on_auto_stop(self, callback: Callable[[str], None] | None) -> None:
         """Set/clear the auto-stop callback (fires after sustained silence)."""
         self._on_auto_stop = callback
 
@@ -340,4 +343,20 @@ class AudioRecorder:
             self._on_auto_stop = None
             self._sustained_silence = 0.0
             log.info("Auto-stopping after %.0fs of silence", self._auto_stop_secs)
-            cb()
+            cb("silence")
+
+        # Safety net: nothing heard at all for a long time. Because speech
+        # resets _sustained_silence AND is gated out by not-_heard_speech, this
+        # measures continuous silence from the very start of the recording — a
+        # muted mic (all zeros) or a hotkey pressed by accident. Distinct reason
+        # so the app can surface it instead of failing silently.
+        elif (self._on_auto_stop is not None
+                and self._no_speech_secs > 0
+                and not self._heard_speech
+                and self._sustained_silence >= self._no_speech_secs):
+            cb = self._on_auto_stop
+            self._on_auto_stop = None
+            self._sustained_silence = 0.0
+            log.info("Auto-stopping: no speech heard in %.0fs (mic muted?)",
+                     self._no_speech_secs)
+            cb("no_speech")

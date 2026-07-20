@@ -63,6 +63,7 @@ def _make_recorder():
     cfg.silence_threshold = 0.01
     cfg.silence_duration = 0.6
     cfg.auto_stop_silence_secs = 5.0
+    cfg.auto_stop_no_speech_secs = 20.0
 
     with patch("voiceio.recorder.sd"):
         from voiceio.recorder import AudioRecorder
@@ -70,6 +71,78 @@ def _make_recorder():
         vad.is_speech.return_value = False
         rec = AudioRecorder(cfg, vad=vad)
     return rec
+
+
+class TestAutoStop:
+    """Auto-stop distinguishes 'spoke then paused' from 'nothing ever heard'."""
+
+    def _feed(self, rec, secs, *, speech):
+        """Drive _callback with `secs` of audio; speech=False → silence."""
+        rec._vad.is_speech.return_value = speech
+        frames = int(secs * rec.sample_rate)
+        rec._callback(np.zeros((frames, 1), dtype=np.float32), frames, None, None)
+
+    def test_no_speech_fires_no_speech_reason(self):
+        rec = _make_recorder()
+        rec._recording = True
+        fired = []
+        rec.set_on_auto_stop(lambda reason: fired.append(reason))
+        # 21s of pure silence, speech never heard.
+        self._feed(rec, 21, speech=False)
+        assert fired == ["no_speech"]
+
+    def test_no_speech_does_not_fire_early(self):
+        rec = _make_recorder()
+        rec._recording = True
+        fired = []
+        rec.set_on_auto_stop(lambda reason: fired.append(reason))
+        self._feed(rec, 10, speech=False)  # below the 20s threshold
+        assert fired == []
+
+    def test_speech_then_silence_fires_silence_reason(self):
+        rec = _make_recorder()
+        rec._recording = True
+        fired = []
+        rec.set_on_auto_stop(lambda reason: fired.append(reason))
+        self._feed(rec, 1, speech=True)    # heard speech → _heard_speech
+        self._feed(rec, 6, speech=False)   # 6s silence ≥ 5s auto_stop
+        assert fired == ["silence"]
+
+    def test_single_fire(self):
+        """Callback is cleared on fire — a later chunk must not re-trigger."""
+        rec = _make_recorder()
+        rec._recording = True
+        fired = []
+        rec.set_on_auto_stop(lambda reason: fired.append(reason))
+        self._feed(rec, 21, speech=False)
+        self._feed(rec, 21, speech=False)
+        assert fired == ["no_speech"]
+
+
+class TestAutoStopNotification:
+    """The app surfaces a 'no_speech' auto-stop; a plain 'silence' one is quiet."""
+
+    def test_no_speech_muted_mic_notifies(self):
+        vio, _, _ = _make_vio()
+        vio.recorder.has_signal = MagicMock(return_value=False)  # all zeros = muted
+        with patch("voiceio.feedback.notify") as notify:
+            vio._on_auto_stop("no_speech")
+        assert notify.called
+        assert "mute" in " ".join(notify.call_args[0]).lower()
+
+    def test_no_speech_with_signal_notifies_generic(self):
+        vio, _, _ = _make_vio()
+        vio.recorder.has_signal = MagicMock(return_value=True)  # mic works, user quiet
+        with patch("voiceio.feedback.notify") as notify:
+            vio._on_auto_stop("no_speech")
+        assert notify.called
+        assert "mute" not in " ".join(notify.call_args[0]).lower()
+
+    def test_normal_silence_is_quiet(self):
+        vio, _, _ = _make_vio()
+        with patch("voiceio.feedback.notify") as notify:
+            vio._on_auto_stop("silence")
+        assert not notify.called
 
 
 # ===========================================================================

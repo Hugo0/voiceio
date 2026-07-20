@@ -71,6 +71,11 @@ class AudioConfig:
     silence_threshold: float = 0.01
     silence_duration: float = 0.6
     auto_stop_silence_secs: float = 5.0
+    # Safety net for a muted mic or a forgotten hotkey: if NO speech is heard
+    # for this long from the start, stop and notify. The 5s auto-stop above
+    # only fires once speech has been heard, so it can't catch a dead mic.
+    # 0 disables.
+    auto_stop_no_speech_secs: float = 20.0
     vad_backend: str = "silero"  # "silero" | "rms"
     vad_threshold: float = 0.5  # Silero speech probability threshold
 
