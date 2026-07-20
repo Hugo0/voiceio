@@ -76,27 +76,45 @@ def _make_recorder():
 class TestAutoStop:
     """Auto-stop distinguishes 'spoke then paused' from 'nothing ever heard'."""
 
-    def _feed(self, rec, secs, *, speech):
-        """Drive _callback with `secs` of audio; speech=False → silence."""
+    def _feed(self, rec, secs, *, speech, amplitude=0.0):
+        """Drive _callback with `secs` of audio.
+
+        speech       → what the (mocked) VAD reports (is_speech).
+        amplitude    → raw sample level; 0.0 = digital silence (muted mic),
+                       >1e-4 = a real audio signal reaching the mic.
+        """
         rec._vad.is_speech.return_value = speech
         frames = int(secs * rec.sample_rate)
-        rec._callback(np.zeros((frames, 1), dtype=np.float32), frames, None, None)
+        data = np.full((frames, 1), amplitude, dtype=np.float32)
+        rec._callback(data, frames, None, None)
 
-    def test_no_speech_fires_no_speech_reason(self):
+    def test_muted_mic_fires_no_speech_reason(self):
         rec = _make_recorder()
         rec._recording = True
         fired = []
         rec.set_on_auto_stop(lambda reason: fired.append(reason))
-        # 21s of pure silence, speech never heard.
-        self._feed(rec, 21, speech=False)
+        # 21s of digital zeros — a muted / dead mic.
+        self._feed(rec, 21, speech=False, amplitude=0.0)
         assert fired == ["no_speech"]
+
+    def test_real_audio_vad_misses_does_not_autostop(self):
+        """Regression: real audio the VAD fails to flag as speech must NOT be
+        cut off. This is the 0.9.3 bug — a 20s dictation the Silero VAD scored
+        as silence auto-stopped mid-sentence."""
+        rec = _make_recorder()
+        rec._recording = True
+        fired = []
+        rec.set_on_auto_stop(lambda reason: fired.append(reason))
+        # 25s of clearly-present audio, but the VAD never calls it speech.
+        self._feed(rec, 25, speech=False, amplitude=0.05)
+        assert fired == []  # signal is present → neither auto-stop fires
 
     def test_no_speech_does_not_fire_early(self):
         rec = _make_recorder()
         rec._recording = True
         fired = []
         rec.set_on_auto_stop(lambda reason: fired.append(reason))
-        self._feed(rec, 10, speech=False)  # below the 20s threshold
+        self._feed(rec, 10, speech=False, amplitude=0.0)  # below the 20s threshold
         assert fired == []
 
     def test_speech_then_silence_fires_silence_reason(self):
