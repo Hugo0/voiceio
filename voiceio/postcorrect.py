@@ -34,18 +34,17 @@ _MAX_INSERTED_WORDS = 0     # adding any word = altering meaning → reject
 _MAX_REPLACE_FRAC = 0.15    # ASR word-fixes only, never wholesale rewording
 _MAX_DELETE_FRAC = 0.4      # backstop against deleting real content
 
-# Words whose deletion/replacement flips meaning — the fraction caps can't catch
-# a single dropped "not". If the edit touches any of these on the original side,
-# reject outright. (Contractions ending in "n't" are handled separately.)
-_MEANING_CRITICAL = frozenset({
-    "not", "no", "never", "none", "nor", "neither", "without", "cannot",
-    "nothing", "nobody", "nowhere", "n't",
-})
 
+def _norm_words(text: str) -> list[str]:
+    """Lowercased, punctuation-stripped word list for the guard's diff, so a
+    sentence split or capitalization isn't misread as a content change."""
+    out = []
+    for w in text.split():
+        t = w.lower().strip(".,;:!?\"'()[]{}—–-")
+        if t:
+            out.append(t)
+    return out
 
-def _is_meaning_critical(word: str) -> bool:
-    w = word.lower().strip(".,;:!?\"'()")
-    return w in _MEANING_CRITICAL or w.endswith("n't")
 
 _SYSTEM_PROMPT = (
     "You fix automatic speech recognition errors in dictated text. "
@@ -74,10 +73,12 @@ _SYSTEM_PROMPT_CLEAN = (
     "   - stray word and phrase repetitions.\n"
     "Lean toward the briefer version — remove hesitation and padding freely.\n"
     "HARD LIMITS (these protect meaning): only DELETE and FIX — NEVER add "
-    "words, rephrase, reword, reorder, or summarize. NEVER drop or alter actual "
-    "content, a negation ('not', 'never', \"n't\"), or a hedge that changes "
-    "certainty ('I think', 'maybe', 'probably', 'might'). Keep the speaker's own "
-    "wording. Return only the cleaned text, nothing else."
+    "words, rephrase, reword, reorder, or summarize. NEVER change what a "
+    "statement asserts — above all never flip its polarity (do NOT turn 'I "
+    "don't think we should ship' into 'we should ship'), and keep hedges that "
+    "carry real uncertainty about a claim ('maybe', 'probably'). A trailing "
+    "verbal shrug like 'I don't know' with nothing after it is filler you may "
+    "drop. Keep the speaker's own wording. Return only the cleaned text."
 )
 
 _MAX_RECENT = 3
@@ -314,11 +315,13 @@ class PostCorrector:
     def _guard(self, text: str, corrected: str) -> tuple[bool, str]:
         """Decide whether the LLM's edit is within bounds.
 
-        Returns (accept, reject_reason). In disfluency mode the promise is
-        "never change meaning", enforced on the word-level diff: zero
-        insertions (nothing added/rephrased), few replacements (ASR fixes, not
-        rewording), bounded deletions (can't strip real content). Otherwise the
-        original conservative fix-only guards apply.
+        Returns (accept, reject_reason). In disfluency mode the LLM is trusted
+        to judge what's filler; the diff only backstops gross failure — nothing
+        ADDED (no rewrite/hallucination) and not more than a bounded fraction
+        deleted or word-swapped. Comparison is on normalized tokens (lowercased,
+        punctuation stripped) so cosmetic restructuring — a sentence split, a
+        capital letter, a comma — is never miscounted as rewording. Outside
+        disfluency mode the original conservative fix-only guards apply.
         """
         aw, bw = text.split(), corrected.split()
         if not self._remove_disfluencies:
@@ -329,18 +332,16 @@ class PostCorrector:
                 return False, "editratio"
             return True, ""
 
+        na, nb = _norm_words(text), _norm_words(corrected)
+        aw, bw = na, nb
         inserted = replaced = deleted = 0
         for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=aw, b=bw).get_opcodes():
             if tag == "insert":
                 inserted += j2 - j1
             elif tag == "replace":
                 replaced += max(i2 - i1, j2 - j1)
-                if any(_is_meaning_critical(w) for w in aw[i1:i2]):
-                    return False, "negation"   # e.g. "not" → something else
             elif tag == "delete":
                 deleted += i2 - i1
-                if any(_is_meaning_critical(w) for w in aw[i1:i2]):
-                    return False, "negation"   # dropping "not" inverts meaning
         n = len(aw)
         if inserted > _MAX_INSERTED_WORDS:
             return False, "inserted"          # added content — meaning changed
