@@ -51,16 +51,39 @@ class TestSileroVad:
         chunk = np.zeros(1024, dtype=np.float32)
         assert vad.is_speech(chunk) is False
 
-    def test_speech_detected(self, vad):
-        # Generate a sine wave at speech-like frequency
-        t = np.linspace(0, 0.1, 1600, dtype=np.float32)
-        chunk = 0.5 * np.sin(2 * np.pi * 300 * t)
-        # Run several chunks to build state
-        for _ in range(5):
-            result = vad.is_speech(chunk)
-        # At least one should detect speech (sine wave isn't silence)
-        # Note: Silero may not classify pure sine as speech, so we just test it runs
-        assert isinstance(result, bool)
+    def test_v5_feeds_context_window(self, vad):
+        """Regression: Silero v5 consumes 512+64=576 samples — the window plus
+        the previous window's 64-sample tail as context. Feeding a bare 512
+        (the pre-fix bug) makes the model score all real speech as silence
+        (measured: max prob 0.016 vs 1.0 with context)."""
+        if not vad._use_state:
+            pytest.skip("v4 model has no context requirement")
+        seen = []
+        real_run = vad._session.run
+
+        def spy(outs, inputs):
+            seen.append(inputs["input"])
+            return real_run(outs, inputs)
+
+        vad._session.run = spy
+        # Two distinct windows so we can check the context carries across.
+        w1 = np.arange(512, dtype=np.float32) / 512.0
+        w2 = np.arange(512, 1024, dtype=np.float32) / 512.0
+        vad.is_speech(w1)
+        vad.is_speech(w2)
+        assert seen[0].shape[-1] == 512 + 64        # 576, not a bare 512
+        # First call's context is zeros; second call's leading 64 samples must
+        # be the tail of the first window (state carried between steps).
+        assert np.allclose(seen[0][0, :64], 0.0)
+        assert np.allclose(seen[1][0, :64], w1[-64:])
+
+    def test_reset_clears_context(self, vad):
+        if not vad._use_state:
+            pytest.skip("v4 model has no context")
+        vad.is_speech(np.arange(512, dtype=np.float32) / 512.0)
+        assert not np.allclose(vad._context, 0.0)  # context now populated
+        vad.reset()
+        assert np.allclose(vad._context, 0.0)
 
     def test_reset_clears_state(self, vad):
         chunk = np.zeros(1024, dtype=np.float32)
