@@ -26,6 +26,14 @@ log = logging.getLogger(__name__)
 _MAX_EDIT_RATIO = 0.3    # word-level SequenceMatcher edit ratio ceiling
 _MAX_WORDCOUNT_DELTA = 0.2  # allowed relative change in word count
 
+# Disfluency-mode guards. The whole promise is "never change meaning", enforced
+# structurally on the word-level diff: no INSERTIONS (can't add or rephrase),
+# few REPLACEMENTS (ASR fixes only, not reword), bounded DELETIONS (can't nuke
+# real content). Deletions are what disfluency removal legitimately does.
+_MAX_INSERTED_WORDS = 0     # adding any word = altering meaning → reject
+_MAX_REPLACE_FRAC = 0.15    # ASR word-fixes only, never wholesale rewording
+_MAX_DELETE_FRAC = 0.4      # backstop against deleting real content
+
 _SYSTEM_PROMPT = (
     "You fix automatic speech recognition errors in dictated text. "
     "The user dictates about software engineering and their projects. "
@@ -33,6 +41,23 @@ _SYSTEM_PROMPT = (
     "garbled technical terms). NEVER rephrase, summarize, add or remove "
     "content, or change style/punctuation beyond the fixed words. "
     "Return only the corrected text with no commentary."
+)
+
+# Disfluency mode: also strip spoken filler, delete-only. The strict rules
+# mirror the guards — the model is told exactly what the diff check enforces.
+_SYSTEM_PROMPT_CLEAN = (
+    "You convert dictated speech into clean written text. The user dictates "
+    "about software engineering and their projects. Do exactly two things:\n"
+    "1. Fix words the recognizer misheard (wrong proper nouns, homophones, "
+    "garbled technical terms).\n"
+    "2. Remove speech disfluencies: filler sounds (um, uh, er); filler uses of "
+    "'like', 'you know', 'I mean'; false starts and self-corrections (keep the "
+    "corrected version); and stray word repetitions.\n"
+    "STRICT RULES: Only DELETE disfluencies and FIX misheard words. NEVER add "
+    "words. NEVER rephrase, reword, reorder, or summarize. NEVER drop real "
+    "content, meaningful hedges, or negations. If unsure whether something is a "
+    "disfluency, KEEP it. Preserve the speaker's own wording and punctuation. "
+    "Return only the cleaned text, nothing else."
 )
 
 _MAX_RECENT = 3
@@ -82,6 +107,7 @@ class PostCorrector:
     def __init__(self, cfg: Config):
         self._cfg = cfg
         self._pc = cfg.postcorrect
+        self._remove_disfluencies = cfg.output.remove_disfluencies
         # API key / base_url resolution is shared with [autocorrect].
         self._ac = cfg.autocorrect
         self._available: bool | None = None
@@ -210,10 +236,14 @@ class PostCorrector:
         t0 = time.monotonic()
         outcome: dict = {}
 
+        system_prompt = (
+            _SYSTEM_PROMPT_CLEAN if self._remove_disfluencies else _SYSTEM_PROMPT
+        )
+
         def _call() -> None:
             try:
                 outcome["response"] = chat(
-                    self._client_cfg(), _SYSTEM_PROMPT, user_msg, max_tokens=1024,
+                    self._client_cfg(), system_prompt, user_msg, max_tokens=1024,
                 )
             except Exception as e:
                 outcome["error"] = e
@@ -251,26 +281,47 @@ class PostCorrector:
             self._record(text, corrected, "unchanged")
             return text
 
-        # Guard: word-count must not change materially.
-        orig_wc, new_wc = len(text.split()), len(corrected.split())
-        if orig_wc and abs(new_wc - orig_wc) / orig_wc > _MAX_WORDCOUNT_DELTA:
-            log.debug(
-                "PostCorrector reject: word count %d→%d (>%.0f%%) — keeping original",
-                orig_wc, new_wc, _MAX_WORDCOUNT_DELTA * 100,
-            )
-            self._record(text, corrected, "rejected_wordcount")
-            return text
-
-        # Guard: only a small fraction of words may change.
-        ratio = _word_edit_ratio(text, corrected)
-        if ratio > _MAX_EDIT_RATIO:
-            log.debug(
-                "PostCorrector reject: edit ratio %.2f > %.2f — keeping original",
-                ratio, _MAX_EDIT_RATIO,
-            )
-            self._record(text, corrected, "rejected_editratio")
+        accept, reject_reason = self._guard(text, corrected)
+        if not accept:
+            log.debug("PostCorrector reject (%s) — keeping original", reject_reason)
+            self._record(text, corrected, f"rejected_{reject_reason}")
             return text
 
         log.info("PostCorrector fixed: %s", ", ".join(_changed_words(text, corrected)))
         self._record(text, corrected, "applied")
         return corrected
+
+    def _guard(self, text: str, corrected: str) -> tuple[bool, str]:
+        """Decide whether the LLM's edit is within bounds.
+
+        Returns (accept, reject_reason). In disfluency mode the promise is
+        "never change meaning", enforced on the word-level diff: zero
+        insertions (nothing added/rephrased), few replacements (ASR fixes, not
+        rewording), bounded deletions (can't strip real content). Otherwise the
+        original conservative fix-only guards apply.
+        """
+        aw, bw = text.split(), corrected.split()
+        if not self._remove_disfluencies:
+            n = len(aw)
+            if n and abs(len(bw) - n) / n > _MAX_WORDCOUNT_DELTA:
+                return False, "wordcount"
+            if _word_edit_ratio(text, corrected) > _MAX_EDIT_RATIO:
+                return False, "editratio"
+            return True, ""
+
+        inserted = replaced = deleted = 0
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=aw, b=bw).get_opcodes():
+            if tag == "insert":
+                inserted += j2 - j1
+            elif tag == "replace":
+                replaced += max(i2 - i1, j2 - j1)
+            elif tag == "delete":
+                deleted += i2 - i1
+        n = len(aw)
+        if inserted > _MAX_INSERTED_WORDS:
+            return False, "inserted"          # added content — meaning changed
+        if replaced > max(3, int(_MAX_REPLACE_FRAC * n)):
+            return False, "reworded"           # too many substitutions = rewrite
+        if n and deleted > _MAX_DELETE_FRAC * n:
+            return False, "overdeleted"        # nuked real content
+        return True, ""

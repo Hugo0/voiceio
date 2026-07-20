@@ -88,6 +88,12 @@ class OutputConfig:
     cancel_window_secs: float = 0.5
     punctuation_cleanup: bool = True
     number_conversion: bool = True
+    # Strip spoken disfluencies so dictation reads as writing. Delete-only and
+    # meaning-preserving: a free regex layer removes filler sounds (um/uh/er)
+    # and duplicate re-decode sentences on every pass; when [postcorrect] is
+    # also enabled, its LLM pass additionally removes false starts and filler
+    # "like", guarded so it can only delete — never add, rephrase, or reorder.
+    remove_disfluencies: bool = False
     voice_input_prefix: str = ""           # e.g. "[voice]" — empty disables
     # Incremental finalization: once the un-finalized audio tail grows past
     # this many seconds, it is cut at the nearest interior speech pause,
