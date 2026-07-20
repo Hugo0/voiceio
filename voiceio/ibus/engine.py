@@ -24,10 +24,18 @@ import gi
 gi.require_version("IBus", "1.0")
 from gi.repository import GLib, GObject, IBus
 
-from voiceio.ibus import READY_PATH, SOCKET_PATH, ping_engine
+from voiceio.ibus import (
+    READY_PATH,
+    SOCKET_PATH,
+    acquire_singleton_lock,
+)
 from voiceio.ibus.pending import PendingBuffer
 
 log = logging.getLogger(__name__)
+
+# Singleton lock fd, held for the process lifetime (see main()). Module-level so
+# it is never garbage-collected — closing the fd would release the lock.
+_lock_fd: int | None = None
 ENGINE_NAME = "voiceio"
 COMPONENT_NAME = "org.voiceio.ibus"
 
@@ -230,13 +238,17 @@ def main() -> None:
         ],
     )
 
-    # Refuse to double-run. ibus-daemon can exec-spawn its own copy of this
-    # engine (component XML) when something activates the voiceio source —
-    # e.g. GNOME's per-window source memory. Binding SOCKET_PATH here would
-    # steal it from the healthy daemon-spawned engine and silently starve it
-    # (alive, but never sees another command or ping → zombie recovery).
-    if ping_engine(timeout=0.5):
-        log.info("Healthy VoiceIO engine already serving %s — exiting duplicate", SOCKET_PATH)
+    # Refuse to double-run, race-free. ibus-daemon exec-spawns its own copy of
+    # this engine (component XML) when something activates the voiceio source
+    # (GNOME per-window source memory / Super+Space — voiceio is first in
+    # mru-sources). Without an atomic gate, two engines both pass a ping check
+    # then both unlink+rebind SOCKET_PATH in _socket_listener; the loser is
+    # left on an orphaned inode — a "zombie" the watchdog kills and respawns.
+    # The lock fd is held for our whole lifetime (released on process death).
+    global _lock_fd
+    _lock_fd = acquire_singleton_lock()
+    if _lock_fd is None:
+        log.info("Another VoiceIO engine holds the lock — exiting duplicate")
         return
 
     IBus.init()
