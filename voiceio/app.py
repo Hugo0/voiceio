@@ -283,8 +283,28 @@ class VoiceIO:
             self._last_hotkey = now
             self._toggle()
 
-    def _on_auto_stop(self) -> None:
-        """Called from audio thread when sustained silence triggers auto-stop."""
+    def _on_auto_stop(self, reason: str = "silence") -> None:
+        """Called from the audio thread when the recorder auto-stops.
+
+        reason="silence": spoke, then went quiet — a normal end of dictation.
+        reason="no_speech": nothing was heard the whole time — a muted mic or a
+        hotkey pressed by accident. Surface it so it isn't a silent failure
+        (today's Discord-mute confusion: recording ran, nothing was captured,
+        and there was no sign why).
+        """
+        if reason == "no_speech":
+            from voiceio import feedback
+            if not self.recorder.has_signal():
+                feedback.notify(
+                    "VoiceIO: microphone is muted",
+                    "Stopped — no audio is reaching voiceio. Check your mic's "
+                    "mute button and that the right input device is selected.",
+                )
+            else:
+                feedback.notify(
+                    "VoiceIO: stopped — no speech detected",
+                    "Recording auto-stopped after silence.",
+                )
         threading.Thread(target=self._request_stop, daemon=True).start()
 
     def _request_stop(self) -> None:
