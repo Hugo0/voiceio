@@ -16,6 +16,11 @@ log = logging.getLogger(__name__)
 _MODEL_PATH = Path(__file__).parent / "models" / "silero_vad.onnx"
 _WINDOW_SIZE = 512  # Silero expects 512 samples at 16kHz (~32ms)
 _SAMPLE_RATE = 16000
+# Silero v5 consumes 576 samples per step: the 512-sample window PLUS the 64
+# trailing samples of the previous window as context. Feeding a bare 512 makes
+# the model score everything as non-speech (measured: max prob 0.016 vs 1.0
+# with context). The official ONNX wrapper prepends this outside the graph.
+_CONTEXT_SIZE = 64
 
 
 @runtime_checkable
@@ -46,6 +51,8 @@ class SileroVad:
             state_meta = [inp for inp in self._session.get_inputs() if inp.name == "state"][0]
             state_dim = state_meta.shape[2]  # 128 for v5
             self._state = np.zeros((2, 1, state_dim), dtype=np.float32)
+            # v5 context: the previous window's trailing 64 samples.
+            self._context = np.zeros(_CONTEXT_SIZE, dtype=np.float32)
         else:
             self._h = np.zeros((2, 1, 64), dtype=np.float32)
             self._c = np.zeros((2, 1, 64), dtype=np.float32)
@@ -56,6 +63,7 @@ class SileroVad:
     def reset(self) -> None:
         if self._use_state:
             self._state = np.zeros_like(self._state)
+            self._context = np.zeros(_CONTEXT_SIZE, dtype=np.float32)
         else:
             self._h = np.zeros_like(self._h)
             self._c = np.zeros_like(self._c)
@@ -76,13 +84,15 @@ class SileroVad:
         return speech
 
     def _infer(self, window: np.ndarray) -> float:
-        input_data = window.reshape(1, -1)
         sr = np.array(_SAMPLE_RATE, dtype=np.int64)
         if self._use_state:
-            ort_inputs = {"input": input_data, "state": self._state, "sr": sr}
+            # Prepend the previous window's tail; the model needs 512+64=576.
+            x = np.concatenate([self._context, window])
+            self._context = window[-_CONTEXT_SIZE:].copy()
+            ort_inputs = {"input": x.reshape(1, -1), "state": self._state, "sr": sr}
             out, self._state = self._session.run(None, ort_inputs)
         else:
-            ort_inputs = {"input": input_data, "h": self._h, "c": self._c, "sr": sr}
+            ort_inputs = {"input": window.reshape(1, -1), "h": self._h, "c": self._c, "sr": sr}
             out, self._h, self._c = self._session.run(None, ort_inputs)
         return float(out.squeeze())
 
