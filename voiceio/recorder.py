@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Peak amplitude below this is treated as no signal at all (a muted mic emits
+# exact zeros; a working mic's "silence" still noises above ~1e-4). Matches the
+# floor in has_signal(). Used only to detect a dead mic, never speech vs pause.
+_SIGNAL_FLOOR = 1e-4
+
 
 class RingBuffer:
     """Fixed-size ring buffer for float32 audio samples."""
@@ -111,6 +116,10 @@ class AudioRecorder:
         self._no_speech_secs = cfg.auto_stop_no_speech_secs
         self._sustained_silence = 0.0
         self._heard_speech = False
+        # Raw-signal (amplitude) tracking for the muted-mic auto-stop, kept
+        # separate from the VAD-based _heard_speech / _sustained_silence above.
+        self._heard_signal = False
+        self._silent_signal_secs = 0.0
         # Called with a reason: "silence" (spoke then paused) or "no_speech"
         # (nothing ever heard — a muted mic or a forgotten hotkey).
         self._on_auto_stop: Callable[[str], None] | None = None
@@ -221,6 +230,8 @@ class AudioRecorder:
             self._silent_chunks = 0.0
             self._sustained_silence = 0.0
             self._heard_speech = False
+            self._heard_signal = False
+            self._silent_signal_secs = 0.0
             self._pause_fired_at = 0
             self._meter_peak = 0.0
             self._meter_clipped = 0
@@ -301,8 +312,19 @@ class AudioRecorder:
 
         # Level metering
         abs_chunk = np.abs(chunk.ravel())
-        self._meter_peak = max(self._meter_peak, float(abs_chunk.max(initial=0.0)))
+        chunk_peak = float(abs_chunk.max(initial=0.0))
+        self._meter_peak = max(self._meter_peak, chunk_peak)
         self._meter_samples += len(abs_chunk)
+
+        # Raw-signal presence, independent of the VAD. A muted mic delivers
+        # digital zeros; real audio (even speech the VAD fails to classify)
+        # sits well above the floor. This — NOT the VAD — gates the muted-mic
+        # auto-stop, so a recording is never cut while real audio is coming in.
+        if chunk_peak > _SIGNAL_FLOOR:
+            self._heard_signal = True
+            self._silent_signal_secs = 0.0
+        else:
+            self._silent_signal_secs += frames / self.sample_rate
         pinned = abs_chunk >= 0.99
         if np.count_nonzero(pinned) >= 4:
             runs = np.convolve(pinned.astype(np.int8), np.ones(4, dtype=np.int8), "valid")
@@ -345,18 +367,18 @@ class AudioRecorder:
             log.info("Auto-stopping after %.0fs of silence", self._auto_stop_secs)
             cb("silence")
 
-        # Safety net: nothing heard at all for a long time. Because speech
-        # resets _sustained_silence AND is gated out by not-_heard_speech, this
-        # measures continuous silence from the very start of the recording — a
-        # muted mic (all zeros) or a hotkey pressed by accident. Distinct reason
-        # so the app can surface it instead of failing silently.
+        # Safety net for a dead mic: NO raw audio signal at all for a long
+        # time — the mic is muted / unplugged / delivering zeros, never merely
+        # that the VAD didn't flag speech (that would cut real dictation off
+        # mid-sentence). _heard_signal latches on the first non-zero chunk, so
+        # this only fires for a mic that was silent from the very start.
         elif (self._on_auto_stop is not None
                 and self._no_speech_secs > 0
-                and not self._heard_speech
-                and self._sustained_silence >= self._no_speech_secs):
+                and not self._heard_signal
+                and self._silent_signal_secs >= self._no_speech_secs):
             cb = self._on_auto_stop
             self._on_auto_stop = None
-            self._sustained_silence = 0.0
-            log.info("Auto-stopping: no speech heard in %.0fs (mic muted?)",
+            self._silent_signal_secs = 0.0
+            log.info("Auto-stopping: no mic signal in %.0fs (muted?)",
                      self._no_speech_secs)
             cb("no_speech")
