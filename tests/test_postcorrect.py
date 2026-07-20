@@ -121,23 +121,15 @@ def test_disfluency_mode_rejects_rewording():
         assert pc.correct(original) == original
 
 
-def test_disfluency_mode_rejects_dropped_negation():
-    """Dropping 'not' is one deletion under every fraction cap but inverts
-    meaning — the negation guard must reject it."""
+def test_disfluency_mode_allows_trailing_shrug_with_negation():
+    """No mechanical negation guard — the LLM decides. Dropping a trailing
+    'I don't know' shrug (plus other filler) is accepted; the model, not a
+    regex, is trusted to avoid genuine polarity flips (see the prompt)."""
     pc = PostCorrector(_cfg(remove_disfluencies=True))
-    original = "I do not want the feature to ship today at all"
-    inverted = "I do want the feature to ship today at all"
-    with patch("voiceio.llm_api.chat", return_value=inverted):
-        assert pc.correct(original) == original
-
-
-def test_disfluency_mode_rejects_replaced_negation():
-    """Replacing a negation with something else also inverts meaning."""
-    pc = PostCorrector(_cfg(remove_disfluencies=True))
-    original = "we should never deploy on a friday afternoon"
-    changed = "we should always deploy on a friday afternoon"
-    with patch("voiceio.llm_api.chat", return_value=changed):
-        assert pc.correct(original) == original
+    original = "the build passed but I don't know we should still check it carefully today"
+    cleaned = "the build passed we should still check it carefully today"
+    with patch("voiceio.llm_api.chat", return_value=cleaned):
+        assert pc.correct(original) == cleaned
 
 
 def test_fix_mode_still_rejects_big_deletion():
