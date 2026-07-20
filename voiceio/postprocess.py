@@ -14,13 +14,25 @@ if TYPE_CHECKING:
 _NO_CASE_LANGUAGES = frozenset({"zh", "ja", "ko", "ar", "he", "th", "hi", "bn", "ka", "my"})
 
 # Filler SOUNDS only — tokens with no lexical meaning, so deleting them can
-# never change meaning. Word repetitions ("had had" is valid English) and
-# filler uses of "like"/"you know" need judgment and are left to the LLM layer.
-# Consumes an adjacent comma on either side so "be, uh, found" → "be found".
+# never change meaning. Deliberately conservative because this runs on every
+# user's speech:
+#   * CASE-SENSITIVE (no IGNORECASE): all-caps abbreviations that look like
+#     fillers are real words and must survive — "ER" (emergency room), "UM"
+#     (University of Michigan), "HM". We match lowercase and Title-case forms
+#     ("um", "Um") — Whisper's filler spellings — but never all-caps.
+#   * Excluded entirely: "er"/"erm" ("ER"/"Er"=erbium), "mm" (millimetres),
+#     "ah" (interjection), bare "hm" (hectometre — require "hmm", 2+ m's).
+#   * Surrounding whitespace is horizontal-only ([^\S\n]) so a filler on its
+#     own line doesn't swallow the paragraph/list break around it.
+# Word repetitions ("had had" is valid English) and filler "like"/"you know"
+# need judgment and are left to the LLM layer. Order matters: multi-token
+# "uh-huh" before "[Uu]h+" so it isn't clipped to a stray "-huh".
 _FILLER_RE = re.compile(
-    r"\s*,?\s*\b(?:u+m+|u+h+m*|e+r+m*|erm+|a+h+|h+m+|mm+|mhm|uh[-\s]?huh)\b\s*,?\s*",
-    re.IGNORECASE,
+    r"[^\S\n]*,?[^\S\n]*\b(?:[Uu]h[-\s]?huh|[Mm]hm|[Uu]h+m*|[Uu]m+|[Hh]m{2,})\b[^\S\n]*,?[^\S\n]*",
 )
+# A re-decode artifact is a whole duplicated sentence; require this many words
+# so emphatic short repeats ("No. No.", "Stop. Stop.") are preserved.
+_MIN_DEDUP_WORDS = 4
 
 
 def strip_disfluencies(text: str) -> str:
@@ -36,19 +48,33 @@ def strip_disfluencies(text: str) -> str:
         return text
     text = _FILLER_RE.sub(" ", text)
     text = _dedup_adjacent_sentences(text)
-    text = re.sub(r"\s{2,}", " ", text)
+    # Repair the debris the deletions leave, without crossing newlines (so
+    # paragraph/list structure survives even when punctuation_cleanup is off).
+    text = re.sub(r"[^\S\n]+([,.;:?!])", r"\1", text)  # space before punctuation
+    text = re.sub(r"[^\S\n]{2,}", " ", text)           # collapse runs of spaces
     return text.strip()
 
 
 def _dedup_adjacent_sentences(text: str) -> str:
-    """Drop a sentence identical to the one immediately before it."""
-    parts = re.split(r"(?<=[.?!])\s+", text)
+    """Drop a sentence identical to the one immediately before it.
+
+    Separators are captured and preserved on rejoin so paragraph/list breaks
+    survive; only a full (>= _MIN_DEDUP_WORDS) verbatim repeat is removed.
+    """
+    tokens = re.split(r"((?<=[.?!])\s+)", text)  # [sent, sep, sent, sep, …]
     out: list[str] = []
-    for p in parts:
-        if out and p.strip().lower() == out[-1].strip().lower():
-            continue
-        out.append(p)
-    return " ".join(out)
+    last_kept: str | None = None
+    for i in range(0, len(tokens), 2):
+        sentence = tokens[i]
+        sep = tokens[i + 1] if i + 1 < len(tokens) else ""
+        norm = sentence.strip().lower()
+        if (last_kept is not None and norm == last_kept
+                and len(sentence.split()) >= _MIN_DEDUP_WORDS):
+            continue  # drop the duplicate sentence and its separator
+        out.append(sentence)
+        out.append(sep)
+        last_kept = norm
+    return "".join(out)
 
 
 def cleanup(text: str, language: str = "en") -> str:

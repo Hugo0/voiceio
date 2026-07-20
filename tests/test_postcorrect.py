@@ -121,6 +121,25 @@ def test_disfluency_mode_rejects_rewording():
         assert pc.correct(original) == original
 
 
+def test_disfluency_mode_rejects_dropped_negation():
+    """Dropping 'not' is one deletion under every fraction cap but inverts
+    meaning — the negation guard must reject it."""
+    pc = PostCorrector(_cfg(remove_disfluencies=True))
+    original = "I do not want the feature to ship today at all"
+    inverted = "I do want the feature to ship today at all"
+    with patch("voiceio.llm_api.chat", return_value=inverted):
+        assert pc.correct(original) == original
+
+
+def test_disfluency_mode_rejects_replaced_negation():
+    """Replacing a negation with something else also inverts meaning."""
+    pc = PostCorrector(_cfg(remove_disfluencies=True))
+    original = "we should never deploy on a friday afternoon"
+    changed = "we should always deploy on a friday afternoon"
+    with patch("voiceio.llm_api.chat", return_value=changed):
+        assert pc.correct(original) == original
+
+
 def test_fix_mode_still_rejects_big_deletion():
     """With disfluency mode OFF, the original conservative guards stand: a big
     deletion is a length change and must be rejected."""
