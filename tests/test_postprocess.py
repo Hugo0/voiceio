@@ -24,14 +24,47 @@ class TestStripDisfluencies:
         assert strip_disfluencies("I had had enough") == "I had had enough"
 
     def test_dedups_duplicate_sentence(self):
-        # The Whisper re-decode artifact: an exact sentence repeated.
-        out = strip_disfluencies("Do the research. Do the research.")
-        assert out == "Do the research."
+        # The Whisper re-decode artifact: a whole sentence repeated verbatim.
+        out = strip_disfluencies("Do the deep research now. Do the deep research now.")
+        assert out == "Do the deep research now."
 
     def test_keeps_meaningful_words(self):
         # 'like' as a real verb/preposition and content must survive.
         text = "I like the design and it works like a charm"
         assert strip_disfluencies(text) == text
+
+    def test_never_eats_real_words_or_units(self):
+        # Default-on runs on everyone's speech: filler patterns must not collide
+        # with real words, units, or abbreviations. Case-sensitive matching is
+        # what protects the all-caps abbreviations (ER, UM, HM).
+        for text in [
+            "to err is human",
+            "we should err on caution",
+            "the bolt is 5 mm wide",
+            "set it to 10 mm please",
+            "ah yes I remember now",
+            "I like the ohm rating",
+            "Take him to the ER right now",       # ER = emergency room
+            "The UM campus in Michigan",           # UM = University of Michigan
+            "The Er atom is a lanthanide",         # Er = erbium
+            "we measured 3 hm across",             # hm = hectometre (bare, 1 m)
+        ]:
+            assert strip_disfluencies(text) == text, text
+
+    def test_preserves_newlines_and_structure(self):
+        # A filler on its own line must not swallow the paragraph break.
+        assert strip_disfluencies("First para.\n\nSecond para.") == \
+            "First para.\n\nSecond para."
+        assert "\n\n" in strip_disfluencies("First para.\n\num\n\nSecond para.")
+
+    def test_uh_huh_removed_whole(self):
+        # Regression: ordering bug once stranded "-huh".
+        assert strip_disfluencies("uh-huh right") == "right"
+        assert strip_disfluencies("uh huh yes") == "yes"
+
+    def test_preserves_emphatic_short_repeat(self):
+        # Short repeats are emphasis, not a re-decode artifact — keep them.
+        assert strip_disfluencies("No. No.") == "No. No."
 
     def test_empty(self):
         assert strip_disfluencies("") == ""

@@ -93,7 +93,8 @@ class OutputConfig:
     # and duplicate re-decode sentences on every pass; when [postcorrect] is
     # also enabled, its LLM pass additionally removes false starts and filler
     # "like", guarded so it can only delete — never add, rephrase, or reorder.
-    remove_disfluencies: bool = False
+    # On by default: nobody wants "um" in their notes. Set false for verbatim.
+    remove_disfluencies: bool = True
     voice_input_prefix: str = ""           # e.g. "[voice]" — empty disables
     # Incremental finalization: once the un-finalized audio tail grows past
     # this many seconds, it is cut at the nearest interior speech pause,

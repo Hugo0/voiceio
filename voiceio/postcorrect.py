@@ -34,6 +34,19 @@ _MAX_INSERTED_WORDS = 0     # adding any word = altering meaning → reject
 _MAX_REPLACE_FRAC = 0.15    # ASR word-fixes only, never wholesale rewording
 _MAX_DELETE_FRAC = 0.4      # backstop against deleting real content
 
+# Words whose deletion/replacement flips meaning — the fraction caps can't catch
+# a single dropped "not". If the edit touches any of these on the original side,
+# reject outright. (Contractions ending in "n't" are handled separately.)
+_MEANING_CRITICAL = frozenset({
+    "not", "no", "never", "none", "nor", "neither", "without", "cannot",
+    "nothing", "nobody", "nowhere", "n't",
+})
+
+
+def _is_meaning_critical(word: str) -> bool:
+    w = word.lower().strip(".,;:!?\"'()")
+    return w in _MEANING_CRITICAL or w.endswith("n't")
+
 _SYSTEM_PROMPT = (
     "You fix automatic speech recognition errors in dictated text. "
     "The user dictates about software engineering and their projects. "
@@ -315,8 +328,12 @@ class PostCorrector:
                 inserted += j2 - j1
             elif tag == "replace":
                 replaced += max(i2 - i1, j2 - j1)
+                if any(_is_meaning_critical(w) for w in aw[i1:i2]):
+                    return False, "negation"   # e.g. "not" → something else
             elif tag == "delete":
                 deleted += i2 - i1
+                if any(_is_meaning_critical(w) for w in aw[i1:i2]):
+                    return False, "negation"   # dropping "not" inverts meaning
         n = len(aw)
         if inserted > _MAX_INSERTED_WORDS:
             return False, "inserted"          # added content — meaning changed
