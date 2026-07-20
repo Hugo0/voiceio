@@ -1,8 +1,54 @@
 """Tests for text post-processing (punctuation, capitalization)."""
 from __future__ import annotations
 
-from voiceio.postprocess import apply_pipeline, cleanup
+from voiceio.postprocess import apply_pipeline, cleanup, strip_disfluencies
 from voiceio.streaming import _word_match_len
+
+
+class TestStripDisfluencies:
+    """Delete-only regex layer: filler sounds + duplicate re-decode sentences,
+    never anything that could change meaning."""
+
+    def test_removes_filler_sounds(self):
+        out = strip_disfluencies("so um we should uh ship it")
+        assert "um" not in out.split()
+        assert "uh" not in out.split()
+        assert "we should" in out and "ship it" in out
+
+    def test_removes_comma_wrapped_filler(self):
+        assert "uh" not in strip_disfluencies("we tested, uh, everything").split()
+
+    def test_preserves_valid_word_repetition(self):
+        # "had had" is valid English; regex must NOT touch word repeats — that
+        # judgment belongs to the LLM layer.
+        assert strip_disfluencies("I had had enough") == "I had had enough"
+
+    def test_dedups_duplicate_sentence(self):
+        # The Whisper re-decode artifact: an exact sentence repeated.
+        out = strip_disfluencies("Do the research. Do the research.")
+        assert out == "Do the research."
+
+    def test_keeps_meaningful_words(self):
+        # 'like' as a real verb/preposition and content must survive.
+        text = "I like the design and it works like a charm"
+        assert strip_disfluencies(text) == text
+
+    def test_empty(self):
+        assert strip_disfluencies("") == ""
+
+
+class TestPipelineDisfluencies:
+    def test_flag_off_keeps_fillers(self):
+        text, _ = apply_pipeline("um hello there friend", do_cleanup=True, final=True)
+        assert "um" in text.lower().split()
+
+    def test_flag_on_strips_fillers(self):
+        text, _ = apply_pipeline(
+            "um hello there friend",
+            do_cleanup=True, remove_disfluencies=True, final=True,
+        )
+        assert "um" not in text.lower().split()
+        assert "hello there friend" in text.lower()
 
 
 class TestCapitalization:

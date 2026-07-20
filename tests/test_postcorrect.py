@@ -7,11 +7,13 @@ from voiceio.config import Config, PostCorrectConfig
 from voiceio.postcorrect import PostCorrector
 
 
-def _cfg(*, enabled=True, api_key="test-key", min_words=4, model="") -> Config:
+def _cfg(*, enabled=True, api_key="test-key", min_words=4, model="",
+         remove_disfluencies=False) -> Config:
     cfg = Config()
     cfg.postcorrect = PostCorrectConfig(
         enabled=enabled, min_words=min_words, model=model,
     )
+    cfg.output.remove_disfluencies = remove_disfluencies
     cfg.autocorrect.api_key = api_key
     return cfg
 
@@ -76,6 +78,56 @@ def test_word_count_guard_rejects_length_change():
     # Doubling the word count exceeds the 20% delta ceiling.
     padded = "run the crons now please and also do many other extra things"
     with patch("voiceio.llm_api.chat", return_value=padded):
+        assert pc.correct(original) == original
+
+
+# ── disfluency mode: delete-only, never change meaning ───────────────────
+
+
+def test_disfluency_mode_allows_deletion():
+    """Removing filler shrinks the text well past the 20% fix-mode ceiling —
+    the disfluency guard must allow it (deletions only)."""
+    pc = PostCorrector(_cfg(remove_disfluencies=True))
+    original = "so um we should like ship the thing today"
+    cleaned = "so we should ship the thing today"  # dropped 'um' and 'like'
+    with patch("voiceio.llm_api.chat", return_value=cleaned):
+        assert pc.correct(original) == cleaned
+
+
+def test_disfluency_mode_rejects_insertion():
+    """Adding any word could alter meaning — reject, keep the original."""
+    pc = PostCorrector(_cfg(remove_disfluencies=True))
+    original = "we should ship the thing today"
+    added = "we should ship the thing today and also test everything first"
+    with patch("voiceio.llm_api.chat", return_value=added):
+        assert pc.correct(original) == original
+
+
+def test_disfluency_mode_rejects_overdeletion():
+    """Deleting more than the cap means real content was stripped — reject."""
+    pc = PostCorrector(_cfg(remove_disfluencies=True))
+    original = "please run the full test suite before you deploy tonight okay"
+    gutted = "please run test deploy"  # >40% of words gone
+    with patch("voiceio.llm_api.chat", return_value=gutted):
+        assert pc.correct(original) == original
+
+
+def test_disfluency_mode_rejects_rewording():
+    """Many substitutions = a rewrite, not filler removal — reject."""
+    pc = PostCorrector(_cfg(remove_disfluencies=True))
+    original = "the server crashed at midnight during the backup"
+    reworded = "the machine went down at noon while copying files"
+    with patch("voiceio.llm_api.chat", return_value=reworded):
+        assert pc.correct(original) == original
+
+
+def test_fix_mode_still_rejects_big_deletion():
+    """With disfluency mode OFF, the original conservative guards stand: a big
+    deletion is a length change and must be rejected."""
+    pc = PostCorrector(_cfg(remove_disfluencies=False))
+    original = "so um we should like ship the thing today"
+    cleaned = "so we should ship the thing today"
+    with patch("voiceio.llm_api.chat", return_value=cleaned):
         assert pc.correct(original) == original
 
 

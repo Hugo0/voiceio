@@ -188,6 +188,7 @@ class VoiceIO:
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._cleanup = cfg.output.punctuation_cleanup
         self._number_conversion = cfg.output.number_conversion
+        self._remove_disfluencies = cfg.output.remove_disfluencies
         self._voice_input_prefix = cfg.output.voice_input_prefix
         self._streaming = cfg.output.streaming
 
@@ -458,6 +459,7 @@ class VoiceIO:
                 self.transcriber, self._typer, self.recorder,
                 generation=self._generation,
                 cleanup=self._cleanup,
+                remove_disfluencies=self._remove_disfluencies,
                 number_conversion=self._number_conversion,
                 language=self.cfg.model.language,
                 commands=self._command_processor,
@@ -669,6 +671,7 @@ class VoiceIO:
                 text, abort = apply_pipeline(
                     text,
                     do_cleanup=self._cleanup,
+                    remove_disfluencies=self._remove_disfluencies,
                     number_conversion=self._number_conversion,
                     language=self.cfg.model.language,
                     commands=self._command_processor,

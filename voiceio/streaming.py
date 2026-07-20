@@ -135,6 +135,7 @@ class StreamingSession:
         recorder: AudioRecorder,
         generation: int = 0,
         cleanup: bool = False,
+        remove_disfluencies: bool = False,
         number_conversion: bool = False,
         language: str = "en",
         commands: CommandProcessor | None = None,
@@ -158,6 +159,7 @@ class StreamingSession:
         self._sample_rate = recorder.sample_rate
         self._generation = generation
         self._cleanup = cleanup
+        self._remove_disfluencies = remove_disfluencies
         self._number_conversion = number_conversion
         self._language = language
         self._commands = commands
@@ -450,6 +452,7 @@ class StreamingSession:
             text, abort = apply_pipeline(
                 raw,
                 do_cleanup=self._cleanup,
+                remove_disfluencies=self._remove_disfluencies,
                 number_conversion=self._number_conversion,
                 language=self._language,
                 commands=self._commands,
