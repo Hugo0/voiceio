@@ -131,6 +131,27 @@ _MENU_COMMANDS: dict[str, list[str]] = {
 }
 
 
+def _read_stderr(proc: subprocess.Popen) -> None:
+    """Drain the indicator's stderr so it can never block on a full pipe.
+
+    GTK/AppIndicator emit warnings continuously. With stderr piped and nobody
+    reading it, the 64KB pipe buffer fills and the tray process blocks forever
+    inside write() — the process stays "alive" (so is_alive() sees nothing
+    wrong) while its GLib main loop is frozen, which silently kills the icon
+    animation, the menu, AND the registration watchdog that would otherwise
+    re-register a dropped icon. Observed live: wchan=anon_pipe_write, icon gone
+    for ~2 days. Logged at debug so the diagnostics survive without noise.
+    """
+    try:
+        while proc.poll() is None and proc.stderr:
+            line = proc.stderr.readline()
+            if not line:
+                break
+            log.debug("tray: %s", line.decode(errors="replace").rstrip())
+    except (OSError, ValueError):
+        pass
+
+
 def _read_stdout(proc: subprocess.Popen, toggle_cb: Callable[[], None]) -> None:
     """Read toggle/menu commands from indicator subprocess stdout."""
     from voiceio.platform import open_in_terminal
@@ -193,6 +214,14 @@ def start(
                 _theme_dir, icon_names, ANIM_INTERVAL_MS, system_python,
             )
             _backend = "indicator"
+
+            # Always drain stderr — unconditionally, and regardless of whether
+            # a toggle callback wants stdout. An undrained pipe blocks the tray
+            # process mid-write and freezes its GLib loop (see _read_stderr).
+            threading.Thread(
+                target=_read_stderr, args=(_proc,), daemon=True,
+                name="tray-stderr",
+            ).start()
 
             if toggle_callback is not None:
                 _stdout_thread = threading.Thread(

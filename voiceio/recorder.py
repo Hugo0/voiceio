@@ -185,6 +185,17 @@ class AudioRecorder:
             return False  # ring not yet full — can't judge
         return not self.has_signal()
 
+    @property
+    def heard_signal(self) -> bool:
+        """True if ANY real audio arrived during the recording just captured.
+
+        Latches on the first non-silent chunk and is reset by start(), so after
+        stop() it answers "did the mic actually deliver anything?" — False means
+        a muted or dead mic for the whole take, whether it ended by hotkey or
+        auto-stop.
+        """
+        return self._heard_signal
+
     def has_signal(self) -> bool:
         """Check if the pre-buffer ring contains non-silence audio.
 
