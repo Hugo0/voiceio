@@ -253,6 +253,9 @@ class VoiceIO:
         # system is not a zombie) and a guard against concurrent spawns
         # (health loop vs record-start).
         self._engine_ping_fails = 0
+        # Engine stderr goes to a file (never a pipe — see _spawn_ibus_engine).
+        self._engine_stderr_file = None
+        self._engine_stderr_path = None
         self._engine_spawn_lock = threading.Lock()
         self._shutdown = threading.Event()
         # IBus input-source ownership. We claim the GNOME input source ONLY
@@ -307,6 +310,29 @@ class VoiceIO:
                     "Recording auto-stopped after silence.",
                 )
         threading.Thread(target=self._request_stop, daemon=True).start()
+
+    def _warn_if_nothing_captured(self, final_text: str, gen: int) -> None:
+        """Warn when a finished recording captured no audio at all.
+
+        This is the moment the user actually notices — they look for their text
+        and nothing appeared. The pre-flight warning is a 3s toast they talk
+        straight through, and the 20s no-speech auto-stop never fires on a
+        shorter take stopped by hand, which is exactly how a muted mic slips
+        by silently. Generation-guarded: a newer recording owns the recorder,
+        so never read its state to judge this one.
+        """
+        if self._generation != gen:
+            return
+        if final_text.strip() or self.recorder.heard_signal:
+            return
+        log.warning("Recording captured no audio at all — mic muted?")
+        from voiceio import feedback
+        feedback.notify(
+            "VoiceIO: microphone is muted — nothing recorded",
+            "No audio reached voiceio for that entire recording. Check your "
+            "mic's mute button and which input device is selected.",
+            urgent=True,
+        )
 
     def _request_stop(self) -> None:
         """Stop recording if active. Unlike on_hotkey, never starts."""
@@ -418,6 +444,7 @@ class VoiceIO:
                 feedback.notify(
                     "VoiceIO: microphone unavailable",
                     "Could not reopen the audio stream — check your input device.",
+                    urgent=True,
                 )
                 return
             if not self.recorder.has_signal():
@@ -426,6 +453,7 @@ class VoiceIO:
                 feedback.notify(
                     "VoiceIO: microphone appears silent",
                     "Check that your mic is unmuted and the right input device is selected.",
+                    urgent=True,
                 )
         elif not self.recorder.has_signal():
             log.warning("Mic appears silent or muted (pre-buffer is all zeros)")
@@ -639,6 +667,7 @@ class VoiceIO:
                 "passes": list(session.trace),
             })
         log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
+        self._warn_if_nothing_captured(final_text, gen)
         # Release the IBus input source now that the final commit is done.
         # Generation-checked inside: if a newer recording started, it already
         # re-claimed the source and we must not restore it out from under it.
@@ -989,6 +1018,18 @@ class VoiceIO:
         except Exception:
             log.exception("IBus engine respawn at record start failed")
 
+    def _engine_stderr_tail(self, limit: int = 500) -> str:
+        """Last bytes of the engine's stderr file, for crash reporting."""
+        path = getattr(self, "_engine_stderr_path", None)
+        if path is None:
+            return ""
+        try:
+            if self._engine_stderr_file is not None:
+                self._engine_stderr_file.flush()
+            return path.read_text(errors="replace").strip()[-limit:]
+        except OSError:
+            return ""
+
     def _ensure_ibus_engine(self, activate: bool = True) -> None:
         """Start the VoiceIO IBus engine, optionally pre-creating its instance.
 
@@ -1009,6 +1050,7 @@ class VoiceIO:
             self._engine_spawn_lock.release()
 
     def _spawn_ibus_engine(self, activate: bool = True) -> None:
+        from voiceio.config import LOG_DIR
         from voiceio.ibus import READY_PATH, SOCKET_PATH
         from voiceio.typers.ibus import LAUNCHER_PATH, _ibus_env
 
@@ -1032,12 +1074,24 @@ class VoiceIO:
         self._kill_stale_engine(SOCKET_PATH)
         READY_PATH.unlink(missing_ok=True)
 
-        # Spawn the engine process directly
+        # Spawn the engine process directly. stderr goes to a FILE, never a
+        # pipe: the engine logs at DEBUG through a StreamHandler, and a piped,
+        # undrained stderr fills its 64KB buffer and blocks the engine
+        # mid-write — alive but frozen, so it stops answering pings and the
+        # watchdog reaps it (the recurring "not responding to ping" churn).
+        # The worker already does it this way.
         log.info("Starting VoiceIO IBus engine...")
+        stderr_target = subprocess.DEVNULL
+        try:
+            self._engine_stderr_path = LOG_DIR / "ibus-engine-stderr.log"
+            self._engine_stderr_file = open(self._engine_stderr_path, "w")
+            stderr_target = self._engine_stderr_file
+        except OSError:
+            self._engine_stderr_path = None
         try:
             self._engine_proc = subprocess.Popen(
                 [str(LAUNCHER_PATH)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=stderr_target,
                 env=ibus_env,
             )
         except OSError as e:
@@ -1052,8 +1106,8 @@ class VoiceIO:
             time.sleep(0.1)
         else:
             if self._engine_proc.poll() is not None:
-                stderr = self._engine_proc.stderr.read().decode(errors="replace") if self._engine_proc.stderr else ""
-                log.error("IBus engine crashed (rc=%d): %s", self._engine_proc.returncode, stderr.strip()[-500:])
+                log.error("IBus engine crashed (rc=%d): %s",
+                          self._engine_proc.returncode, self._engine_stderr_tail())
             else:
                 log.warning("IBus engine started but socket not found, commands may fail")
             return

@@ -163,6 +163,43 @@ class TestAutoStopNotification:
         assert not notify.called
 
 
+class TestNothingCapturedWarning:
+    """A muted mic must be reported when the recording ENDS — the moment the
+    user looks for text and finds none — however it was stopped."""
+
+    def test_warns_when_no_signal_and_no_text(self):
+        vio, _, _ = _make_vio()
+        vio.recorder._heard_signal = False
+        with patch("voiceio.feedback.notify") as notify:
+            vio._warn_if_nothing_captured("", vio._generation)
+        assert notify.called
+        assert "mute" in " ".join(notify.call_args[0]).lower()
+        assert notify.call_args.kwargs.get("urgent") is True  # must persist
+
+    def test_quiet_when_text_was_produced(self):
+        vio, _, _ = _make_vio()
+        vio.recorder._heard_signal = False
+        with patch("voiceio.feedback.notify") as notify:
+            vio._warn_if_nothing_captured("[voice] hello there", vio._generation)
+        assert not notify.called
+
+    def test_quiet_when_mic_had_signal(self):
+        """Mic works, user just said nothing — not a fault, stay quiet."""
+        vio, _, _ = _make_vio()
+        vio.recorder._heard_signal = True
+        with patch("voiceio.feedback.notify") as notify:
+            vio._warn_if_nothing_captured("", vio._generation)
+        assert not notify.called
+
+    def test_superseded_generation_does_not_warn(self):
+        """A newer recording owns the recorder — don't judge this take by it."""
+        vio, _, _ = _make_vio()
+        vio.recorder._heard_signal = False
+        with patch("voiceio.feedback.notify") as notify:
+            vio._warn_if_nothing_captured("", vio._generation - 1)
+        assert not notify.called
+
+
 # ===========================================================================
 # 1. stream_health() tests
 # ===========================================================================

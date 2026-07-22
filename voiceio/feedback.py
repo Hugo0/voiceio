@@ -106,10 +106,14 @@ def _play_sync(name: str) -> None:
         log.debug("Playback failed for %s", name, exc_info=True)
 
 
-def notify(title: str, body: str) -> None:
-    """Send a desktop notification without blocking the caller."""
+def notify(title: str, body: str, *, urgent: bool = False) -> None:
+    """Send a desktop notification without blocking the caller.
+
+    ``urgent=True`` marks it critical so the desktop keeps it on screen until
+    dismissed — for actionable failures (a muted mic) that a 3s toast loses.
+    """
     threading.Thread(
-        target=_send_notification, args=(title, body), daemon=True,
+        target=_send_notification, args=(title, body, urgent), daemon=True,
     ).start()
 
 
@@ -118,7 +122,7 @@ def notify_clipboard(text: str) -> None:
     notify("VoiceIO: copied to clipboard", preview)
 
 
-def _send_notification(title: str, body: str) -> None:
+def _send_notification(title: str, body: str, urgent: bool = False) -> None:
     import sys
 
     if sys.platform == "win32":
@@ -126,17 +130,18 @@ def _send_notification(title: str, body: str) -> None:
     elif sys.platform == "darwin":
         _send_notification_macos(title, body)
     else:
-        _send_notification_linux(title, body)
+        _send_notification_linux(title, body, urgent)
 
 
-def _send_notification_linux(title: str, body: str) -> None:
+def _send_notification_linux(title: str, body: str, urgent: bool = False) -> None:
     if not _which("notify-send"):
         return
+    # Critical urgency makes the desktop hold the notification until dismissed;
+    # a normal 3s toast is missed while the user is mid-dictation.
+    args = ["notify-send", "--app-name=VoiceIO"]
+    args += ["-u", "critical"] if urgent else ["-t", "3000"]
     try:
-        subprocess.run(
-            ["notify-send", "--app-name=VoiceIO", "-t", "3000", title, body],
-            capture_output=True, timeout=3,
-        )
+        subprocess.run([*args, title, body], capture_output=True, timeout=3)
     except (subprocess.TimeoutExpired, OSError):
         pass
 
