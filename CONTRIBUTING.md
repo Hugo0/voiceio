@@ -152,6 +152,7 @@ offline-only (no true streaming) and crashes on multi-minute audio — chunk at
 ## Platform notes
 
 - **IBus** is the only reliable streaming text injection on Wayland. Keystroke simulation drops characters on rapid corrections.
+- **Wayland caps a single message at 4096 bytes.** GNOME Shell relays preedit and commit strings to the focused app as one `zwp_text_input_v3` event, so an oversized string makes the compositor tear down that app's connection — it dies mid-dictation. Everything handed to IBus goes through `voiceio/ibus/textlimit.py`; never call `commit_text`/`update_preedit_text` with unbounded text.
 - **evdev** requires `input` group. Multiple keyboard devices each get their own reader thread.
 - **Sound** uses persistent `sounddevice.OutputStream`. WAV files padded with ~100ms silence.
 - **Tray on non-Ubuntu** needs AppIndicator3 packages + GNOME Shell extension.
