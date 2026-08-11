@@ -30,6 +30,7 @@ from voiceio.ibus import (
     acquire_singleton_lock,
 )
 from voiceio.ibus.pending import PendingBuffer
+from voiceio.ibus.textlimit import split_utf8, tail_utf8
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,11 @@ log = logging.getLogger(__name__)
 _lock_fd: int | None = None
 ENGINE_NAME = "voiceio"
 COMPONENT_NAME = "org.voiceio.ibus"
+# A datagram longer than the buffer we hand recvfrom() is truncated silently,
+# which would inject half a dictation with no error anywhere. Sized above the
+# largest datagram a sender can produce (SO_SNDBUF, ~208K by default) so that
+# cannot happen.
+RECV_BYTES = 262144
 
 
 class VoiceIOEngine(IBus.Engine):
@@ -69,24 +75,25 @@ class VoiceIOEngine(IBus.Engine):
             return False
 
     def preedit(self, text: str) -> None:
-        """Show text as preedit (underlined preview)."""
+        """Show text as preedit (underlined preview), tail-first once long."""
         if not text:
             self.hide_preedit_text()
             return
-        ibus_text = IBus.Text.new_from_string(text)
+        shown = tail_utf8(text)
+        ibus_text = IBus.Text.new_from_string(shown)
         ibus_text.append_attribute(
             IBus.AttrType.UNDERLINE,
             IBus.AttrUnderline.SINGLE,
             0,
-            len(text),
+            len(shown),
         )
-        self.update_preedit_text(ibus_text, len(text), True)
+        self.update_preedit_text(ibus_text, len(shown), True)
 
     def commit(self, text: str) -> None:
         """Clear preedit and commit final text."""
         self.hide_preedit_text()
-        if text:
-            self.commit_text(IBus.Text.new_from_string(text))
+        for chunk in split_utf8(text):
+            self.commit_text(IBus.Text.new_from_string(chunk))
 
     def clear(self) -> None:
         """Clear preedit without committing."""
@@ -150,7 +157,7 @@ def _socket_listener(mainloop: GLib.MainLoop) -> None:
 
     while mainloop.is_running():
         try:
-            data, addr = sock.recvfrom(65536)
+            data, addr = sock.recvfrom(RECV_BYTES)
         except socket.timeout:
             continue
         except OSError:
