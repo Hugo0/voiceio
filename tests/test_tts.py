@@ -156,3 +156,76 @@ def test_tts_config_in_main_config():
     assert hasattr(cfg, "tts")
     assert isinstance(cfg.tts, TTSConfig)
     assert cfg.tts.enabled is True
+
+
+# ── offline selection (allow_network) ────────────────────────────────
+
+def test_cloud_engines_is_declared():
+    from voiceio.tts.chain import CLOUD_ENGINES, _ENGINES
+    assert "edge-tts" in CLOUD_ENGINES
+    # Every named cloud engine must actually exist, or the filter silently
+    # stops filtering when an engine is renamed.
+    assert CLOUD_ENGINES <= set(_ENGINES)
+
+
+def test_auto_select_skips_cloud_when_offline():
+    """A caller that promised its user nothing leaves the box must not be
+    handed edge-tts just because it probed OK."""
+    from voiceio.tts import chain
+
+    tried = []
+
+    def fake_create(name, cfg):
+        tried.append(name)
+        engine = MagicMock()
+        engine.name = name
+        # piper unavailable, so auto would otherwise fall through to edge-tts
+        engine.probe.return_value = ProbeResult(ok=(name == "espeak"))
+        return engine
+
+    with patch.object(chain, "_create", fake_create):
+        engine = chain.select(TTSConfig(engine="auto"), allow_network=False)
+
+    assert "edge-tts" not in tried
+    assert engine.name == "espeak"
+
+
+def test_auto_select_allows_cloud_by_default():
+    from voiceio.tts import chain
+
+    def fake_create(name, cfg):
+        engine = MagicMock()
+        engine.name = name
+        engine.probe.return_value = ProbeResult(ok=(name == "edge-tts"))
+        return engine
+
+    with patch.object(chain, "_create", fake_create):
+        engine = chain.select(TTSConfig(engine="auto"))
+
+    assert engine.name == "edge-tts"
+
+
+def test_explicit_cloud_engine_is_refused_not_downgraded_when_offline():
+    """Silently substituting espeak would ship the wrong voice unnoticed."""
+    from voiceio.tts import chain
+
+    with patch.object(chain, "_create") as create:
+        result = chain.select(TTSConfig(engine="edge-tts"), allow_network=False)
+
+    assert result is None
+    create.assert_not_called()
+
+
+def test_explicit_local_engine_unaffected_by_offline_flag():
+    from voiceio.tts import chain
+
+    def fake_create(name, cfg):
+        engine = MagicMock()
+        engine.name = name
+        engine.probe.return_value = ProbeResult(ok=True)
+        return engine
+
+    with patch.object(chain, "_create", fake_create):
+        engine = chain.select(TTSConfig(engine="espeak"), allow_network=False)
+
+    assert engine.name == "espeak"
