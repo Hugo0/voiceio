@@ -14,11 +14,11 @@ from voiceio.transcriber import transcribe_timeout
 from voiceio.typers.base import StreamingTyper
 
 if TYPE_CHECKING:
+    from voiceio.audio_source import AudioSource
     from voiceio.commands import CommandProcessor
     from voiceio.corrections import CorrectionDict
     from voiceio.llm import LLMProcessor
     from voiceio.postcorrect import PostCorrector
-    from voiceio.recorder import AudioRecorder
     from voiceio.transcriber import Transcriber
     from voiceio.typers.base import TyperBackend
 
@@ -126,13 +126,19 @@ class StreamingSession:
     The session holds a reference to the recorder only during active
     recording. On stop(), the caller passes an audio snapshot and the
     session releases the recorder reference.
+
+    `recorder` is any `voiceio.audio_source.AudioSource` — the desktop's
+    microphone `AudioRecorder`, or a `PushAudioSource` fed from a socket. The
+    session pulls (`get_audio_so_far()`) rather than being pushed to, so a
+    producer that stalls delays interim text without stalling the session.
+    The parameter keeps its historical name for callers passing positionally.
     """
 
     def __init__(
         self,
         transcriber: Transcriber,
         typer: TyperBackend,
-        recorder: AudioRecorder,
+        recorder: AudioSource,
         generation: int = 0,
         cleanup: bool = False,
         remove_disfluencies: bool = False,
@@ -155,7 +161,7 @@ class StreamingSession:
         # typer output on the final path, which would otherwise corrupt the new
         # session's text on non-IBus typers. Defaults to "always current".
         self._is_current = is_current or (lambda: True)
-        self._recorder: AudioRecorder | None = recorder
+        self._recorder: AudioSource | None = recorder
         self._sample_rate = recorder.sample_rate
         self._generation = generation
         self._cleanup = cleanup

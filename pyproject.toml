@@ -36,6 +36,11 @@ win = ["pyperclip>=1.8.0", "win11toast>=0.36"]
 tray = ["pystray>=0.19", "Pillow>=10.0"]
 tts = ["piper-tts>=1.3.0"]
 tts-cloud = ["edge-tts>=6.1.0"]
+# Headless HTTP/WebSocket server (`python -m voiceio.server`). Desktop installs
+# do not get aiohttp; server installs do not need a display. Note that the
+# *base* dependencies above still include the desktop input/audio libraries —
+# a headless box wants `--no-deps` plus this list (see voiceio/server/README).
+server = ["aiohttp>=3.9"]
 dev = ["pytest>=7.0", "pytest-mock"]
 # Convenience bundle for a full Linux install (tray icon + local TTS). The core
 # Linux deps (evdev, sounddevice) are already unconditional; system packages
