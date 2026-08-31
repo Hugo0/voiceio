@@ -17,6 +17,7 @@ from voiceio.commands import CommandProcessor
 from voiceio.corrections import CorrectionDict
 from voiceio.hotkeys import chain as hotkey_chain
 from voiceio.hotkeys.socket_backend import SocketHotkey
+from voiceio.logsafe import summary
 from voiceio.recorder import AudioRecorder
 from voiceio.streaming import StreamingSession
 from voiceio.transcriber import Transcriber
@@ -666,7 +667,7 @@ class VoiceIO:
                 # still be appending while we serialize.
                 "passes": list(session.trace),
             })
-        log.info("Streaming done (%.1fs): '%s'", elapsed, final_text)
+        log.info("Streaming done (%.1fs): %s", elapsed, summary(final_text))
         self._warn_if_nothing_captured(final_text, gen)
         # Release the IBus input source now that the final commit is done.
         # Generation-checked inside: if a newer recording started, it already
@@ -732,7 +733,7 @@ class VoiceIO:
                         duration=len(audio) / self.recorder.sample_rate,
                         extra=extra,
                     )
-                    log.info("Typed: '%s'", text)
+                    log.info("Typed: %s", summary(text))
         except Exception:
             log.exception("Processing failed")
         finally:

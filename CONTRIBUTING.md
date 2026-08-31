@@ -33,6 +33,7 @@ voiceio/
 ├── retention.py     # Local per-utterance audio + context storage for mining/audit
 ├── wordfreq.py      # Word frequency lookup via wordfreq package
 ├── llm.py           # Optional LLM post-processing via Ollama
+├── logsafe.py       # Log-safe summaries — logs get lengths, never the words
 ├── llm_api.py       # OpenAI-compatible chat completions client (OpenRouter/OpenAI/etc.)
 ├── hints.py         # Contextual CLI hints (silenceable, frequency-limited)
 ├── vad.py           # Voice Activity Detection (Silero neural net / RMS fallback)
@@ -81,6 +82,10 @@ voiceio/
 - DRY: reuse existing utilities and patterns before writing new code
 - Only validate at system boundaries, trust internal code
 - Comments only where logic isn't self-evident
+- Never log a transcript, or TTS input, at INFO or above. Under systemd a
+  log line is the journal — on disk, for every utterance. Use
+  `logsafe.summary()`: lengths and outcomes are what latency debugging
+  needs, and the words are the user's.
 
 ## Testing
 
