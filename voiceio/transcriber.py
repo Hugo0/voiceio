@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from voiceio.logsafe import summary
 from voiceio.tokens import PROMPT_TOKEN_BUDGET, truncate_to_tokens
 
 if TYPE_CHECKING:
@@ -240,7 +241,7 @@ class Transcriber:
             ratio = duration / elapsed if elapsed > 0 else 999
             log.info(
                 "Transcribed %.1fs audio in %.1fs (%.1fx realtime): %s",
-                duration, elapsed, ratio, text or "(silence)",
+                duration, elapsed, ratio, summary(text),
             )
             # Reset restart counter on success
             self._restarts = 0
