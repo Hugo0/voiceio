@@ -18,6 +18,13 @@ _ENGINES = {
 # Preference order when engine = "auto"
 _AUTO_ORDER = ["piper", "edge-tts", "espeak"]
 
+# Engines that send the text off this machine to be synthesized. Auto-selection
+# can silently land on one (edge-tts needs no install, so it probes OK wherever
+# there is a network), which is fine on a desktop that opted in and wrong for a
+# caller that promised its user nothing leaves the box. `allow_network=False`
+# makes that promise keepable — see `select`.
+CLOUD_ENGINES = frozenset({"edge-tts"})
+
 
 def _create(name: str, cfg: TTSConfig):
     """Instantiate an engine by name."""
@@ -47,14 +54,24 @@ def probe_all(cfg: TTSConfig) -> list[tuple[str, ProbeResult]]:
     return results
 
 
-def select(cfg: TTSConfig):
+def select(cfg: TTSConfig, allow_network: bool = True):
     """Select the first working TTS engine.
 
     Returns the engine instance, or None if none available.
+
+    `allow_network=False` removes cloud engines (`CLOUD_ENGINES`) from
+    consideration, so an offline caller cannot be silently upgraded to one by
+    auto-selection. An *explicit* request for a cloud engine is refused rather
+    than quietly downgraded: a caller who named edge-tts and got espeak would
+    ship the wrong voice without knowing.
     """
     if cfg.engine != "auto":
         if cfg.engine not in _ENGINES:
             log.warning("TTS: unknown engine '%s'", cfg.engine)
+            return None
+        if not allow_network and cfg.engine in CLOUD_ENGINES:
+            log.warning("TTS: '%s' is a cloud engine and network use is off",
+                        cfg.engine)
             return None
         engine = _create(cfg.engine, cfg)
         probe = engine.probe()
@@ -64,7 +81,10 @@ def select(cfg: TTSConfig):
         log.warning("TTS: %s unavailable: %s", cfg.engine, probe.reason)
         return None
 
-    for name in _AUTO_ORDER:
+    order = _AUTO_ORDER if allow_network else [
+        n for n in _AUTO_ORDER if n not in CLOUD_ENGINES
+    ]
+    for name in order:
         try:
             engine = _create(name, cfg)
             probe = engine.probe()
