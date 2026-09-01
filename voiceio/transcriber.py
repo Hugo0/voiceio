@@ -30,7 +30,10 @@ class TranscriptionError(RuntimeError):
 # Realtime-factor headroom for the read timeout. Whisper decodes well faster
 # than realtime, so 1.5x the audio duration is a generous ceiling that still
 # never kills a long dictation mid-decode.
-TIMEOUT_PER_SECOND = 1.5
+# 1.5 killed a worker mid-stream on 2026-08-31: hugodell decodes at ~1.0x
+# realtime under contention, so a 32s chunk blew the 30s floor and took the
+# whole streaming session's worker with it. 3.0 is headroom, not a target.
+TIMEOUT_PER_SECOND = 3.0
 MAX_RESTARTS = 3
 # Ceiling on the worker's model-load handshake. A cached load is ~4s (worst
 # observed: 53s), so this only trips on a genuinely stuck start — but it must
