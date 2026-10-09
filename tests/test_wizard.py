@@ -238,3 +238,17 @@ def test_noninteractive_fails_on_model_download(cfg_paths, monkeypatch, capsys):
 ])
 def test_wm_bind_lines_use_chosen_hotkey(hotkey, hypr, sway):
     assert dict(wizard._wm_bind_lines(hotkey)) == {"hyprland": hypr, "i3/sway": sway}
+
+
+def test_write_config_with_api_key_records_consent_and_is_private(tmp_path, monkeypatch):
+    """Regression: wizard called record_consent() positionally → TypeError."""
+    import stat
+    import voiceio.consent as consent
+    monkeypatch.setattr(wizard, "CONFIG_PATH", config.CONFIG_PATH)
+    wizard._write_config(
+        model="small", language="en", hotkey="ctrl+alt+v", method="auto",
+        streaming=True, backend="auto", autocorrect_api_key="sk-test", quiet=True,
+    )
+    wizard._record_cloud_consent()
+    assert consent.has_cloud_consent()
+    assert stat.S_IMODE(config.CONFIG_PATH.stat().st_mode) == 0o600

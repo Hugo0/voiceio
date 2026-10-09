@@ -4,6 +4,8 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
+import signal
 import subprocess
 import sys
 import threading
@@ -116,12 +118,16 @@ class Transcriber:
             "model": self._cfg.name,
             "device": self._cfg.device,
             "compute_type": self._cfg.compute_type,
+            "cpu_threads": self._cfg.cpu_threads,
             "language": language,
         })
         from voiceio.config import LOG_DIR
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self._stderr_path = LOG_DIR / "worker.log"
-        self._stderr_file = open(self._stderr_path, "w")
+        # Append (rotating at 1 MB) so a crash's stack dump survives the restart.
+        if self._stderr_path.exists() and self._stderr_path.stat().st_size > 1_000_000:
+            self._stderr_path.replace(self._stderr_path.with_suffix(".log.1"))
+        self._stderr_file = open(self._stderr_path, "a")
         self._proc = subprocess.Popen(
             [sys.executable, "-m", "voiceio.worker", args],
             stdin=subprocess.PIPE,
@@ -224,7 +230,9 @@ class Transcriber:
             result_line = self._read_with_timeout(timeout)
             if result_line is None:
                 self.last_segments = []
-                log.warning("Transcription timed out after %.0fs, killing worker", timeout)
+                log.warning("Transcription timed out after %.0fs, killing worker "
+                            "(stack dump in %s)", timeout, self._stderr_path)
+                self._dump_worker_stack()
                 # Kill only: this call fails regardless, so reloading the model
                 # here would hold the lock through a multi-second start and
                 # starve the pass that matters (the final one) behind it. The
@@ -270,6 +278,16 @@ class Transcriber:
         if t.is_alive():
             return None
         return result[0]
+
+    def _dump_worker_stack(self) -> None:
+        """Ask a hung worker to write its thread stacks to worker.log."""
+        if self._proc is None or self._proc.poll() is not None:
+            return
+        try:
+            os.kill(self._proc.pid, signal.SIGUSR1)
+            time.sleep(0.3)
+        except OSError:
+            pass
 
     def _kill_worker(self) -> None:
         if self._proc is not None:

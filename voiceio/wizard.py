@@ -591,33 +591,9 @@ def _load_raw_config() -> dict:
 
 
 def _record_cloud_consent() -> None:
-    """Record that the user opted into a cloud LLM feature.
-
-    SECURITY SEAM: the security module owns the real consent ledger.
-    """
-    try:
-        from voiceio.consent import record_consent  # type: ignore
-        record_consent("autocorrect_cloud")
-    except ImportError:
-        pass  # TODO(security): consent.py not yet on this branch
-
-
-def _secure_config_permissions() -> None:
-    """Restrict config perms — it may hold cloud API keys.
-
-    SECURITY SEAM: prefer the security module's helper when present on-branch.
-    """
-    try:
-        from voiceio.consent import secure_file_permissions  # type: ignore
-        secure_file_permissions(CONFIG_PATH)
-        return
-    except ImportError:
-        pass  # TODO(security): consent.py not yet on this branch — safe fallback below
-    if sys.platform != "win32":
-        try:
-            os.chmod(CONFIG_PATH, 0o600)
-        except OSError:
-            log.debug("Could not chmod config", exc_info=True)
+    """Record that the user opted into a cloud LLM feature."""
+    from voiceio.consent import record_consent
+    record_consent(source="wizard")
 
 
 def _write_config(
@@ -682,8 +658,9 @@ def _write_config(
             "model": autocorrect_model or "moonshotai/kimi-k2-0905",
         })
 
-    CONFIG_PATH.write_text(_dump_toml(cfg), encoding="utf-8")
-    _secure_config_permissions()
+    # May hold a cloud API key: written 0600 from the first byte.
+    from voiceio.config import secure_write
+    secure_write(CONFIG_PATH, _dump_toml(cfg))
     if not quiet:
         print(f"\n  {GREEN}✓{RESET} Config saved to {DIM}{CONFIG_PATH}{RESET}")
 

@@ -176,11 +176,43 @@ class TestStateMachine:
         gen_before = vio._generation
 
         vio.on_hotkey()
+        gen_recording = vio._generation
+        assert gen_recording > gen_before  # start supersedes old finalizers
         _feed_audio(vio)
         _allow_stop(vio)
         vio.on_hotkey()
 
-        assert vio._generation == gen_before + 1
+        assert vio._generation == gen_recording + 1
+
+    def test_start_during_finalize_supersedes_old_finalizer(self):
+        """Regression: the generation only moved on stop, so a finalizer still
+        running when the next recording started stayed 'current' — it could
+        restore the input source and emit output mid-recording."""
+        vio, _, _ = _make_vio()
+        vio.on_hotkey()
+        _feed_audio(vio)
+        _allow_stop(vio)
+        finalizing = threading.Event()
+        release = threading.Event()
+        gens = []
+
+        def fake_finalize(session, audio, elapsed, gen):
+            finalizing.set()
+            release.wait(5)
+            gens.append((gen, vio._generation))
+
+        with patch.object(vio, "_finalize_streaming", side_effect=fake_finalize):
+            vio.on_hotkey()          # stop A → finalizer thread starts
+            assert finalizing.wait(5)
+            vio._last_hotkey = time.monotonic() - 5.0
+            vio.on_hotkey()          # start B while A finalizes
+            release.set()
+            for _ in range(50):
+                if gens:
+                    break
+                time.sleep(0.05)
+        (gen_a, current), = gens
+        assert gen_a != current, "old finalizer must see itself superseded"
 
     def test_can_start_during_finalizing(self):
         """User can start a new recording while old one finalizes."""

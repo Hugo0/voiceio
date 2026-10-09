@@ -26,21 +26,25 @@ class EvdevHotkey:
             return ProbeResult(ok=False, reason="evdev package not installed",
                                fix_hint="pip install evdev")
 
-        # Check if we can open any keyboard device
+        # OK if *any* device is readable. A per-device ACL (udev `uaccess`)
+        # grants keyboards only, so the first node being unreadable proves
+        # nothing.
+        denied = False
         for path in sorted(Path("/dev/input/").glob("event*")):
             try:
                 with open(path, "rb"):
                     return ProbeResult(ok=True)
             except PermissionError:
-                import getpass
-                return ProbeResult(
-                    ok=False, reason="No permission to read /dev/input",
-                    fix_hint="sudo usermod -aG input $USER && newgrp input",
-                    fix_cmd=["sudo", "usermod", "-aG", "input", getpass.getuser()],
-                )
+                denied = True
             except OSError:
                 continue
-
+        if denied:
+            import getpass
+            return ProbeResult(
+                ok=False, reason="No permission to read /dev/input",
+                fix_hint="sudo usermod -aG input $USER && newgrp input",
+                fix_cmd=["sudo", "usermod", "-aG", "input", getpass.getuser()],
+            )
         return ProbeResult(ok=False, reason="No input devices found")
 
     def start(self, combo: str, on_trigger: Callable[[], None]) -> None:

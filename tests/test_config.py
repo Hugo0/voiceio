@@ -39,10 +39,10 @@ def test_load_ignores_unknown_keys(tmp_path):
     assert cfg.model.name == "small"
 
 
-def test_migrate_removes_cpu_threads():
+def test_migrate_keeps_cpu_threads():
     raw = {"model": {"name": "base", "cpu_threads": 4}}
     result = _migrate_v1(raw)
-    assert "cpu_threads" not in result["model"]
+    assert result["model"]["cpu_threads"] == 4
 
 
 def test_migrate_xclip_to_clipboard():

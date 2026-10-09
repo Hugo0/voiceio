@@ -244,3 +244,18 @@ def test_probe_reports_fcitx_instead_of_starting_ibus(monkeypatch):
     assert not result.ok
     assert "fcitx5" in result.reason
     assert not result.fix_hint
+
+
+def test_stale_launcher_counts_as_not_installed(tmp_path, monkeypatch):
+    """A launcher baking a dead interpreter path (moved venv, GC'd Nix store
+    path) must be rewritten, not trusted because the file exists."""
+    from voiceio.typers import ibus as ibus_mod
+    monkeypatch.setattr(ibus_mod, "LAUNCHER_PATH", tmp_path / "launcher")
+    monkeypatch.setattr(ibus_mod, "COMPONENT_DEST", tmp_path / "voiceio.xml")
+    monkeypatch.setattr(ibus_mod, "_system_python", lambda: "/usr/bin/python3")
+    ibus_mod.LAUNCHER_PATH.write_text(ibus_mod._launcher_script())
+    ibus_mod.COMPONENT_DEST.write_text(ibus_mod._component_xml())
+    assert ibus_mod._component_installed()
+    ibus_mod.LAUNCHER_PATH.write_text(
+        ibus_mod._launcher_script().replace("/usr/bin/python3", "/nix/store/gone/bin/python3"))
+    assert not ibus_mod._component_installed()

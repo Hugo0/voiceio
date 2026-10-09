@@ -146,7 +146,7 @@ class VoiceIO:
         self._socket: SocketHotkey | None = None
         if self._hotkey.name != "socket":
             self._socket = SocketHotkey()
-        elif self.platform.desktop not in ("GNOME", "KDE"):
+        elif self.platform.desktop not in ("gnome", "kde"):
             # Socket backend has no physical hotkey listener — user must bind
             # `voiceio toggle` to a key in their WM config.
             log.warning(
@@ -419,6 +419,10 @@ class VoiceIO:
 
     def _do_start(self) -> None:
         """Transition to RECORDING."""
+        # A new recording supersedes any finalizer still running: it must stop
+        # emitting output and must not restore the input source this
+        # recording is about to claim. (Stop bumps again for batch threads.)
+        self._generation += 1
         # Pre-flight: ensure audio stream is healthy before recording
         ok, reason = self.recorder.stream_health()
         if not ok:
@@ -636,7 +640,14 @@ class VoiceIO:
         extra = self._retention_extra(audio)
         final_text = session.stop(audio)
         if self._generation != gen:
-            log.debug("Finalize cancelled (gen %d, current %d)", gen, self._generation)
+            # Superseded by a newer recording: its output is suppressed, but
+            # the user's words must not vanish — keep them in history.
+            log.info("Finalize superseded (gen %d, current %d): %s saved to history only",
+                     gen, self._generation, describe_transcript(final_text))
+            if final_text:
+                from voiceio import history
+                history.append(self._strip_voice_prefix(final_text),
+                               raw=session.raw_final_text, duration=elapsed)
             return
         if final_text:
             self._copy_result_async(final_text)
@@ -1356,7 +1367,10 @@ class VoiceIO:
             pass
 
     def _stop_ibus_engine(self) -> None:
-        self._set_gnome_input_source_index(0)
+        # Only hand back a source we claimed; never force the user to index 0.
+        if self._prev_input_source_index is not None:
+            self._set_gnome_input_source_index(self._prev_input_source_index)
+            self._prev_input_source_index = None
         if self._engine_proc is not None:
             self._engine_proc.terminate()
             try:

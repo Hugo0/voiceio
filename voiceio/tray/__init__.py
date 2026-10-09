@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 _proc: subprocess.Popen | None = None
 _theme_dir: Path | None = None
 _backend: str | None = None  # "indicator" | "pystray" | None
+_icon_names: list[str] = []  # frame order matters: idle, rec, proc (see _start_indicator)
 _stdout_thread: threading.Thread | None = None
 
 
@@ -181,11 +182,12 @@ def start(
     toggle_callback: Callable[[], None] | None = None,
 ) -> None:
     """Start the tray icon using the best available backend."""
-    global _proc, _theme_dir, _backend, _stdout_thread
+    global _proc, _theme_dir, _backend, _stdout_thread, _icon_names
 
     from voiceio.tray._icons import render_to_dir, ANIM_INTERVAL_MS
 
     _theme_dir, icon_names = render_to_dir()
+    _icon_names = icon_names
     atexit.register(_cleanup)
 
     # Linux: AppIndicator subprocess
@@ -290,22 +292,20 @@ def restart(toggle_callback: Callable[[], None] | None = None) -> bool:
     if not system_python or _theme_dir is None:
         return False
 
-    from voiceio.tray._icons import ANIM_INTERVAL_MS
-    # Read icon names from existing theme dir
-    apps_dir = _theme_dir / "hicolor"
-    icon_names: list[str] = []
-    for d in apps_dir.rglob("apps"):
-        icon_names = sorted(
-            p.stem for p in d.glob("*.png")
-        )
-        break
-    if not icon_names:
+    if not _icon_names:
         return False
+    from voiceio.tray._icons import ANIM_INTERVAL_MS
 
     log.info("Restarting tray indicator subprocess")
+    # Reuse start()'s frame order: re-deriving it by sorting file names
+    # interleaved idle-1,idle-10,… and swapped the rec/proc animations.
     _proc = _start_indicator(
-        _theme_dir, icon_names, ANIM_INTERVAL_MS, system_python,
+        _theme_dir, _icon_names, ANIM_INTERVAL_MS, system_python,
     )
+    # Same as start(): an undrained stderr pipe freezes the indicator.
+    threading.Thread(
+        target=_read_stderr, args=(_proc,), daemon=True, name="tray-stderr",
+    ).start()
     if toggle_callback is not None:
         _stdout_thread = threading.Thread(
             target=_read_stdout,

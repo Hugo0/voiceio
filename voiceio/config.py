@@ -65,6 +65,9 @@ class ModelConfig:
     language: str = "en"
     device: str = "auto"
     compute_type: str = "int8"
+    # CTranslate2 threads per decode. 0 = auto (half the logical cores, 4-8);
+    # the library default is a fixed 4, leaving most of a modern CPU idle.
+    cpu_threads: int = 0
     vocabulary_file: str = ""  # path to vocabulary.txt
 
 
@@ -255,10 +258,6 @@ class Config:
 
 def _migrate_v1(raw: dict) -> dict:
     """Migrate v1 config values to v2."""
-    # Remove deprecated cpu_threads
-    if "model" in raw and "cpu_threads" in raw["model"]:
-        del raw["model"]["cpu_threads"]
-        log.info("Config migration: removed deprecated model.cpu_threads")
 
     # Migrate old output methods
     if "output" in raw and "method" in raw["output"]:
@@ -361,13 +360,22 @@ def _chmod(path: Path, mode: int) -> None:
 def secure_write(path: Path, text: str, *, encoding: str = "utf-8") -> None:
     """Write text to a file guaranteed to be 0600 with a 0700 parent dir.
 
-    The parent is created (0700) and the file's mode is tightened after the
-    write, so a permissive umask cannot leave secrets world-readable.
+    The temp file is created 0600 before any byte is written and then renamed
+    over the target, so there is no world-readable window and a crash never
+    leaves a half-written file.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     _chmod(path.parent, _SECURE_DIR)
-    path.write_text(text, encoding=encoding)
-    _chmod(path, _SECURE_FILE)
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _SECURE_FILE)
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as f:
+            f.write(text)
+        _chmod(tmp, _SECURE_FILE)  # O_CREAT mode is ignored for existing files
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def check_permissions() -> list[tuple[Path, int, int]]:
