@@ -134,20 +134,21 @@ class VoiceIO:
         elif self.platform.desktop not in ("gnome", "kde"):
             # Socket backend has no physical hotkey listener — user must bind
             # `voiceio toggle` to a key in their WM config.
+            from voiceio.hotkeys.evdev import access_hint as evdev_access_hint
             log.warning(
                 "Hotkey backend is 'socket' on desktop '%s'. "
                 "Physical hotkey capture is not available. "
                 "Bind 'voiceio toggle' to a key in your window manager config "
                 "(e.g. i3: bindsym Ctrl+Alt+v exec voiceio toggle). "
-                "Or: sudo usermod -aG input $USER && log out/in to enable evdev.",
-                self.platform.desktop,
+                "Or enable evdev hotkeys: %s",
+                self.platform.desktop, evdev_access_hint(),
             )
             print(
                 f"\n  NOTE: No physical hotkey listener available on '{self.platform.desktop}'.\n"
                 f"  Bind 'voiceio toggle' to a key in your WM config, e.g.:\n"
                 f"    i3/sway:  bindsym Ctrl+Alt+v exec voiceio toggle\n"
                 f"    hyprland: bind = CTRL ALT, V, exec, voiceio toggle\n"
-                f"  Or fix evdev: sudo usermod -aG input $USER (then log out/in)\n",
+                f"  Or enable evdev hotkeys: {evdev_access_hint()}\n",
             )
 
         print(f"Loading model '{cfg.model.name}'...", end="", flush=True)

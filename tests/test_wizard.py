@@ -139,7 +139,7 @@ _LINUX_CHECKS = {
     "display": "wayland", "audio": True, "audio_devices": [object()],
     "pynput": False, "xdotool": True, "xclip": False, "ydotool": False,
     "wtype": False, "ibus": False, "ibus_gi": False, "cuda": False,
-    "input_group": True,
+    "evdev_access": True,
 }
 
 
@@ -162,7 +162,7 @@ def test_noninteractive_defaults_no_tty(cfg_paths, monkeypatch, capsys):
     loaded = config.load(cfg_paths)
     assert loaded.model.name == "small"       # default
     assert loaded.hotkey.key == "ctrl+alt+v"  # default
-    assert loaded.hotkey.backend == "evdev"   # from input_group
+    assert loaded.hotkey.backend == "evdev"   # from evdev_access
 
 
 def test_noninteractive_answers_applied(cfg_paths, monkeypatch):

@@ -471,16 +471,11 @@ def _check_system() -> dict:
     except Exception:
         checks["cuda"] = False
 
-    # Input group (for evdev, Linux only)
-    checks["input_group"] = False
+    # evdev keyboard access (Linux only): udev uaccess rule or input group
+    checks["evdev_access"] = False
     if checks["is_linux"]:
-        groups = os.getgroups()
-        try:
-            import grp
-            input_gid = grp.getgrnam("input").gr_gid
-            checks["input_group"] = input_gid in groups
-        except (KeyError, ImportError):
-            pass
+        from voiceio.hotkeys.evdev import EvdevHotkey
+        checks["evdev_access"] = EvdevHotkey().probe().ok
 
     return checks
 
@@ -1091,10 +1086,11 @@ def run_wizard() -> None:
                  optional=True)
 
     if checks["is_linux"]:
-        _print_check("Input group (evdev)", checks["input_group"],
-                     "evdev hotkeys available" if checks["input_group"]
-                     else "sudo usermod -aG input $USER (then log out/in)",
-                     optional=checks["input_group"])
+        from voiceio.hotkeys.evdev import access_hint as evdev_access_hint
+        _print_check("Keyboard access (evdev)", checks["evdev_access"],
+                     "evdev hotkeys available" if checks["evdev_access"]
+                     else evdev_access_hint(),
+                     optional=checks["evdev_access"])
 
     # Tray icon
     from voiceio.tray import probe_availability
@@ -1222,7 +1218,7 @@ def run_wizard() -> None:
             else:
                 print(f"  {YELLOW}⚠{RESET}  {DIM}Could not install IBus component, will use fallback{RESET}")
 
-        if checks["input_group"]:
+        if checks["evdev_access"]:
             backend = "evdev"
         elif checks["pynput"] and checks["display"] != "wayland":
             backend = "auto"  # pynput works on X11
@@ -1448,8 +1444,9 @@ def run_wizard() -> None:
             for wm, line in _wm_bind_lines(hotkey):
                 print(f"    {DIM}{wm + ':':<10}{RESET} {line}")
             print(f"    {DIM}{'other:':<10}{RESET} bind {BOLD}{hotkey}{RESET} → {BOLD}voiceio toggle{RESET}")
+            from voiceio.hotkeys.evdev import access_hint as evdev_access_hint
             print(f"\n    {DIM}Or enable evdev (no WM config needed):{RESET}")
-            print(f"    sudo usermod -aG input $USER  {DIM}(then log out and back in){RESET}")
+            print(f"    {evdev_access_hint()}")
 
     # Autostart
     from voiceio.service import install_service
@@ -1895,7 +1892,7 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     if not backend:
         if checks["is_windows"] or checks["is_mac"]:
             backend = "auto"
-        elif checks["input_group"]:
+        elif checks["evdev_access"]:
             backend = "evdev"
         elif checks["pynput"] and checks["display"] != "wayland":
             backend = "auto"

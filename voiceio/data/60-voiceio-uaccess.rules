@@ -1,0 +1,5 @@
+# voiceio: let the active local-seat user read keyboard event devices, so the
+# evdev hotkey backend works without the `input` group (and without a re-login).
+# systemd-logind applies `uaccess` tags in 73-seat-late.rules, so this file must
+# sort before it. Install to /etc/udev/rules.d/ (see `voiceio doctor --fix`).
+ACTION=="add|change", KERNEL=="event*", ENV{ID_INPUT_KEY}=="1", TAG+="uaccess"
