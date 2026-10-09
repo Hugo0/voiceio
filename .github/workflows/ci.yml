@@ -56,7 +56,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install ruff
-        run: pip install ruff
+        run: pip install "ruff>=0.15,<0.18"
 
       - name: Run ruff
         run: ruff check voiceio/

@@ -123,42 +123,30 @@ def apply_pipeline(
     voice_input_prefix: str = "",
     final: bool = False,
 ) -> tuple[str, bool]:
-    """Shared post-processing pipeline used by both streaming and batch modes.
+    """One-shot form of `voiceio.core.pipeline.Pipeline` (keyword switches).
 
     Returns (processed_text, abort). If abort is True, the caller should
     discard the result (e.g. undo/flag command was triggered).
     """
-    # Disfluency removal runs BEFORE cleanup so cleanup re-fixes the spacing,
-    # commas, and capitalization the deletions leave behind. Delete-only.
+    from voiceio.core import pipeline as p
+
+    stages: list = []
     if remove_disfluencies:
-        text = strip_disfluencies(text)
-
+        stages.append(p.Disfluency())
     if do_cleanup:
-        text = cleanup(text, language)
-
+        stages.append(p.Cleanup())
     if number_conversion:
-        from voiceio.numbers import convert_numbers
-        text = convert_numbers(text, language)
-
-    if commands:
-        text = commands.process(text, final=final)
-        if commands.undo_requested or commands.flag_requested:
-            if commands.flag_requested and corrections and commands.flagged_word:
-                corrections.flag_word(commands.flagged_word)
-            return "", True
-
-    if corrections and text:
-        text = corrections.apply(text)
-
-    # Constrained LLM post-correction — final pass only, before generic LLM.
-    if final and postcorrect and text:
-        text = postcorrect.correct(text)
-
-    if final and llm and text:
-        text = llm.process(text)
-
-    # Applied on every pass so the marker appears from the first streaming chunk.
-    if voice_input_prefix and text:
-        text = f"{voice_input_prefix} {text}"
-
-    return text, False
+        stages.append(p.Numbers())
+    if commands is not None:
+        stages.append(p.Commands(commands))
+    if corrections is not None:
+        stages.append(p.Corrections(corrections))
+    if postcorrect is not None:
+        stages.append(p.PostCorrect(postcorrect))
+    if llm is not None:
+        stages.append(p.LLMCleanup(llm))
+    if voice_input_prefix:
+        stages.append(p.Prefix(voice_input_prefix))
+    on_flag = corrections.flag_word if corrections is not None else None
+    result = p.Pipeline(stages, language=language, on_flag=on_flag)(text, final=final)
+    return result.text, result.abort

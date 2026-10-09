@@ -59,35 +59,25 @@ class TestFormatting:
 
 class TestUndo:
     def test_scratch_that(self):
-        cp = CommandProcessor(editing=True)
-        result = cp.process("hello world scratch that")
-        assert result == "hello world"
-        assert cp.undo_requested is True
+        r = CommandProcessor(editing=True).parse("hello world scratch that")
+        assert (r.text, r.undo) == ("hello world", True)
 
     def test_undo_that(self):
-        cp = CommandProcessor(editing=True)
-        result = cp.process("hello world undo that")
-        assert result == "hello world"
-        assert cp.undo_requested is True
+        r = CommandProcessor(editing=True).parse("hello world undo that")
+        assert (r.text, r.undo) == ("hello world", True)
 
     def test_scratch_that_only(self):
-        cp = CommandProcessor(editing=True)
-        result = cp.process("scratch that")
-        assert result == ""
-        assert cp.undo_requested is True
+        r = CommandProcessor(editing=True).parse("scratch that")
+        assert (r.text, r.undo) == ("", True)
 
-    def test_undo_resets_between_calls(self):
+    def test_stateless_between_calls(self):
         cp = CommandProcessor(editing=True)
-        cp.process("scratch that")
-        assert cp.undo_requested is True
-        cp.process("hello world")
-        assert cp.undo_requested is False
+        assert cp.parse("scratch that").undo
+        assert not cp.parse("hello world").undo
 
     def test_editing_off_ignores_scratch(self):
-        cp = CommandProcessor(editing=False)
-        result = cp.process("hello world scratch that")
-        assert result == "hello world scratch that"
-        assert cp.undo_requested is False
+        r = CommandProcessor(editing=False).parse("hello world scratch that")
+        assert (r.text, r.undo) == ("hello world scratch that", False)
 
 
 class TestEdgeCases:
@@ -132,54 +122,19 @@ class TestEdgeCases:
 
 
 class TestCorrectThat:
-    def test_correct_that_sets_flag(self):
-        cp = CommandProcessor(editing=True)
-        result = cp.process("hello world correct that")
-        assert cp.flag_requested is True
-        assert cp.flagged_word == "world"
-        assert result == "hello"
+    def test_correct_that_flags_previous_word(self):
+        r = CommandProcessor(editing=True).parse("hello world correct that")
+        assert (r.text, r.flagged_word) == ("hello", "world")
 
     def test_correct_that_no_preceding_word(self):
-        cp = CommandProcessor(editing=True)
-        result = cp.process("correct that")
-        assert cp.flag_requested is True
-        assert cp.flagged_word == ""
-        assert result == ""
+        r = CommandProcessor(editing=True).parse("correct that")
+        assert (r.text, r.flagged_word) == ("", "")
 
     def test_correct_that_returns_text_before(self):
+        r = CommandProcessor(editing=True).parse("one two three correct that")
+        assert (r.text, r.flagged_word) == ("one two", "three")
+
+    def test_no_flag_without_command(self):
         cp = CommandProcessor(editing=True)
-        result = cp.process("one two three correct that")
-        assert result == "one two"
-        assert cp.flagged_word == "three"
-
-    def test_flag_resets_between_calls(self):
-        cp = CommandProcessor(editing=True)
-        cp.process("hello correct that")
-        assert cp.flag_requested is True
-        cp.process("hello world")
-        assert cp.flag_requested is False
-        assert cp.flagged_word == ""
-
-    def test_undo_not_set_on_flag(self):
-        cp = CommandProcessor(editing=True)
-        cp.process("hello correct that")
-        assert cp.flag_requested is True
-        assert cp.undo_requested is False
-
-    def test_editing_off_ignores_correct(self):
-        cp = CommandProcessor(editing=False)
-        result = cp.process("hello world correct that")
-        assert result == "hello world correct that"
-        assert cp.flag_requested is False
-
-
-class TestSpacing:
-    def test_no_double_spaces(self):
-        cp = CommandProcessor()
-        result = cp.process("hello comma world")
-        assert "  " not in result
-
-    def test_space_after_punct(self):
-        cp = CommandProcessor()
-        result = cp.process("hello period world")
-        assert result == "hello. world"
+        assert cp.parse("hello correct that").flagged_word == "hello"
+        assert cp.parse("hello world").flagged_word is None

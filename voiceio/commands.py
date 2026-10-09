@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 _UNDO_SENTINEL = "__UNDO__"
 _FLAG_SENTINEL = "__FLAG__"
@@ -80,8 +81,17 @@ def _normalize_spacing(text: str) -> str:
     return text.strip()
 
 
+@dataclass(frozen=True)
+class ParsedCommands:
+    text: str
+    undo: bool = False              # "scratch that" / "undo that"
+    flagged_word: str | None = None  # "correct that": the word before it ("" if none)
+
+
 class CommandProcessor:
-    """Detects and replaces voice commands in transcribed text."""
+    """Detects and replaces voice commands in transcribed text. Stateless:
+    the result carries what was requested, so one instance can serve
+    overlapping sessions."""
 
     def __init__(self, enabled: bool = True, editing: bool = False):
         self._enabled = enabled
@@ -90,18 +100,15 @@ class CommandProcessor:
             if editing or v not in (_UNDO_SENTINEL, _FLAG_SENTINEL)
         }
         self._max_words = max(len(k) for k in self._commands) if self._commands else 1
-        self.undo_requested = False
-        self.flag_requested = False
-        self.flagged_word = ""
 
-    def process(self, text: str, final: bool = False) -> str:
-        """Replace voice commands in text. Sets undo_requested if scratch/undo detected."""
+    def process(self, text: str) -> str:
+        """Replace voice commands; the text only."""
+        return self.parse(text).text
+
+    def parse(self, text: str) -> ParsedCommands:
         if not self._enabled or not text:
-            return text
+            return ParsedCommands(text)
 
-        self.undo_requested = False
-        self.flag_requested = False
-        self.flagged_word = ""
         words = text.split()
         result: list[str] = []
         i = 0
@@ -114,14 +121,12 @@ class CommandProcessor:
                 if key in self._commands:
                     replacement = self._commands[key]
                     if replacement == _UNDO_SENTINEL:
-                        self.undo_requested = True
-                        return _normalize_spacing(" ".join(result))
+                        return ParsedCommands(_normalize_spacing(" ".join(result)), undo=True)
                     if replacement == _FLAG_SENTINEL:
-                        self.flag_requested = True
                         # Capture the last word before "correct that"
-                        if result:
-                            self.flagged_word = result.pop()
-                        return _normalize_spacing(" ".join(result))
+                        flagged = result.pop() if result else ""
+                        return ParsedCommands(
+                            _normalize_spacing(" ".join(result)), flagged_word=flagged)
                     result.append(replacement)
                     i += length
                     matched = True
@@ -130,4 +135,4 @@ class CommandProcessor:
                 result.append(words[i])
                 i += 1
 
-        return _normalize_spacing(" ".join(result))
+        return ParsedCommands(_normalize_spacing(" ".join(result)))
