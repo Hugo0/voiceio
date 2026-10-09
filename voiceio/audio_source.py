@@ -79,6 +79,10 @@ class PushAudioSource:
         self._lock = threading.Lock()
         self._on_speech_pause: Callable[[], None] | None = None
         self._closed = False
+        # A 16-bit sample split across two network frames: its first byte
+        # waits here. Dropping it would shift every later sample by one byte
+        # and turn the rest of the stream into noise.
+        self._carry = b""
 
     # ── producer side ────────────────────────────────────────────────────
     def feed(self, chunk: np.ndarray | bytes) -> int:
@@ -88,7 +92,10 @@ class PushAudioSource:
         duration cap without reaching into the buffer.
         """
         if isinstance(chunk, (bytes, bytearray, memoryview)):
-            samples = pcm16_to_float32(bytes(chunk))
+            data = self._carry + bytes(chunk)
+            cut = len(data) - len(data) % 2
+            self._carry = data[cut:]
+            samples = pcm16_to_float32(data[:cut])
         else:
             samples = np.asarray(chunk, dtype=np.float32)
         if samples.ndim > 1:  # interleaved stereo → mono

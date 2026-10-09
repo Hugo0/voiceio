@@ -302,14 +302,15 @@ class VoiceEngine:
         tts_name = None
         if self._tts_probed and self._tts is not None:
             tts_name = self._tts.name
+        alive = self.transcriber.is_worker_alive()
         return {
-            "ok": True,
+            "ok": alive,
             "model": self.model_cfg.name,
             "device": self.device,
             "compute_type": self.model_cfg.compute_type,
             "language": self.model_cfg.language,
             "threads": self.threads,
-            "worker_alive": self.transcriber.is_worker_alive(),
+            "worker_alive": alive,
             "load_secs": round(self.load_secs, 2),
             "vocabulary_terms": len(self._vocab.get_all()),
             "corrections": len(self._corrections.list_all()),

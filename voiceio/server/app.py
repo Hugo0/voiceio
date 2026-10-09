@@ -11,8 +11,9 @@ WebSocket natively (so streaming needs nothing extra), and the transcription
 path is I/O-trivial — the interesting resource is a single CPU-bound whisper
 worker, which no amount of framework helps with.
 
-No authentication, by design. Bind loopback and let whatever fronts this own
-the question of who is allowed to talk to it.
+Bind loopback and let whatever fronts this own authentication. Browsers are
+refused unless their Origin is allowlisted, and `VOICE_TOKEN` adds a shared
+bearer token (header, or `?token=` for WebSocket clients).
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ import json
 import logging
 import subprocess
 import time
+import hmac
 from concurrent.futures import ThreadPoolExecutor
 
 from aiohttp import WSMsgType, web
@@ -36,6 +38,12 @@ from voiceio.server.engine import (
 
 log = logging.getLogger("voiceio.server")
 
+CONFIG = web.AppKey("config", ServerConfig)
+ENGINE = web.AppKey("engine", VoiceEngine)
+EXECUTOR = web.AppKey("executor", ThreadPoolExecutor)
+LOCK = web.AppKey("lock", asyncio.Lock)
+STREAM_SEM = web.AppKey("stream_sem", asyncio.Semaphore)
+
 __all__ = ["build_app", "run"]
 
 
@@ -45,14 +53,15 @@ def _error(status: int, message: str) -> web.Response:
 
 # ── health ───────────────────────────────────────────────────────────────
 async def handle_health(request: web.Request) -> web.Response:
-    engine: VoiceEngine = request.app["engine"]
-    return web.json_response(engine.health())
+    engine: VoiceEngine = request.app[ENGINE]
+    health = engine.health()
+    return web.json_response(health, status=200 if health["ok"] else 503)
 
 
 # ── buffered transcription ───────────────────────────────────────────────
 async def handle_transcribe(request: web.Request) -> web.Response:
-    engine: VoiceEngine = request.app["engine"]
-    cfg: ServerConfig = request.app["config"]
+    engine: VoiceEngine = request.app[ENGINE]
+    cfg: ServerConfig = request.app[CONFIG]
     t0 = time.monotonic()
 
     try:
@@ -72,9 +81,9 @@ async def handle_transcribe(request: web.Request) -> web.Response:
     try:
         # One utterance at a time: the whisper worker is a single subprocess,
         # and queueing here keeps latency honest instead of thrashing the CPU.
-        async with request.app["lock"]:
+        async with request.app[LOCK]:
             result = await loop.run_in_executor(
-                request.app["executor"], engine.transcribe, data,
+                request.app[EXECUTOR], engine.transcribe, data,
             )
     except AudioTooLong as exc:
         log.warning("rejected long audio: %s", exc)
@@ -120,8 +129,8 @@ async def handle_ws_transcribe(request: web.Request) -> web.WebSocketResponse:
     disconnects still gets its audio finalized server-side (for vocabulary
     statistics), it just is not around to read the result.
     """
-    engine: VoiceEngine = request.app["engine"]
-    cfg: ServerConfig = request.app["config"]
+    engine: VoiceEngine = request.app[ENGINE]
+    cfg: ServerConfig = request.app[CONFIG]
 
     ws = web.WebSocketResponse(heartbeat=30.0, max_msg_size=cfg.max_bytes)
     await ws.prepare(request)
@@ -129,7 +138,7 @@ async def handle_ws_transcribe(request: web.Request) -> web.WebSocketResponse:
     # One streaming session at a time. There is a single whisper worker behind
     # this; a second concurrent session would not go faster, it would make both
     # sessions' interim text arrive late and unpredictably.
-    sem: asyncio.Semaphore = request.app["stream_sem"]
+    sem: asyncio.Semaphore = request.app[STREAM_SEM]
     if sem.locked():
         await ws.send_json({"type": "error", "error": "another streaming session is active"})
         await ws.close()
@@ -215,7 +224,7 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
         # seconds of CPU, and it must not block the event loop.
         try:
             text = await loop.run_in_executor(
-                app["executor"], session.stop, audio,
+                app[EXECUTOR], session.stop, audio,
             )
         except Exception as exc:  # noqa: BLE001
             log.exception("streaming finalization failed")
@@ -248,7 +257,7 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
 # ── text to speech ───────────────────────────────────────────────────────
 async def handle_tts(request: web.Request) -> web.Response:
     """JSON {text, voice?, speed?} → audio/wav."""
-    engine: VoiceEngine = request.app["engine"]
+    engine: VoiceEngine = request.app[ENGINE]
 
     try:
         body = await request.json()
@@ -269,7 +278,7 @@ async def handle_tts(request: web.Request) -> web.Response:
     loop = asyncio.get_running_loop()
     try:
         wav, rate, name = await loop.run_in_executor(
-            request.app["executor"], engine.synthesize, text, voice, speed,
+            request.app[EXECUTOR], engine.synthesize, text, voice, speed,
         )
     except TTSUnavailable as exc:
         return _error(503, str(exc))
@@ -295,7 +304,7 @@ async def handle_tts(request: web.Request) -> web.Response:
 @web.middleware
 async def error_middleware(request: web.Request, handler):
     """Every failure path leaves as JSON — a client never parses an HTML error."""
-    cfg: ServerConfig = request.app["config"]
+    cfg: ServerConfig = request.app[CONFIG]
     try:
         return await handler(request)
     except web.HTTPException as exc:
@@ -307,18 +316,43 @@ async def error_middleware(request: web.Request, handler):
         return _error(500, "internal error")
 
 
+@web.middleware
+async def guard_middleware(request: web.Request, handler):
+    """Refuse browsers and (optionally) unauthenticated callers.
+
+    Loopback is not a security boundary for a WebSocket: any page open in the
+    user's browser can connect to ws://127.0.0.1 (WebSockets are not CORS-
+    gated) and so can cross-origin POSTs. Browsers always send Origin there;
+    server-side proxies (the intended clients) do not. So: an Origin header
+    must be explicitly allowlisted. A shared token is required when set.
+    """
+    cfg: ServerConfig = request.app[CONFIG]
+    origin = request.headers.get("Origin")
+    if origin and origin not in cfg.allowed_origins:
+        log.warning("refused request from origin %s", origin)
+        return _error(403, "origin not allowed")
+    if cfg.token and request.path != "/health":
+        auth = request.headers.get("Authorization", "")
+        supplied = auth[7:] if auth.startswith("Bearer ") else request.query.get("token", "")
+        if not hmac.compare_digest(supplied.encode(), cfg.token.encode()):
+            return _error(401, "missing or invalid token")
+    return await handler(request)
+
+
 def build_app(cfg: ServerConfig | None = None,
               engine: VoiceEngine | None = None) -> web.Application:
     """The aiohttp application. Pass `engine` to inject a pre-built or fake one
     (tests do); otherwise it is constructed on startup, which is where the
     multi-second model load belongs."""
     cfg = cfg or ServerConfig()
-    app = web.Application(middlewares=[error_middleware], client_max_size=cfg.max_bytes)
-    app["config"] = cfg
+    app = web.Application(
+        middlewares=[error_middleware, guard_middleware], client_max_size=cfg.max_bytes,
+    )
+    app[CONFIG] = cfg
     # A single worker thread, because there is a single whisper subprocess.
-    app["executor"] = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper")
-    app["lock"] = asyncio.Lock()
-    app["stream_sem"] = asyncio.Semaphore(1)
+    app[EXECUTOR] = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper")
+    app[LOCK] = asyncio.Lock()
+    app[STREAM_SEM] = asyncio.Semaphore(1)
 
     app.router.add_get("/health", handle_health)
     app.router.add_post("/transcribe", handle_transcribe)
@@ -326,17 +360,17 @@ def build_app(cfg: ServerConfig | None = None,
     app.router.add_post("/tts", handle_tts)
 
     if engine is not None:
-        app["engine"] = engine
+        app[ENGINE] = engine
 
     async def _startup(app: web.Application) -> None:
-        if "engine" not in app:
-            app["engine"] = VoiceEngine(cfg)
+        if ENGINE not in app:
+            app[ENGINE] = VoiceEngine(cfg)
 
     async def _cleanup(app: web.Application) -> None:
-        eng = app.get("engine")
+        eng = app.get(ENGINE)
         if eng is not None:
             eng.shutdown()
-        app["executor"].shutdown(wait=False)
+        app[EXECUTOR].shutdown(wait=False)
 
     app.on_startup.append(_startup)
     app.on_cleanup.append(_cleanup)

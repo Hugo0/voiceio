@@ -38,6 +38,11 @@ class ServerConfig:
     # 0.0.0.0 would put an unauthenticated transcriber on the network.
     host: str = "127.0.0.1"
     port: int = DEFAULT_PORT
+    # Optional shared secret; when set every route but /health requires it.
+    token: str = ""
+    # Browser origins allowed to call this server. Empty = refuse any request
+    # carrying an Origin header (i.e. every browser page).
+    allowed_origins: tuple[str, ...] = ()
 
     # ── model ────────────────────────────────────────────────────────────
     model: str = ""          # "" = inherit voiceio's configured model
@@ -77,6 +82,10 @@ class ServerConfig:
         cfg = cls(
             host=e(prefix, "HOST", "127.0.0.1"),
             port=int(e(prefix, "PORT", str(DEFAULT_PORT))),
+            token=e(prefix, "TOKEN", ""),
+            allowed_origins=tuple(
+                o.strip() for o in e(prefix, "ALLOWED_ORIGINS", "").split(",") if o.strip()
+            ),
             model=e(prefix, "MODEL", ""),
             language=e(prefix, "LANGUAGE", ""),
             compute_type=e(prefix, "COMPUTE", ""),

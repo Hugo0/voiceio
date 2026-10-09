@@ -459,3 +459,65 @@ def test_config_blank_env_falls_back_to_default(monkeypatch):
 def test_config_env_prefix_is_overridable(monkeypatch):
     monkeypatch.setenv("MYAPP_PORT", "9999")
     assert ServerConfig.from_env(prefix="MYAPP_").port == 9999
+
+
+# ── access control / truthfulness ────────────────────────────────────────
+
+def test_browser_origin_is_refused_by_default():
+    """Any page in the user's browser could otherwise drive the loopback WS."""
+    async def go(client):
+        refused = await client.post("/tts", json={"text": "hi"},
+                                    headers={"Origin": "https://evil.example"})
+        proxied = await client.post("/tts", json={"text": "hi"})  # no Origin
+        return refused.status, proxied.status
+
+    assert run_with_client(go) == (403, 200)
+
+
+def test_allowlisted_origin_passes():
+    cfg = ServerConfig(allowed_origins=("https://hub.local",))
+
+    async def go(client):
+        resp = await client.post("/tts", json={"text": "hi"},
+                                 headers={"Origin": "https://hub.local"})
+        return resp.status
+
+    assert run_with_client(go, cfg=cfg) == 200
+
+
+def test_token_required_when_configured_except_health():
+    cfg = ServerConfig(token="s3cret")
+
+    async def go(client):
+        health = await client.get("/health")
+        missing = await client.post("/tts", json={"text": "hi"})
+        bearer = await client.post("/tts", json={"text": "hi"},
+                                   headers={"Authorization": "Bearer s3cret"})
+        query = await client.post("/tts?token=s3cret", json={"text": "hi"})
+        return health.status, missing.status, bearer.status, query.status
+
+    assert run_with_client(go, cfg=cfg) == (200, 401, 200, 200)
+
+
+def test_health_is_503_when_worker_dead():
+    engine = FakeEngine()
+    engine.health = lambda: {"ok": False, "model": "small", "worker_alive": False}
+
+    async def go(client):
+        resp = await client.get("/health")
+        return resp.status, (await resp.json())["ok"]
+
+    assert run_with_client(go, engine=engine) == (503, False)
+
+
+def test_odd_length_frames_keep_sample_alignment():
+    """Regression: a sample split across two frames lost its first byte and
+    every later sample was misaligned (noise)."""
+    from voiceio.audio_source import PushAudioSource
+    samples = (np.arange(-500, 500, dtype=np.int16) * 37)
+    raw = samples.tobytes()
+    src = PushAudioSource(16000)
+    for i in range(0, len(raw), 333):  # odd frame size
+        src.feed(raw[i:i + 333])
+    got = np.round(src.get_audio_so_far() * 32768).astype(np.int16)
+    np.testing.assert_array_equal(got, samples)
