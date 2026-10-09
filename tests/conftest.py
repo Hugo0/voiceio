@@ -40,9 +40,6 @@ def _isolate_user_state(tmp_path, monkeypatch):
     monkeypatch.setattr("voiceio.config.RECORDINGS_DIR", tmp_path / "recordings")
     monkeypatch.setattr("voiceio.config.HISTORY_PATH", tmp_path / "history.jsonl")
     monkeypatch.setattr("voiceio.history.HISTORY_PATH", tmp_path / "history.jsonl")
-    monkeypatch.setattr(
-        "voiceio.autocorrect_state.STATE_PATH", tmp_path / "autocorrect_state.json",
-    )
     # Self-correcting rule lifecycle: keep fire log, metrics, snapshots, audit
     # state, corrections + vocabulary out of the user's real dirs.
     monkeypatch.setattr(

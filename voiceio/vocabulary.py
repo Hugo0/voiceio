@@ -243,12 +243,30 @@ def add_terms(terms: list[str], model_cfg: ModelConfig) -> int:
     return len(to_add)
 
 
+def remove_terms(terms: list[str], model_cfg: ModelConfig) -> list[str]:
+    """Delete `terms` (case-insensitive) from the vocabulary file, keeping its
+    comments and order. Returns the terms actually removed."""
+    path = resolve_vocab_path(model_cfg)
+    if not path.exists():
+        return []
+    drop = {t.strip().lower() for t in terms}
+    kept, removed = [], []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip().lower() in drop and not line.lstrip().startswith("#"):
+            removed.append(line.strip())
+        else:
+            kept.append(line)
+    if removed:
+        path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    return removed
+
+
 class VocabularyLoader:
     """mtime-cached vocabulary loader for the per-recording hot path.
 
     `get()` re-reads and re-ranks only when vocabulary.txt or vocab_stats.json
     changed; otherwise it pays two `stat` calls and returns the cached result.
-    This lets the daemon pick up `voiceio correct` edits without a restart while
+    This lets the daemon pick up `voiceio vocab` edits without a restart while
     keeping `_do_start` cheap — the tokenizer load (~53ms) and ranking (~17ms)
     happen on a cache miss, which is rare, never on every recording.
     """

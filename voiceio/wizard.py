@@ -12,19 +12,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from voiceio.config import CONFIG_DIR, CONFIG_PATH
+from voiceio.ui import BOLD, CYAN, DIM, GREEN, MAGENTA, RED, RESET, YELLOW  # noqa: F401
 
 log = logging.getLogger(__name__)
-
-# ── Colors ──────────────────────────────────────────────────────────────────
-
-BOLD = "\033[1m"
-DIM = "\033[2m"
-RED = "\033[31m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-CYAN = "\033[36m"
-MAGENTA = "\033[35m"
-RESET = "\033[0m"
 
 # ── Spinner ─────────────────────────────────────────────────────────────────
 
@@ -680,20 +670,19 @@ def _wm_bind_lines(hotkey: str) -> list[tuple[str, str]]:
     ]
 
 
-def _setup_gnome_shortcut(hotkey: str) -> bool:
-    # Always use absolute path because GNOME doesn't know about venvs
-    toggle_path = None
-    # Check venv first (most common case)
-    venv_path = Path(sys.prefix) / "bin" / "voiceio-toggle"
+def _toggle_command() -> str | None:
+    """Absolute `voiceio toggle` command: GNOME doesn't know about venvs."""
+    venv_path = Path(sys.prefix) / "bin" / "voiceio"
     if venv_path.exists():
-        toggle_path = str(venv_path.resolve())
-    else:
-        found = shutil.which("voiceio-toggle")
-        if found:
-            toggle_path = str(Path(found).resolve())
+        return f"{venv_path.resolve()} toggle"
+    found = shutil.which("voiceio")
+    return f"{Path(found).resolve()} toggle" if found else None
 
+
+def _setup_gnome_shortcut(hotkey: str) -> bool:
+    toggle_path = _toggle_command()
     if not toggle_path:
-        print(f"  {RED}✗{RESET} voiceio-toggle not found")
+        print(f"  {RED}✗{RESET} voiceio not found on PATH")
         return False
 
     print(f"  {DIM}Command: {toggle_path}{RESET}")
@@ -867,7 +856,7 @@ def _test_hotkey(hotkey: str, backend: str) -> bool:
     print(f"  {DIM}Backend: {backend}{RESET}")
 
     if backend == "socket":
-        # For socket backend, we test if the GNOME shortcut triggers voiceio-toggle
+        # For socket backend, we test if the GNOME shortcut triggers voiceio toggle
         # Start a temporary socket listener
         import socket as sock
 
@@ -891,10 +880,10 @@ def _test_hotkey(hotkey: str, backend: str) -> bool:
             s.close()
             SOCKET_PATH.unlink(missing_ok=True)
 
-            # Diagnostic: test if voiceio-toggle itself works
+            # Diagnostic: test if voiceio toggle itself works
             print(f"\n  {DIM}Diagnosing...{RESET}")
-            venv_toggle = Path(sys.prefix) / "bin" / "voiceio-toggle"
-            print(f"  {DIM}Running voiceio-toggle directly...{RESET}", end="", flush=True)
+            venv_toggle = Path(sys.prefix) / "bin" / "voiceio"
+            print(f"  {DIM}Running voiceio toggle directly...{RESET}", end="", flush=True)
 
             # Re-bind socket for the direct test
             s2 = sock.socket(sock.AF_UNIX, sock.SOCK_DGRAM)
@@ -902,16 +891,16 @@ def _test_hotkey(hotkey: str, backend: str) -> bool:
             s2.settimeout(3.0)
 
             try:
-                subprocess.run([str(venv_toggle)], capture_output=True, timeout=3)
+                subprocess.run([str(venv_toggle), "toggle"], capture_output=True, timeout=3)
                 data = s2.recv(64)
                 if data == b"toggle":
                     print(f" {GREEN}OK{RESET}")
-                    print(f"\n  {YELLOW}ℹ{RESET}  voiceio-toggle works, but the DE shortcut didn't fire.")
+                    print(f"\n  {YELLOW}ℹ{RESET}  voiceio toggle works, but the DE shortcut didn't fire.")
                     print("    The GNOME shortcut may need a moment to register, or")
                     print(f"    {BOLD}{hotkey}{RESET} may conflict with an existing shortcut.")
             except Exception:
                 print(f" {RED}FAIL{RESET}")
-                print(f"\n  {YELLOW}ℹ{RESET}  voiceio-toggle itself failed. This is unexpected.")
+                print(f"\n  {YELLOW}ℹ{RESET}  voiceio toggle itself failed. This is unexpected.")
 
             s2.close()
             SOCKET_PATH.unlink(missing_ok=True)
@@ -949,7 +938,7 @@ def _test_hotkey(hotkey: str, backend: str) -> bool:
 
 def run_test() -> None:
     """Standalone test command: voiceio-test."""
-    print(f"{CYAN}{BOLD}voiceio test{RESET}\n")
+    print(f"{CYAN}{BOLD}voiceio doctor --live{RESET}\n")
 
     options = [
         ("Mic + streaming transcription", "Test your microphone and see real-time transcription"),
@@ -974,7 +963,7 @@ def run_test() -> None:
             print(f"\n  {YELLOW}Troubleshooting:{RESET}")
             print(f"  {DIM}• On Wayland/GNOME: run {BOLD}voiceio --setup-shortcut{RESET}")
             print(f"  {DIM}• Or add shortcut manually: Settings → Keyboard → Custom Shortcuts{RESET}")
-            print(f"  {DIM}  Command: voiceio-toggle{RESET}")
+            print(f"  {DIM}  Command: voiceio toggle{RESET}")
 
     print()
 
@@ -1363,7 +1352,7 @@ def run_wizard() -> None:
     autocorrect_base_url = ""
     autocorrect_model = ""
     print(f"\n  {BOLD}Autocorrect{RESET}")
-    print(f"  {DIM}'voiceio correct --auto' uses a cloud LLM to find and fix Whisper mistakes.{RESET}\n")
+    print(f"  {DIM}The optional cloud pass (postcorrect) uses an LLM to fix misheard words at the end of each dictation.{RESET}\n")
     ac_options = [
         ("Skip", "no cloud API key"),
         ("Enable", "paste an API key (OpenRouter, OpenAI, or Anthropic)"),
@@ -1439,10 +1428,10 @@ def run_wizard() -> None:
         if "GNOME" in desktop and backend == "socket":
             print(f"\n  {CYAN}Setting up GNOME keyboard shortcut...{RESET}")
             if _setup_gnome_shortcut(hotkey):
-                print(f"  {GREEN}✓{RESET} Shortcut {BOLD}{hotkey}{RESET} → voiceio-toggle configured!")
+                print(f"  {GREEN}✓{RESET} Shortcut {BOLD}{hotkey}{RESET} → voiceio toggle configured!")
             else:
                 print(f"  {YELLOW}⚠{RESET}  Auto-setup failed. Add manually in Settings → Keyboard → Shortcuts:")
-                print("    Command: voiceio-toggle")
+                print("    Command: voiceio toggle")
         elif backend == "socket":
             print(f"\n  {YELLOW}ℹ{RESET}  Add a keyboard shortcut in your window manager config:")
             for wm, line in _wm_bind_lines(hotkey):
@@ -1483,7 +1472,7 @@ def run_wizard() -> None:
         if backend == "socket" and "GNOME" in desktop:
             print(f"  {DIM}• The GNOME shortcut may need a moment to register.{RESET}")
             print(f"  {DIM}• Try: Settings → Keyboard → Custom Shortcuts to verify.{RESET}")
-            print(f"  {DIM}• Shortcut command should be: {BOLD}voiceio-toggle{RESET}")
+            print(f"  {DIM}• Shortcut command should be: {BOLD}voiceio toggle{RESET}")
         if _ask_yn("Try a different shortcut?"):
             print()
             hk_idx = _ask_choice(hotkey_options, default=1)
@@ -1517,7 +1506,7 @@ def run_wizard() -> None:
             if _wait_for_service_ready(timeout=30):
                 sp.ok("Service is running!")
             else:
-                sp.warn("Timed out — service may still be loading. Check: voiceio logs")
+                sp.warn("Timed out — service may still be loading. Check: voiceio service logs")
 
     # ── Done ────────────────────────────────────────────────────────────
     _print_ready_panel(hotkey, autostart=(autostart_idx == 0))

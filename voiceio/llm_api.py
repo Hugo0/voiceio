@@ -106,7 +106,7 @@ def _cloud_call_allowed(cfg: AutocorrectConfig) -> bool:
     if not _consent_warned:
         log.warning(
             "Cloud LLM call skipped: no cloud consent recorded. Run the setup "
-            "wizard or 'voiceio correct' to enable cloud features, or set an "
+            "wizard to enable cloud features, or set an "
             "api_key in config.toml. Staying local-only.",
         )
         _consent_warned = True

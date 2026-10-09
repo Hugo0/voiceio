@@ -17,14 +17,15 @@ log = logging.getLogger(__name__)
 _IS_WINDOWS = sys.platform == "win32"
 
 LOCAL_BIN = Path.home() / ".local" / "bin"
-SCRIPT_NAMES = ["voiceio", "voiceio-toggle", "voiceio-doctor", "voiceio-setup", "voiceio-test"]
+# `voiceio-toggle` stays for 1.x: GNOME shortcuts created before 1.0 call it.
+SCRIPT_NAMES = ["voiceio", "voiceio-toggle"]
 _PATH_HINT_ADDED = False  # track if we already printed the PATH hint
 
 SERVICE_NAME = "voiceio.service"
 SERVICE_DIR = Path.home() / ".config" / "systemd" / "user"
 SERVICE_PATH = SERVICE_DIR / SERVICE_NAME
 
-# Weekly vocabulary/corrections mining (voiceio correct --auto --batch)
+# Pre-1.0 weekly cloud mining timer — only referenced to remove it
 CORRECT_SERVICE_NAME = "voiceio-correct.service"
 CORRECT_TIMER_NAME = "voiceio-correct.timer"
 CORRECT_SERVICE_PATH = SERVICE_DIR / CORRECT_SERVICE_NAME
@@ -60,7 +61,7 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart={bin_path}
+ExecStart={bin_path} run
 Nice=10
 Restart=on-failure
 RestartSec=3
@@ -72,57 +73,9 @@ WantedBy=graphical-session.target
 """
 
 
-def _correct_service_unit(bin_path: str) -> str:
-    return f"""\
-[Unit]
-Description=VoiceIO weekly transcription mining (corrections + vocabulary)
-Documentation=https://github.com/Hugo0/voiceio
-
-[Service]
-Type=oneshot
-ExecStart={bin_path} correct --auto --batch
-Nice=15
-IOSchedulingClass=idle
-Environment=PYTHONUNBUFFERED=1
-"""
-
-
-def _correct_timer_unit() -> str:
-    return """\
-[Unit]
-Description=Run VoiceIO transcription mining weekly
-
-[Timer]
-OnCalendar=weekly
-Persistent=true
-RandomizedDelaySec=1h
-
-[Install]
-WantedBy=timers.target
-"""
-
-
-def install_correct_timer() -> bool:
-    """Install + enable the weekly mining timer. Returns True on success."""
-    if _IS_WINDOWS or not has_systemd():
-        return False
-    bin_path = _find_voiceio_bin()
-    SERVICE_DIR.mkdir(parents=True, exist_ok=True)
-    CORRECT_SERVICE_PATH.write_text(_correct_service_unit(bin_path))
-    CORRECT_TIMER_PATH.write_text(_correct_timer_unit())
-    try:
-        subprocess.run(["systemctl", "--user", "daemon-reload"],
-                       capture_output=True, timeout=5)
-        subprocess.run(["systemctl", "--user", "enable", "--now", CORRECT_TIMER_NAME],
-                       capture_output=True, timeout=5)
-        log.info("Enabled %s (weekly)", CORRECT_TIMER_NAME)
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("Could not enable mining timer: %s", e)
-        return False
-
-
 def uninstall_correct_timer() -> None:
+    """Remove the pre-1.0 weekly cloud-mining timer (`correct --auto --batch`).
+    It is gone in 1.0: mining moved to the local, opt-in `voiceio learn`."""
     if _IS_WINDOWS:
         return
     try:
@@ -202,7 +155,7 @@ def install_service() -> bool:
             capture_output=True, timeout=5,
         )
         log.info("Enabled %s", SERVICE_NAME)
-        install_correct_timer()
+        uninstall_correct_timer()
         return True
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         log.warning("Could not enable service: %s", e)

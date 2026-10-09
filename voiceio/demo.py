@@ -138,10 +138,10 @@ def run_demo() -> None:
     print(f"  {DIM}voiceio learns from your dictation to fix recurring mistakes.{RESET}\n")
 
     corrections_table = [
-        (f"{CYAN}voiceio correct \"wrong\" \"right\"{RESET}", "add a manual correction rule"),
-        (f"{CYAN}voiceio correct --auto{RESET}", "scan history with LLM to find mistakes"),
-        (f"{CYAN}voiceio correct --flagged{RESET}", "review words flagged with \"correct that\""),
-        (f"{CYAN}voiceio correct --list{RESET}", "show all correction rules"),
+        (f"{CYAN}voiceio corrections add WRONG RIGHT{RESET}", "fix a word that keeps being misheard"),
+        (f"{CYAN}voiceio vocab add TERM{RESET}", "teach it a name or jargon term"),
+        (f"{CYAN}voiceio corrections flagged{RESET}", "review words flagged with \"correct that\""),
+        (f"{CYAN}voiceio learn{RESET}", "fine-tune recognition on your own voice"),
     ]
     for cmd, desc in corrections_table:
         print(f"    {cmd}  {DIM}— {desc}{RESET}")
@@ -164,10 +164,10 @@ def run_demo() -> None:
         ("voiceio", "start the daemon"),
         ("voiceio setup", "interactive setup wizard"),
         ("voiceio doctor", "system health check"),
-        ("voiceio test", "mic + hotkey test"),
-        ("voiceio correct", "manage corrections"),
+        ("voiceio doctor --live", "mic + transcription test"),
+        ("voiceio corrections", "manage corrections"),
         ("voiceio history", "view transcription history"),
-        ("voiceio logs", "view daemon logs"),
+        ("voiceio service logs", "view daemon logs"),
         ("voiceio service", "manage autostart service"),
     ]
     for cmd, desc in cli_commands:
@@ -177,7 +177,7 @@ def run_demo() -> None:
     from voiceio.config import CONFIG_PATH
     print(f"    {DIM}{CONFIG_PATH}{RESET}")
 
-    # Smart suggest: voiceio correct
+    # Smart suggest: voiceio vocab suggest
     from voiceio.config import HISTORY_PATH
     history_count = 0
     if HISTORY_PATH.exists():
@@ -192,8 +192,8 @@ def run_demo() -> None:
     print(f"  Press {BOLD}{cfg.hotkey.key}{RESET} in any app to start dictating.")
     if history_count >= 20:
         print(f"\n  {CYAN}Tip:{RESET} You have {history_count} dictation entries.")
-        print(f"  Run {BOLD}voiceio correct{RESET} to scan for and fix Whisper mistakes.")
+        print(f"  Run {BOLD}voiceio vocab suggest{RESET} to find names it keeps mishearing.")
     else:
-        print(f"\n  {DIM}After a few dictations, run {BOLD}voiceio correct{RESET}{DIM} to")
+        print(f"\n  {DIM}After a few dictations, run {BOLD}voiceio vocab suggest{RESET}{DIM} to")
         print(f"  find and fix recurring Whisper mistakes.{RESET}")
     print(f"{GREEN}{'━' * 50}{RESET}\n")

@@ -1,264 +1,67 @@
-"""Tests for CLI helpers in voiceio.cli."""
+"""The v1 command-line surface."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import sys
 
 import pytest
 
-from voiceio.autocorrect import SuspiciousWord
-from voiceio.cli import _offer_cluster_apply, _save_api_key
+from voiceio import config
+from voiceio.cli import main
 
 
-@pytest.fixture
-def patch_config_path(monkeypatch, tmp_path):
-    """Redirect voiceio.config.CONFIG_PATH to a temp file."""
-    config_path = tmp_path / "config.toml"
-    monkeypatch.setattr("voiceio.config.CONFIG_PATH", config_path)
-    return config_path
+def run(monkeypatch, capsys, *argv):
+    monkeypatch.setattr(sys, "argv", ["voiceio", *argv])
+    main()
+    return capsys.readouterr().out
 
 
-def test_save_api_key_empty_config_openrouter(patch_config_path):
-    """Saving to a fresh config writes a new [autocorrect] block."""
-    cfg = MagicMock()
-    _save_api_key(cfg, "sk-or-v1-abc123")
-
-    content = patch_config_path.read_text(encoding="utf-8")
-    assert "[autocorrect]" in content
-    assert 'api_key = "sk-or-v1-abc123"' in content
-    assert 'base_url = "https://openrouter.ai/api/v1"' in content
-    assert "moonshotai/kimi-k2-0905" in content
+def test_bare_voiceio_prints_help(monkeypatch, capsys):
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    out = run(monkeypatch, capsys)
+    for cmd in ("run", "toggle", "setup", "doctor", "service", "models", "vocab",
+                "corrections", "learn", "history", "config", "uninstall"):
+        assert cmd in out
 
 
-def test_save_api_key_detects_anthropic(patch_config_path):
-    """sk-ant- prefix routes to Anthropic provider."""
-    _save_api_key(MagicMock(), "sk-ant-api03-xyz")
-
-    content = patch_config_path.read_text(encoding="utf-8")
-    assert 'api_key = "sk-ant-api03-xyz"' in content
-    assert "api.anthropic.com" in content
-
-
-def test_save_api_key_detects_openai(patch_config_path):
-    """sk-proj- prefix routes to OpenAI provider."""
-    _save_api_key(MagicMock(), "sk-proj-foo")
-
-    content = patch_config_path.read_text(encoding="utf-8")
-    assert 'api_key = "sk-proj-foo"' in content
-    assert "api.openai.com" in content
+def test_bare_voiceio_under_systemd_still_runs_daemon(monkeypatch, capsys):
+    """Pre-1.0 units run bare `voiceio`; they must keep working."""
+    called = []
+    monkeypatch.setenv("INVOCATION_ID", "abc")
+    monkeypatch.setattr("voiceio.cli._cmd_run", lambda args: called.append(args))
+    run(monkeypatch, capsys)
+    assert called and called[0].model is None
 
 
-def test_save_api_key_replaces_existing_in_autocorrect(patch_config_path):
-    """Existing api_key under [autocorrect] is overwritten, not duplicated."""
-    patch_config_path.write_text(
-        '[autocorrect]\n'
-        'api_key = "old-key"\n'
-        'base_url = "https://example.com/v1"\n'
-        'model = "old-model"\n',
-        encoding="utf-8",
-    )
-    _save_api_key(MagicMock(), "sk-or-v1-new")
-
-    content = patch_config_path.read_text(encoding="utf-8")
-    assert content.count("api_key") == 1
-    assert 'api_key = "sk-or-v1-new"' in content
-    assert "old-key" not in content
-    assert "old-model" not in content
+@pytest.mark.parametrize("removed", ["correct", "test", "update", "eval", "logs"])
+def test_removed_commands_are_gone(monkeypatch, capsys, removed):
+    with pytest.raises(SystemExit):
+        run(monkeypatch, capsys, removed)
 
 
-def test_save_api_key_replaces_commented_field(patch_config_path):
-    """A commented-out api_key line gets replaced."""
-    patch_config_path.write_text(
-        '[autocorrect]\n'
-        '# api_key = ""\n'
-        '# base_url = ""\n'
-        '# model = ""\n',
-        encoding="utf-8",
-    )
-    _save_api_key(MagicMock(), "sk-or-v1-new")
-
-    content = patch_config_path.read_text(encoding="utf-8")
-    assert 'api_key = "sk-or-v1-new"' in content
-    assert "# api_key" not in content
+def test_vocab_add_show_remove(monkeypatch, capsys):
+    run(monkeypatch, capsys, "vocab", "add", "Kalshi", "HyperNEAT")
+    assert "Kalshi" in run(monkeypatch, capsys, "vocab", "show")
+    run(monkeypatch, capsys, "vocab", "remove", "kalshi")
+    out = run(monkeypatch, capsys, "vocab", "show")
+    assert "Kalshi" not in out and "HyperNEAT" in out
 
 
-def test_save_api_key_preserves_other_sections(patch_config_path):
-    """Sections other than [autocorrect] are untouched."""
-    patch_config_path.write_text(
-        '[model]\n'
-        'language = "en"\n'
-        '\n'
-        '[autocorrect]\n'
-        'api_key = "old"\n'
-        '\n'
-        '[tts]\n'
-        'engine = "piper"\n',
-        encoding="utf-8",
-    )
-    _save_api_key(MagicMock(), "sk-or-v1-new")
-
-    content = patch_config_path.read_text(encoding="utf-8")
-    assert '[model]' in content
-    assert 'language = "en"' in content
-    assert '[tts]' in content
-    assert 'engine = "piper"' in content
-    assert 'api_key = "sk-or-v1-new"' in content
+def test_corrections_add_list_remove(monkeypatch, capsys):
+    run(monkeypatch, capsys, "corrections", "add", "kalchi", "Kalshi")
+    assert "kalchi → Kalshi" in run(monkeypatch, capsys, "corrections", "list")
+    run(monkeypatch, capsys, "corrections", "remove", "kalchi")
+    assert "No corrections" in run(monkeypatch, capsys, "corrections")
 
 
-def test_save_api_key_appends_section_when_missing(patch_config_path):
-    """If [autocorrect] doesn't exist yet, it's appended."""
-    patch_config_path.write_text(
-        '[model]\n'
-        'language = "en"\n',
-        encoding="utf-8",
-    )
-    _save_api_key(MagicMock(), "sk-or-v1-fresh")
-
-    content = patch_config_path.read_text(encoding="utf-8")
-    assert '[model]' in content
-    assert '[autocorrect]' in content
-    assert 'api_key = "sk-or-v1-fresh"' in content
+def test_config_show_redacts_secrets_and_set_writes(monkeypatch, capsys):
+    config.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    config.CONFIG_PATH.write_text('[autocorrect]\napi_key = "sk-secret"\n')
+    out = run(monkeypatch, capsys, "config", "show")
+    assert "sk-secret" not in out and "•••" in out
+    run(monkeypatch, capsys, "config", "set", "output.streaming_freeze_secs", "8")
+    assert config.load().output.streaming_freeze_secs == 8
 
 
-def test_save_api_key_creates_parent_dir(monkeypatch, tmp_path):
-    """Parent directory is created if missing."""
-    nested = tmp_path / "deep" / "nested" / "config.toml"
-    monkeypatch.setattr("voiceio.config.CONFIG_PATH", nested)
-
-    _save_api_key(MagicMock(), "sk-or-v1-abc")
-
-    assert nested.exists()
-    assert 'api_key = "sk-or-v1-abc"' in nested.read_text(encoding="utf-8")
-
-
-# ── _offer_cluster_apply ──────────────────────────────────────────────────
-
-
-def _rl_prompt(s):  # passthrough — strip ANSI is done by readline IRL
-    return s
-
-
-def test_cluster_apply_no_close_variants_returns_zero(monkeypatch):
-    """No remaining items within Levenshtein 2 → no prompt, no extra fixes."""
-    cd = MagicMock()
-    to_review = [
-        {"wrong": "pnit", "right": ""},
-        {"wrong": "completely_different", "right": ""},
-    ]
-    sw_by_word = {
-        "pnit": SuspiciousWord(word="pnit", count=6),
-        "completely_different": SuspiciousWord(word="completely_different", count=1),
-    }
-    # Should not call input() at all
-    monkeypatch.setattr("builtins.input", lambda *_a, **_k: pytest.fail("prompted"))
-    n = _offer_cluster_apply(
-        cd, "pnit", "peanut", to_review, current_i=1,
-        sw_by_word=sw_by_word, rl_prompt=_rl_prompt,
-    )
-    assert n == 0
-    assert cd.add.call_count == 0
-    assert len(to_review) == 2
-
-
-def test_cluster_apply_yes_applies_to_all_close_variants(monkeypatch):
-    """Y reply applies the same correction to every Levenshtein-≤2 remaining item."""
-    cd = MagicMock()
-    to_review = [
-        {"wrong": "pnit", "right": ""},      # current (already corrected)
-        {"wrong": "pnat", "right": "PNET"},  # close — should be batch-fixed
-        {"wrong": "pnut", "right": "PNET"},  # close — should be batch-fixed
-        {"wrong": "yaml", "right": ""},      # not close — left alone
-        {"wrong": "pinat", "right": "PNET"}, # close (distance 2) — batch-fixed
-    ]
-    sw_by_word = {
-        w["wrong"]: SuspiciousWord(word=w["wrong"], count=2) for w in to_review
-    }
-    monkeypatch.setattr("builtins.input", lambda *_a, **_k: "y")
-
-    n = _offer_cluster_apply(
-        cd, "pnit", "peanut", to_review, current_i=1,
-        sw_by_word=sw_by_word, rl_prompt=_rl_prompt,
-    )
-    assert n == 3
-    added = {call.args for call in cd.add.call_args_list}
-    assert added == {("pnat", "peanut"), ("pnut", "peanut"), ("pinat", "peanut")}
-    # yaml stays in to_review; the three variants are removed
-    assert [it["wrong"] for it in to_review] == ["pnit", "yaml"]
-
-
-def test_cluster_apply_no_reply_skips(monkeypatch):
-    """Replying 'n' applies nothing and leaves to_review intact."""
-    cd = MagicMock()
-    to_review = [
-        {"wrong": "pnit", "right": ""},
-        {"wrong": "pnat", "right": ""},
-        {"wrong": "pnut", "right": ""},
-    ]
-    sw_by_word = {
-        w["wrong"]: SuspiciousWord(word=w["wrong"], count=2) for w in to_review
-    }
-    monkeypatch.setattr("builtins.input", lambda *_a, **_k: "n")
-
-    n = _offer_cluster_apply(
-        cd, "pnit", "peanut", to_review, current_i=1,
-        sw_by_word=sw_by_word, rl_prompt=_rl_prompt,
-    )
-    assert n == 0
-    assert cd.add.call_count == 0
-    assert len(to_review) == 3
-
-
-def test_cluster_apply_default_yes_on_empty_input(monkeypatch):
-    """Empty input (just Enter) is treated as Yes."""
-    cd = MagicMock()
-    to_review = [
-        {"wrong": "pnit", "right": ""},
-        {"wrong": "pnat", "right": ""},
-    ]
-    sw_by_word = {w["wrong"]: SuspiciousWord(word=w["wrong"], count=2) for w in to_review}
-    monkeypatch.setattr("builtins.input", lambda *_a, **_k: "")
-    n = _offer_cluster_apply(
-        cd, "pnit", "peanut", to_review, current_i=1,
-        sw_by_word=sw_by_word, rl_prompt=_rl_prompt,
-    )
-    assert n == 1
-    cd.add.assert_called_once_with("pnat", "peanut")
-
-
-def test_cluster_apply_skips_already_reviewed_indices(monkeypatch):
-    """Items at indices < current_i (already reviewed) are not touched."""
-    cd = MagicMock()
-    to_review = [
-        {"wrong": "pnut", "right": ""},   # already reviewed (index 0)
-        {"wrong": "pnit", "right": ""},   # current
-        {"wrong": "pnat", "right": ""},   # remaining — eligible
-    ]
-    sw_by_word = {w["wrong"]: SuspiciousWord(word=w["wrong"], count=2) for w in to_review}
-    monkeypatch.setattr("builtins.input", lambda *_a, **_k: "y")
-    n = _offer_cluster_apply(
-        cd, "pnit", "peanut", to_review, current_i=2,  # skip past current word too
-        sw_by_word=sw_by_word, rl_prompt=_rl_prompt,
-    )
-    # Only pnat (at index 2) is eligible — pnut is at index 0 (< current_i).
-    assert n == 1
-    cd.add.assert_called_once_with("pnat", "peanut")
-
-
-def test_cluster_apply_eof_aborts_safely(monkeypatch):
-    """Ctrl-D / EOF on the prompt does not crash and applies nothing."""
-    cd = MagicMock()
-    to_review = [
-        {"wrong": "pnit", "right": ""},
-        {"wrong": "pnat", "right": ""},
-    ]
-    sw_by_word = {w["wrong"]: SuspiciousWord(word=w["wrong"], count=2) for w in to_review}
-
-    def raise_eof(*_a, **_k):
-        raise EOFError
-
-    monkeypatch.setattr("builtins.input", raise_eof)
-    n = _offer_cluster_apply(
-        cd, "pnit", "peanut", to_review, current_i=1,
-        sw_by_word=sw_by_word, rl_prompt=_rl_prompt,
-    )
-    assert n == 0
-    assert cd.add.call_count == 0
+def test_service_unit_runs_the_run_subcommand():
+    from voiceio.service import _service_unit
+    assert "ExecStart=/x/voiceio run\n" in _service_unit("/x/voiceio")

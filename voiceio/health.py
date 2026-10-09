@@ -268,7 +268,7 @@ def _check_ibus() -> IBusStatus:
 
 # ── ANSI colors (shared with wizard.py) ──────────────────────────────────────
 
-from voiceio.wizard import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW  # noqa: E402
+from voiceio.ui import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW  # noqa: E402
 
 
 def _icon(ok: bool, warn: bool = False) -> str:
@@ -328,9 +328,9 @@ def _accuracy_tips(accuracy: dict[str, str]) -> list[str]:
     auto = accuracy.get("Autocorrect", "")
 
     if corr == "none" and "entries" in hist:
-        tips.append("voiceio correct --auto  — scan history for Whisper mistakes")
+        tips.append("voiceio vocab suggest  — unusual words from your history")
     elif corr == "none":
-        tips.append("voiceio correct \"wrong\" \"right\"  — add a correction rule")
+        tips.append("voiceio corrections add WRONG RIGHT  — fix a word that keeps being misheard")
     if vocab == "none":
         tips.append("Add names/jargon to ~/.config/voiceio/vocabulary.txt")
     if "no API key" in auto:
@@ -414,4 +414,84 @@ def format_report(report: HealthReport) -> str:
         for w in report.warnings:
             lines.append(f"  {YELLOW}⚠{RESET} {w}")
 
+    return "\n".join(lines)
+
+
+# ── Usage checks: how it is actually performing, from the user's own data ──
+
+def usage_findings() -> list[tuple[bool, str, str]]:
+    """(ok, finding, hint) from history/traces/logs. Cheap: reads local files.
+
+    These catch what the probes can't: everything can be "installed" while
+    stopping a dictation takes 20s or the worker crashes daily.
+    """
+    import json
+    import statistics
+
+    from voiceio import config
+    out: list[tuple[bool, str, str]] = []
+
+    waits = []
+    if config.HISTORY_PATH.exists():
+        for line in config.HISTORY_PATH.read_text(encoding="utf-8").splitlines()[-400:]:
+            try:
+                lat = json.loads(line).get("latency") or {}
+            except json.JSONDecodeError:
+                continue
+            if "finalize_total" in lat:
+                waits.append(lat["finalize_total"])
+    if len(waits) >= 10:
+        p50 = statistics.median(waits)
+        p90 = statistics.quantiles(waits, n=10)[-1]
+        out.append((p90 <= 10, f"stop→text: median {p50:.1f}s, p90 {p90:.1f}s "
+                               f"(last {len(waits)} dictations)",
+                    "voiceio config set model.decode_lanes 2  ·  "
+                    "voiceio config set output.streaming_freeze_secs 8"))
+
+    log_files = sorted(config.LOG_DIR.glob("voiceio.log*")) if config.LOG_DIR.exists() else []
+    deaths = timeouts = 0
+    for path in log_files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        deaths += text.count("Worker died")
+        timeouts += text.count("Transcription timed out")
+    if log_files:
+        out.append((deaths + timeouts < 5,
+                    f"decoder: {deaths} worker restarts, {timeouts} timeouts in recent logs",
+                    f"stack dumps of hung decodes: {config.LOG_DIR / 'worker.log'}"))
+
+    try:
+        from voiceio.tokens import HOTWORDS_TOKEN_BUDGET
+        from voiceio.vocabulary import VocabularyLoader
+        loader = VocabularyLoader(config.load().model)
+        total = len(loader.get_all())
+        if total:
+            biasing = len(loader.get_selected(token_budget=HOTWORDS_TOKEN_BUDGET))
+            out.append((True, f"vocabulary: {biasing} of {total} terms bias the decoder",
+                        "see which: voiceio vocab show"))
+    except Exception:  # noqa: BLE001 — a diagnostic must not crash doctor
+        pass
+
+    try:
+        from voiceio.learn.clean import clean
+        junk = sum(r.removed for r in clean(apply=False))
+        if junk:
+            out.append((False, f"{junk} test-fixture rows in your history/traces",
+                        "voiceio learn clean --apply"))
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def format_usage(findings: list[tuple[bool, str, str]]) -> str:
+    if not findings:
+        return ""
+    lines = [f"\n{BOLD}Usage{RESET}"]
+    for ok, finding, hint in findings:
+        mark = f"{GREEN}✓{RESET}" if ok else f"{YELLOW}!{RESET}"
+        lines.append(f"  {mark} {finding}")
+        if not ok and hint:
+            lines.append(f"      {DIM}{hint}{RESET}")
     return "\n".join(lines)

@@ -57,11 +57,8 @@ Changelog = "https://github.com/Hugo0/voiceio/releases"
 
 [project.scripts]
 voiceio = "voiceio.cli:_entry_point"
-# Legacy aliases (prefer: voiceio toggle/doctor/setup/test)
+# Pre-1.0 GNOME shortcuts call this; kept through 1.x.
 voiceio-toggle = "voiceio.cli:_cmd_toggle"
-voiceio-doctor = "voiceio.cli:_cmd_doctor_legacy"
-voiceio-setup = "voiceio.cli:_cmd_setup"
-voiceio-test = "voiceio.cli:_cmd_test"
 
 [tool.ruff]
 # Explicit, so a new ruff release changing its defaults can't break CI.

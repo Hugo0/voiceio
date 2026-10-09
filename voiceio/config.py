@@ -98,8 +98,6 @@ class AudioConfig:
 class OutputConfig:
     method: str = "auto"
     streaming: bool = True
-    min_recording_secs: float = 1.5
-    cancel_window_secs: float = 0.5
     punctuation_cleanup: bool = True
     number_conversion: bool = True
     # Strip spoken disfluencies so dictation reads as writing. Delete-only and
@@ -164,17 +162,6 @@ class AutocorrectConfig:
     # Languages you also dictate in: mined corrections never rewrite words
     # that are real in these (e.g. ["es"] protects Spanish "harina").
     protect_languages: list[str] = field(default_factory=list)
-    # Mine find/replace CORRECTION rules from history. Off by default: measured
-    # over months of real use, mining produced 387 rules of which 4 ever fired
-    # (1%), while the runtime postcorrect pass applied 288 edits over the same
-    # period. Rules are exact-string matches, so they only fire when Whisper
-    # repeats a misrecognition verbatim — and the errors worth fixing are
-    # common words ("nuance" for "neurons") that the safety gate must refuse
-    # anyway. Meanwhile a bad rule is a silent regression: one run learned rules
-    # destroying real Spanish words. Poor odds, real downside, and postcorrect
-    # already does this contextually. Vocabulary mining is unaffected and stays
-    # on — those terms bias the decoder and demonstrably help.
-    mine_corrections: bool = False
 
 
 @dataclass
@@ -263,8 +250,20 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
 
 
+_REMOVED_KEYS = {
+    "output": ("min_recording_secs", "cancel_window_secs"),  # never read
+    # Cloud mining was removed in 1.0 (387 mined rules, 4 ever fired).
+    "autocorrect": ("mine_corrections",),
+}
+
+
 def _migrate_v1(raw: dict) -> dict:
     """Migrate v1 config values to v2."""
+    for section, keys in _REMOVED_KEYS.items():
+        for key in keys:
+            if key in raw.get(section, {}):
+                del raw[section][key]
+                log.info("Config: ignoring removed option %s.%s", section, key)
 
     # Migrate old output methods
     if "output" in raw and "method" in raw["output"]:

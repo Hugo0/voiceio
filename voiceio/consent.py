@@ -7,7 +7,7 @@ gated on a recorded, explicit consent so an API key sitting in the environment
 is never silently adopted.
 
 Consent is a tiny JSON file under CONFIG_DIR. The wizard's consent UI and the
-`voiceio correct` interactive flow call ``record_consent()``; every cloud call
+API-key setup call ``record_consent()``; every cloud call
 checks ``has_cloud_consent()`` and fails open to local-only behaviour when it
 is absent.
 """

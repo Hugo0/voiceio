@@ -91,3 +91,24 @@ def test_set_value_preserves_comments_and_sections(tmp_path):
     assert data["model"] == {"name": "/home/u/models/run1/ct2", "language": "en"}
     assert data["output"]["streaming_freeze_secs"] == 8.0
     assert data["tts"]["enabled"] is False
+
+
+def test_example_config_matches_defaults():
+    """config.example.toml documents every option with its real default."""
+    import dataclasses
+    from pathlib import Path
+
+    from voiceio.config import Config
+    example = tomllib.loads(
+        (Path(__file__).parent.parent / "config.example.toml").read_text())
+    cfg = Config()
+    for sec in dataclasses.fields(cfg):
+        defaults = getattr(cfg, sec.name)
+        assert sec.name in example, f"[{sec.name}] missing from example"
+        for f in dataclasses.fields(defaults):
+            assert f.name in example[sec.name], f"{sec.name}.{f.name} missing"
+            assert example[sec.name][f.name] == getattr(defaults, f.name), \
+                f"{sec.name}.{f.name}: example differs from default"
+    for name, section in example.items():
+        known = {f.name for f in dataclasses.fields(getattr(cfg, name))}
+        assert set(section) <= known, f"[{name}] documents unknown {set(section) - known}"

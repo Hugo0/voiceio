@@ -1,79 +1,104 @@
-# voiceio configuration
-# Copy to your config file and edit as needed.
-# All values shown are defaults. Only override what you want to change.
+# voiceio configuration — ~/.config/voiceio/config.toml
 #
-# Config file location:
-#   Linux/macOS: ~/.config/voiceio/config.toml
-#   Windows:     %LOCALAPPDATA%\voiceio\config\config.toml
+# Every value shown is the default; set only what you want to change.
+# Edit with `voiceio config edit`, or one key at a time:
+#   voiceio config set output.streaming_freeze_secs 8
 
 [hotkey]
-key = "ctrl+alt+v"       # Combo to toggle recording. Examples: alt+v, ctrl+shift+r, ctrl+alt+v
-backend = "auto"         # "auto", "evdev", "pynput", "socket"
+key = "ctrl+alt+v"            # e.g. super+v, ctrl+shift+r
+backend = "auto"              # auto | evdev | pynput | socket (bind `voiceio toggle` in your WM)
 
 [model]
-name = "base"            # Whisper model: tiny, base, small, medium, large-v3
-language = "en"          # ISO 639-1 code, or "auto" for auto-detection
-device = "auto"          # "cpu", "cuda", or "auto"
-compute_type = "int8"    # int8 (fastest), float16 (GPU), float32 (most accurate)
-vocabulary_file = ""     # Path to vocabulary.txt (one term per line), empty = check default location
+name = "small"                # a size (small, medium, large-v3-turbo…), a path to a
+                              # CTranslate2 model (`voiceio learn` fine-tunes), or
+                              # sherpa:<dir> / whispercpp:<url> — see `voiceio models`
+language = "en"               # ISO 639-1 code, or "auto"
+device = "auto"               # auto | cpu | cuda
+compute_type = "int8"         # int8 (fast) | float16 (GPU) | float32
+cpu_threads = 0               # 0 = half your logical cores, 4–8
+decode_lanes = 2              # 2 = separate preview process, so stopping never waits on it
+decoding = ""                 # sherpa-onnx only: greedy_search | modified_beam_search
+vocabulary_file = ""          # empty = ~/.config/voiceio/vocabulary.txt
 
 [audio]
-sample_rate = 16000      # 16kHz is what Whisper expects
-device = "default"       # Audio input device name or index
-prebuffer_secs = 1.0     # Seconds of pre-buffer to capture (prevents clipping first syllable)
-silence_threshold = 0.01 # RMS threshold for silence detection (lower = more sensitive)
-silence_duration = 0.6   # Seconds of silence before triggering a streaming transcription pass
-auto_stop_silence_secs = 5.0  # Seconds of sustained silence before auto-stopping recording
-vad_backend = "silero"   # "silero" (neural net, recommended) or "rms" (simple amplitude)
-vad_threshold = 0.5      # Silero speech probability threshold (0.0-1.0)
+sample_rate = 16000
+device = "default"            # input device name or index
+prebuffer_secs = 1.0          # audio kept from before you pressed the key
+silence_threshold = 0.01      # RMS floor for the simple VAD
+silence_duration = 0.6        # pause that triggers a preview update
+auto_stop_silence_secs = 5.0  # stop after this much silence once you've spoken
+auto_stop_no_speech_secs = 20.0  # stop if nothing is said at all
+vad_backend = "silero"        # silero | rms
+vad_threshold = 0.5
 
 [output]
-method = "auto"          # "auto", "xdotool", "ydotool", "wtype", "clipboard", "pynput"
-streaming = true         # Stream text as you speak
-min_recording_secs = 1.5 # Minimum recording duration before stop is accepted
-cancel_window_secs = 0.5 # Double-press within this window cancels recording
-punctuation_cleanup = true  # Auto-capitalize and fix spacing in Whisper output
-number_conversion = true    # Convert spoken numbers to digits ("twenty five" → "25")
+method = "auto"               # auto | ibus | ydotool | wtype | xdotool | clipboard | pynput
+streaming = true              # show text while you speak
+punctuation_cleanup = true    # capitalization and spacing
+number_conversion = true      # "twenty five" → "25"
+remove_disfluencies = true    # drop "um", "uh" and duplicated sentences
+voice_input_prefix = ""       # e.g. "[voice]" to mark dictated text
+streaming_freeze_secs = 8.0   # finalize long dictations in chunks; 0 = all at stop
+copy_to_clipboard = "final"   # off | final | live
 
 [commands]
-enabled = true           # Recognize voice commands: "new line", "period", "scratch that", etc.
-                         # Also includes "correct that" — flags the last word for review.
-
-# Corrections dictionary: auto-replace misheard words in transcription.
-# Managed via CLI: voiceio correct "wrong" "right"
-# Stored in corrections.json alongside this config file.
-# Say "correct that" during dictation to flag the last word for review.
-# Run "voiceio correct --flagged" to see flagged words.
+enabled = true                # "new line", "period", "comma"…
+editing = false               # also "scratch that" and "correct that"
 
 [feedback]
-sound_enabled = true     # Play sounds on start/stop recording
-notify_clipboard = false # Show desktop notification with transcribed text
+sound_enabled = true
+notify_clipboard = false
 
 [tray]
-enabled = false          # Show system tray icon (requires: pip install voiceio[tray])
+enabled = false
 
 [daemon]
-log_level = "INFO"       # DEBUG, INFO, WARNING, ERROR
-
-[llm]
-enabled = false                          # Use local LLM for grammar/spelling cleanup (requires Ollama)
-model = ""                               # Model name (empty = auto). Examples: phi3:mini, llama3.2:1b, mistral
-base_url = "http://localhost:11434"      # Ollama API URL
-timeout_secs = 15.0                      # Max seconds to wait for LLM response
-
-[autocorrect]
-# api_key = ""                                   # API key (or set OPENROUTER_API_KEY / OPENAI_API_KEY env var)
-# base_url = "https://openrouter.ai/api/v1"      # OpenAI-compatible API base URL
-# model = "anthropic/claude-sonnet-4"             # Model for autocorrect analysis
-# timeout_secs = 30.0                             # Max seconds to wait for API response
+log_level = "INFO"
 
 [tts]
-enabled = false          # Enable text-to-speech (select text + ctrl+alt+s to hear it)
-engine = "auto"          # "auto", "piper", "espeak", "edge-tts"
-# hotkey = "ctrl+alt+s"  # Hotkey to trigger TTS (press again to cancel)
-# voice = ""             # Engine-specific voice name (empty = default)
-speed = 1.0              # Speech speed multiplier (0.5–2.0)
-# model = ""             # Piper model name (empty = default en_US-lessac-medium)
+enabled = true                # read selected text aloud
+engine = "auto"               # auto | piper | espeak | edge-tts (cloud)
+hotkey = "ctrl+alt+s"
+voice = ""
+speed = 1.0
+model = ""                    # piper voice model
 
 [health]
-auto_fallback = true     # Automatically switch to fallback backend on failure
+auto_fallback = true          # switch backends when one breaks
+
+[data]
+# Local only. Retained audio + text is what `voiceio learn` trains on.
+retain_audio = true
+max_audio_mb = 4096
+min_free_gb = 5.0
+capture_context = true        # note the focused app's title per utterance
+capture_intermediates = true  # decode traces, for `voiceio doctor` latency stats
+
+[history]
+enabled = true
+max_entries = 0               # 0 = unlimited
+max_age_days = 0
+
+# ── Optional cloud LLM ────────────────────────────────────────────────────
+# Off unless you enable it. Text only — audio never leaves the machine.
+
+[postcorrect]
+enabled = false               # fix misheard words at the end of each dictation
+model = "google/gemini-2.5-flash-lite"
+timeout_secs = 3.0            # past this the original text is kept
+min_words = 4
+
+[autocorrect]
+# Credentials for the cloud pass (or set OPENROUTER_API_KEY / OPENAI_API_KEY /
+# ANTHROPIC_API_KEY in the environment instead of storing a key here).
+api_key = ""
+base_url = "https://openrouter.ai/api/v1"
+model = "moonshotai/kimi-k2-0905"
+timeout_secs = 30.0
+protect_languages = []        # languages whose real words corrections must not rewrite
+
+[llm]
+enabled = false               # local Ollama cleanup pass
+model = ""
+base_url = "http://localhost:11434"
+timeout_secs = 15.0
