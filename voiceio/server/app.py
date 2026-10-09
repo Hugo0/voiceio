@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from aiohttp import WSMsgType, web
 
 from voiceio.server.config import SAMPLE_RATE, ServerConfig
+from voiceio.transcriber import describe_transcript
 from voiceio.server.engine import (
     AudioTooLong,
     DecodeError,
@@ -239,7 +240,7 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
                 "audio_secs": round(secs, 2),
                 "ms": round((time.monotonic() - t0) * 1000),
             })
-        log.info("streaming %.1fs audio → %s", secs, text or "(silence)")
+        log.info("streaming %.1fs audio → %s", secs, describe_transcript(text))
         if not ws.closed:
             await ws.close()
 

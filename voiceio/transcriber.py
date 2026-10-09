@@ -22,6 +22,11 @@ log = logging.getLogger(__name__)
 TRANSCRIBE_TIMEOUT = 30  # seconds (floor; scaled up for long audio)
 
 
+def describe_transcript(text: str) -> str:
+    """Privacy-safe summary of a transcript for INFO-level logs."""
+    return f"{len(text.split())} words" if text else "(silence)"
+
+
 class TranscriptionError(RuntimeError):
     """Decode failed (timeout / worker crash). Distinct from a legitimate
     empty result ("" = silence) so callers never treat lost audio as decoded
@@ -238,10 +243,13 @@ class Transcriber:
 
             elapsed = time.monotonic() - t0
             ratio = duration / elapsed if elapsed > 0 else 999
+            # Transcript text stays at DEBUG: INFO lands in journald and the
+            # rotating log, which must never become an archive of dictation.
             log.info(
                 "Transcribed %.1fs audio in %.1fs (%.1fx realtime): %s",
-                duration, elapsed, ratio, text or "(silence)",
+                duration, elapsed, ratio, describe_transcript(text),
             )
+            log.debug("Transcript: %s", text)
             # Reset restart counter on success
             self._restarts = 0
             return text

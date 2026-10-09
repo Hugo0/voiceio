@@ -19,8 +19,13 @@ if sys.platform == "win32":
     CONFIG_DIR = _APP_DIR / "config"
     LOG_DIR = _APP_DIR / "logs"
 else:
-    CONFIG_DIR = Path.home() / ".config" / "voiceio"
-    LOG_DIR = Path.home() / ".local" / "state" / "voiceio"
+    def _xdg(var: str, default: str) -> Path:
+        # XDG spec: ignore unset, empty, or relative values.
+        val = os.environ.get(var, "")
+        return Path(val) if os.path.isabs(val) else Path.home() / default
+
+    CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config") / "voiceio"
+    LOG_DIR = _xdg("XDG_STATE_HOME", ".local/state") / "voiceio"
 
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 CORRECTIONS_PATH = CONFIG_DIR / "corrections.json"

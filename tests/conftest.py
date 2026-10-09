@@ -1,9 +1,35 @@
 """Shared test fixtures."""
 from __future__ import annotations
 
-import pytest
+import os
+import tempfile
+from pathlib import Path
 
-from voiceio.platform import Platform
+# Sandbox HOME and the XDG dirs *before* voiceio is imported: config paths are
+# resolved at import time, and a test that forgets to patch one (or a daemon
+# thread outliving its monkeypatch) must land here, never in the user's real
+# history/traces. Caches stay real so model loads don't re-download.
+_REAL_HOME = Path.home()
+os.environ.setdefault("XDG_CACHE_HOME", str(_REAL_HOME / ".cache"))
+os.environ.setdefault("HF_HOME", str(Path(os.environ["XDG_CACHE_HOME"]) / "huggingface"))
+_SANDBOX = Path(tempfile.mkdtemp(prefix="voiceio-tests-"))
+os.environ["HOME"] = str(_SANDBOX)
+for _var, _sub in (
+    ("XDG_CONFIG_HOME", ".config"),
+    ("XDG_STATE_HOME", ".local/state"),
+    ("XDG_DATA_HOME", ".local/share"),
+):
+    os.environ[_var] = str(_SANDBOX / _sub)
+
+import pytest  # noqa: E402
+
+from voiceio import config  # noqa: E402
+from voiceio.platform import Platform  # noqa: E402
+
+
+def pytest_sessionstart(session):
+    for path in (config.CONFIG_DIR, config.LOG_DIR):
+        assert _SANDBOX in path.parents, f"test state escaped the sandbox: {path}"
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +61,12 @@ def _isolate_user_state(tmp_path, monkeypatch):
     monkeypatch.setattr("voiceio.config.LOG_DIR", tmp_path / "state")
     monkeypatch.setattr(
         "voiceio.corrections.CORRECTIONS_PATH", tmp_path / "config" / "corrections.json",
+    )
+    monkeypatch.setattr("voiceio.corrections.FLAGGED_PATH", tmp_path / "config" / "flagged.txt")
+    monkeypatch.setattr("voiceio.config.TRACES_PATH", tmp_path / "state" / "traces.jsonl")
+    monkeypatch.setattr("voiceio.retention.TRACES_PATH", tmp_path / "state" / "traces.jsonl")
+    monkeypatch.setattr(
+        "voiceio.config.POSTCORRECT_PAIRS_PATH", tmp_path / "state" / "postcorrect_pairs.jsonl",
     )
 
 
@@ -72,3 +104,8 @@ def macos():
 @pytest.fixture
 def windows():
     return Platform(os="windows", display_server="win32", desktop="windows")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    import shutil
+    shutil.rmtree(_SANDBOX, ignore_errors=True)

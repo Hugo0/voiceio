@@ -266,3 +266,9 @@ class TestWorkerModelLoad:
                         continue
                     offenders.append(f"{py.relative_to(src)}:{i}")
         assert not offenders, f"unguarded WhisperModel loads: {offenders}"
+
+
+def test_describe_transcript_never_contains_text():
+    from voiceio.transcriber import describe_transcript
+    assert describe_transcript("my secret plan") == "3 words"
+    assert describe_transcript("") == "(silence)"
