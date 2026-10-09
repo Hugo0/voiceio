@@ -228,3 +228,13 @@ def test_noninteractive_fails_on_model_download(cfg_paths, monkeypatch, capsys):
     code = wizard.run_setup_noninteractive({})
     assert code == 7
     assert "download" in capsys.readouterr().out.lower()
+
+
+@pytest.mark.parametrize("hotkey,hypr,sway", [
+    ("ctrl+alt+v", "bind = CTRL ALT, V, exec, voiceio toggle",
+     "bindsym Ctrl+Alt+v exec voiceio toggle"),
+    ("super+shift+d", "bind = SUPER SHIFT, D, exec, voiceio toggle",
+     "bindsym Mod4+Shift+d exec voiceio toggle"),
+])
+def test_wm_bind_lines_use_chosen_hotkey(hotkey, hypr, sway):
+    assert dict(wizard._wm_bind_lines(hotkey)) == {"hyprland": hypr, "i3/sway": sway}

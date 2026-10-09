@@ -22,25 +22,13 @@ LAUNCHER_PATH = LAUNCHER_DIR / "voiceio-ibus-engine"
 PING_TIMEOUT = 2.0
 
 
-def _find_system_python() -> str:
-    """Find the system Python 3 interpreter.
-
-    IBus GObject bindings (gi) are system packages, so we need the system
-    Python, not a venv or pipx Python.
-    """
-    # Check well-known system locations first (never a venv)
-    for path in ("/usr/bin/python3", "/usr/bin/python"):
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
-    # Fallback: whatever python3 resolves to, excluding venvs
-    which = shutil.which("python3")
-    if which and "venv" not in which and "pipx" not in which:
-        return which
-    return "/usr/bin/python3"
+_IBUS_GI_PROBE = "import gi; gi.require_version('IBus', '1.0')"
 
 
-# Resolved once at import time so probe() / install_component() use the same value.
-SYSTEM_PYTHON = _find_system_python()
+def _system_python() -> str | None:
+    """An interpreter with IBus GObject bindings (distro packages, not pip)."""
+    from voiceio.platform import find_system_python
+    return find_system_python(_IBUS_GI_PROBE)
 
 
 def _gnome_source_configured() -> bool:
@@ -59,15 +47,7 @@ def _gnome_source_configured() -> bool:
 
 
 def _has_ibus_gi() -> bool:
-    """Check if system Python has IBus GObject bindings."""
-    try:
-        result = subprocess.run(
-            [SYSTEM_PYTHON, "-c", "import gi; gi.require_version('IBus', '1.0')"],
-            capture_output=True, timeout=5,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    return _system_python() is not None
 
 
 def _ibus_daemon_running() -> bool:
@@ -120,6 +100,7 @@ def install_component() -> bool:
     # Python cannot import voiceio, the launcher will try the installing
     # Python directly.
     installing_python = sys.executable or "python3"
+    system_python = _system_python() or installing_python
 
     # Create launcher script
     LAUNCHER_DIR.mkdir(parents=True, exist_ok=True)
@@ -129,7 +110,7 @@ def install_component() -> bool:
 VOICEIO_PKG_ROOT="{pkg_root}"
 
 # Prefer the system Python (has GObject / IBus bindings).
-SYSTEM_PY="{SYSTEM_PYTHON}"
+SYSTEM_PY="{system_python}"
 # The Python that installed voiceio (fallback).
 INSTALL_PY="{installing_python}"
 
@@ -202,12 +183,29 @@ exec "$INSTALL_PY" -m voiceio.ibus.engine "$@"
     return True
 
 
+def _ibus_component_path() -> str:
+    """IBUS_COMPONENT_PATH with the user dir prepended to the system dirs.
+
+    Setting the variable *replaces* ibus-daemon's compiled-in search path, so
+    the system dirs must be rediscovered or every other engine vanishes. A
+    hardcoded /usr/share misses NixOS (/run/current-system/sw/share) and
+    /usr/local installs. Derive from the ibus binary's prefix (unresolved, so
+    Nix profile symlinks stay stable across upgrades) and XDG_DATA_DIRS.
+    """
+    dirs = [str(COMPONENT_DIR)]
+    ibus_bin = shutil.which("ibus")
+    if ibus_bin:
+        dirs.append(str(Path(ibus_bin).parent.parent / "share" / "ibus" / "component"))
+    data_dirs = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
+    dirs += [f"{d.rstrip('/')}/ibus/component" for d in data_dirs.split(":") if d]
+    dirs.append("/usr/share/ibus/component")
+    return ":".join(dict.fromkeys(dirs))
+
+
 def _ibus_env() -> dict[str, str]:
     """Build environment with IBUS_COMPONENT_PATH including user component dir."""
     env = os.environ.copy()
-    system_dir = "/usr/share/ibus/component"
-    user_dir = str(COMPONENT_DIR)
-    env["IBUS_COMPONENT_PATH"] = f"{user_dir}:{system_dir}"
+    env["IBUS_COMPONENT_PATH"] = _ibus_component_path()
     return env
 
 
@@ -219,9 +217,7 @@ def _persist_ibus_env() -> None:
     """
     env_dir = Path.home() / ".config" / "environment.d"
     env_file = env_dir / "voiceio.conf"
-    system_dir = "/usr/share/ibus/component"
-    user_dir = str(COMPONENT_DIR)
-    content = f"IBUS_COMPONENT_PATH={user_dir}:{system_dir}\n"
+    content = f"IBUS_COMPONENT_PATH={_ibus_component_path()}\n"
 
     try:
         if env_file.exists() and env_file.read_text() == content:
@@ -332,6 +328,12 @@ class IBusTyper:
             )
 
         if not _ibus_daemon_running():
+            from voiceio.platform import detect
+            if detect().input_method == "fcitx":
+                return ProbeResult(
+                    ok=False,
+                    reason="fcitx5 is the active input method (IBus not used)",
+                )
             return ProbeResult(
                 ok=False,
                 reason="IBus daemon not running",

@@ -109,6 +109,18 @@ class YdotoolTyper:
         else:
             # v0.x: needs /dev/uinput write access
             if not _has_uinput_access():
+                from voiceio.platform import is_nixos
+                if is_nixos():
+                    # /etc/udev is generated from configuration.nix; writing
+                    # a rule imperatively fails.
+                    return ProbeResult(
+                        ok=False,
+                        reason="No write access to /dev/uinput",
+                        fix_hint=(
+                            "in configuration.nix: hardware.uinput.enable = true; "
+                            'and add "uinput" to your user\'s extraGroups, then rebuild'
+                        ),
+                    )
                 return ProbeResult(
                     ok=False,
                     reason="No write access to /dev/uinput",

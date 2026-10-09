@@ -213,3 +213,34 @@ class TestStreamingTyperProtocol:
         from voiceio.typers.base import TyperBackend
         typer = IBusTyper()
         assert isinstance(typer, TyperBackend)
+
+
+# ── Distro portability ───────────────────────────────────────────────────
+
+def test_component_path_derives_system_dirs(monkeypatch):
+    """NixOS keeps engines under the profile, not /usr/share; dropping them
+    from IBUS_COMPONENT_PATH would hide every other input method."""
+    from voiceio.typers import ibus as ibus_mod
+    monkeypatch.setattr(ibus_mod.shutil, "which",
+                        lambda _: "/run/current-system/sw/bin/ibus")
+    monkeypatch.setenv("XDG_DATA_DIRS", "/run/current-system/sw/share:/etc/profiles/per-user/u/share")
+    dirs = ibus_mod._ibus_component_path().split(":")
+    assert dirs[0] == str(ibus_mod.COMPONENT_DIR)
+    assert "/run/current-system/sw/share/ibus/component" in dirs
+    assert "/etc/profiles/per-user/u/share/ibus/component" in dirs
+    assert len(dirs) == len(set(dirs))
+
+
+def test_probe_reports_fcitx_instead_of_starting_ibus(monkeypatch):
+    from voiceio.platform import Platform
+    from voiceio.typers import ibus as ibus_mod
+    monkeypatch.setattr(ibus_mod.shutil, "which", lambda _: "/usr/bin/ibus")
+    monkeypatch.setattr(ibus_mod, "_has_ibus_gi", lambda: True)
+    monkeypatch.setattr(ibus_mod, "_ibus_daemon_running", lambda: False)
+    plat = Platform(os="linux", display_server="wayland", desktop="hyprland",
+                    input_method="fcitx")
+    monkeypatch.setattr("voiceio.platform.detect", lambda: plat)
+    result = ibus_mod.IBusTyper()._probe_full()
+    assert not result.ok
+    assert "fcitx5" in result.reason
+    assert not result.fix_hint

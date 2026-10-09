@@ -25,6 +25,7 @@ class Platform:
     has_wl_copy: bool = False
     has_dotool: bool = False
     has_ibus: bool = False
+    input_method: str = ""     # "ibus", "fcitx", or "" (from the session's IM env)
 
     # Permissions
     has_input_group: bool = False
@@ -110,6 +111,79 @@ def _detect_desktop() -> str:
     return "unknown"
 
 
+def _detect_input_method() -> str:
+    """The session's input-method framework, as advertised to apps via env.
+
+    fcitx5 (Omarchy's default, common for CJK users) and IBus are mutually
+    exclusive: starting ibus-daemon under fcitx5 hijacks every text field.
+    """
+    for var in ("XMODIFIERS", "GTK_IM_MODULE", "QT_IM_MODULE"):
+        val = os.environ.get(var, "").lower()
+        if "fcitx" in val:
+            return "fcitx"
+        if "ibus" in val:
+            return "ibus"
+    return ""
+
+
+def is_nixos() -> bool:
+    return os.path.exists("/etc/NIXOS")
+
+
+# Interpreters that may carry distro-packaged GObject bindings (gi). Order:
+# FHS distros, then the NixOS system profile.
+_SYSTEM_PYTHON_PATHS = (
+    "/usr/bin/python3",
+    "/usr/bin/python",
+    "/run/current-system/sw/bin/python3",
+)
+
+
+_system_python_hits: dict[str, str] = {}
+
+
+def find_system_python(probe: str) -> str | None:
+    """First interpreter that runs the ``probe`` snippet successfully.
+
+    GObject bindings ship as distro packages, so the venv/pipx interpreter
+    running voiceio usually can't import them. ``$VOICEIO_SYSTEM_PYTHON``
+    wins; then well-known system paths, ``python3`` on PATH, and finally the
+    running interpreter (Nix/Guix wrappers often bundle PyGObject). Hits are
+    cached; misses are not, so installing bindings takes effect without a
+    restart.
+    """
+    import subprocess
+
+    if probe in _system_python_hits:
+        return _system_python_hits[probe]
+
+    candidates = [
+        os.environ.get("VOICEIO_SYSTEM_PYTHON", ""),
+        *_SYSTEM_PYTHON_PATHS,
+        shutil.which("python3") or "",
+        sys.executable,
+    ]
+    seen: set[str] = set()
+    for py in candidates:
+        if not py or py in seen:
+            continue
+        seen.add(py)
+        if not (os.path.isfile(py) and os.access(py, os.X_OK)):
+            continue
+        try:
+            result = subprocess.run(
+                [py, "-c", probe], capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log.debug("System python probe error (%s): %s", py, e)
+            continue
+        if result.returncode == 0:
+            _system_python_hits[probe] = py
+            return py
+        log.debug("System python probe failed (%s): %s", py, result.stderr.strip()[:200])
+    return None
+
+
 def _check_input_group() -> bool:
     try:
         import grp
@@ -133,6 +207,10 @@ _INSTALL_CMDS: dict[str, str] = {
     "dnf": "sudo dnf install",
     "pacman": "sudo pacman -S",
     "zypper": "sudo zypper install",
+    "xbps": "sudo xbps-install -S",
+    "apk": "sudo apk add",
+    # NixOS has no imperative install; point at the declarative config.
+    "nix": "add to environment.systemPackages:",
     "brew": "brew install",
 }
 
@@ -157,14 +235,37 @@ _PKG_NAMES: dict[str, dict[str, str]] = {
         "gir1.2-ayatanaappindicator3-0.1": "typelib-1_0-AyatanaAppIndicator3-0_1",
         "espeak-ng": "espeak-ng",
     },
+    "xbps": {
+        "gir1.2-ibus-1.0": "ibus",
+        "python3-gi": "python3-gobject",
+        "portaudio19-dev": "portaudio-devel",
+        "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator",
+    },
+    "apk": {
+        "gir1.2-ibus-1.0": "ibus",
+        "python3-gi": "py3-gobject3",
+        "portaudio19-dev": "portaudio-dev",
+        "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator",
+    },
+    "nix": {
+        "gir1.2-ibus-1.0": "ibus",
+        "python3-gi": "python3Packages.pygobject3",
+        "portaudio19-dev": "portaudio",
+        "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator",
+    },
 }
 
 
 @lru_cache(maxsize=1)
 def _detect_pkg_manager() -> str:
     """Detect the system package manager."""
-    for mgr in ("apt", "dnf", "pacman", "zypper", "brew"):
-        if shutil.which(mgr):
+    if is_nixos():
+        return "nix"
+    for mgr, binary in (
+        ("apt", "apt"), ("dnf", "dnf"), ("pacman", "pacman"), ("zypper", "zypper"),
+        ("xbps", "xbps-install"), ("apk", "apk"), ("brew", "brew"),
+    ):
+        if shutil.which(binary):
             return mgr
     return "apt"  # fallback to apt for hint text
 
@@ -204,6 +305,9 @@ SYSTEM_DEPS: dict[str, dict[str, list[str]]] = {
         "dnf": ["gcc", "gcc-c++", "make", "python3-devel"],
         "pacman": ["base-devel"],
         "zypper": ["gcc", "gcc-c++", "make", "python3-devel"],
+        "xbps": ["base-devel", "python3-devel"],
+        "apk": ["build-base", "python3-dev", "linux-headers"],
+        "nix": ["gcc"],
     },
     # PortAudio backs sounddevice (microphone capture).
     "portaudio": {
@@ -211,6 +315,9 @@ SYSTEM_DEPS: dict[str, dict[str, list[str]]] = {
         "dnf": ["portaudio-devel"],
         "pacman": ["portaudio"],
         "zypper": ["portaudio-devel"],
+        "xbps": ["portaudio-devel"],
+        "apk": ["portaudio-dev"],
+        "nix": ["portaudio"],
     },
     # IBus engine + GObject bindings — the only reliable Wayland text injection.
     "ibus": {
@@ -218,6 +325,9 @@ SYSTEM_DEPS: dict[str, dict[str, list[str]]] = {
         "dnf": ["ibus", "ibus-libs", "python3-gobject"],
         "pacman": ["ibus", "python-gobject"],
         "zypper": ["ibus", "typelib-1_0-IBus-1_0", "python3-gobject"],
+        "xbps": ["ibus", "python3-gobject"],
+        "apk": ["ibus", "py3-gobject3"],
+        "nix": ["ibus", "python3Packages.pygobject3"],
     },
 }
 
@@ -407,6 +517,7 @@ def detect() -> Platform:
         has_wl_copy=shutil.which("wl-copy") is not None,
         has_dotool=shutil.which("dotool") is not None,
         has_ibus=shutil.which("ibus") is not None,
+        input_method=_detect_input_method() if plat_os == "linux" else "",
         has_input_group=_check_input_group() if plat_os == "linux" else False,
         has_uinput_access=_check_uinput_access() if plat_os == "linux" else False,
     )

@@ -6,14 +6,13 @@ Public API (called from app.py):
     tray.stop()                                 - tear down
 
 Backend selection:
-    Linux: spawns _indicator.py under /usr/bin/python3 (system GTK3 +
+    Linux: spawns _indicator.py under a system python3 (distro GTK3 +
            AppIndicator3, zero pip deps on Ubuntu/Fedora/Arch).
     macOS: in-process pystray (PyObjC is preinstalled).
 """
 from __future__ import annotations
 
 import atexit
-import functools
 import logging
 import shutil
 import subprocess
@@ -43,24 +42,10 @@ _APPINDICATOR_PROBE = (
 )
 
 
-@functools.lru_cache(maxsize=1)
 def _find_system_python() -> str | None:
-    """Find a system Python 3 that has GTK3 + AppIndicator3."""
-    for py in ["/usr/bin/python3"]:
-        if not shutil.which(py):
-            continue
-        try:
-            result = subprocess.run(
-                [py, "-c", _APPINDICATOR_PROBE],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode == 0 and "ok" in result.stdout:
-                return py
-            log.debug("System python probe failed: %s", result.stderr.strip()[:200])
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            log.debug("System python probe error: %s", e)
-            continue
-    return None
+    """Find an interpreter that has GTK3 + AppIndicator3."""
+    from voiceio.platform import find_system_python
+    return find_system_python(_APPINDICATOR_PROBE)
 
 
 def probe_availability() -> tuple[bool, str, str]:
@@ -72,14 +57,12 @@ def probe_availability() -> tuple[bool, str, str]:
         py = _find_system_python()
         if py:
             return True, "AppIndicator3 available", ""
-        # Determine why it failed
-        if not shutil.which("/usr/bin/python3"):
-            return False, "system python3 not found", ""
         from voiceio.platform import pkg_install
         return (
             False,
-            "system python3 missing GTK3/AppIndicator3 bindings",
-            f"install: {pkg_install('gir1.2-ayatanaappindicator3-0.1')}",
+            "no python3 with GTK3/AppIndicator3 bindings "
+            "(set VOICEIO_SYSTEM_PYTHON to override)",
+            f"install: {pkg_install('python3-gi', 'gir1.2-ayatanaappindicator3-0.1')}",
         )
     elif sys.platform == "darwin":
         try:
@@ -233,7 +216,7 @@ def start(
                 _stdout_thread.start()
             return
         else:
-            log.info("Tray: system python3 GTK3 not found, trying pystray")
+            log.info("Tray: no python3 with GTK3/AppIndicator3, trying pystray")
 
     # macOS or Linux fallback: in-process pystray
     from voiceio.tray._pystray import start as pystray_start

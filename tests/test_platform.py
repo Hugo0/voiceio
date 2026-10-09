@@ -103,3 +103,80 @@ class TestOpenInTerminal:
     def test_no_hold_runs_command_directly(self, monkeypatch):
         args = self._capture(monkeypatch, hold=False)
         assert args == ["myterm", "-e", "voiceio", "history"]
+
+
+# ── Distro portability ───────────────────────────────────────────────────
+
+import os  # noqa: E402
+import stat  # noqa: E402
+import sys  # noqa: E402
+
+import pytest  # noqa: E402
+
+import voiceio.platform as plat  # noqa: E402
+
+
+@pytest.mark.parametrize("env,expected", [
+    ({"XMODIFIERS": "@im=fcitx"}, "fcitx"),
+    ({"GTK_IM_MODULE": "fcitx5"}, "fcitx"),
+    ({"XMODIFIERS": "@im=ibus"}, "ibus"),
+    ({}, ""),
+])
+def test_detect_input_method(env, expected):
+    with patch.dict(os.environ, env, clear=True):
+        assert plat._detect_input_method() == expected
+
+
+@pytest.fixture
+def fake_pythons(tmp_path, monkeypatch):
+    """Two executables: one whose probe fails, one that passes."""
+    def make(name, rc):
+        p = tmp_path / name
+        p.write_text(f"#!/bin/sh\nexit {rc}\n")
+        p.chmod(p.stat().st_mode | stat.S_IEXEC)
+        return str(p)
+    bad, good = make("bad-python", 1), make("good-python", 0)
+    monkeypatch.setattr(plat, "_system_python_hits", {})
+    monkeypatch.setattr(plat, "_SYSTEM_PYTHON_PATHS", (bad, good))
+    monkeypatch.setattr(plat.shutil, "which", lambda _: None)
+    monkeypatch.delenv("VOICEIO_SYSTEM_PYTHON", raising=False)
+    return bad, good
+
+
+def test_find_system_python_skips_failing_probe(fake_pythons):
+    _, good = fake_pythons
+    assert plat.find_system_python("probe") == good
+
+
+def test_find_system_python_env_override_wins(fake_pythons, monkeypatch):
+    bad, good = fake_pythons
+    monkeypatch.setattr(plat, "_SYSTEM_PYTHON_PATHS", (good,))
+    monkeypatch.setenv("VOICEIO_SYSTEM_PYTHON", good)
+    assert plat.find_system_python("probe") == good
+
+
+def test_find_system_python_falls_back_to_running_interpreter(fake_pythons, monkeypatch):
+    bad, _ = fake_pythons
+    monkeypatch.setattr(plat, "_SYSTEM_PYTHON_PATHS", (bad,))
+    assert plat.find_system_python("import sys") == sys.executable
+
+
+def test_find_system_python_does_not_cache_misses(fake_pythons, monkeypatch):
+    bad, good = fake_pythons
+    monkeypatch.setattr(plat, "_SYSTEM_PYTHON_PATHS", (bad,))
+    monkeypatch.setattr(plat.sys, "executable", bad)
+    assert plat.find_system_python("probe") is None
+    monkeypatch.setattr(plat, "_SYSTEM_PYTHON_PATHS", (good,))
+    assert plat.find_system_python("probe") == good
+
+
+def test_pkg_manager_nixos_wins(monkeypatch):
+    plat._detect_pkg_manager.cache_clear()
+    monkeypatch.setattr(plat, "is_nixos", lambda: True)
+    try:
+        assert plat._detect_pkg_manager() == "nix"
+        assert plat.pkg_install("python3-gi") == (
+            "add to environment.systemPackages: python3Packages.pygobject3"
+        )
+    finally:
+        plat._detect_pkg_manager.cache_clear()

@@ -688,6 +688,21 @@ def _write_config(
         print(f"\n  {GREEN}✓{RESET} Config saved to {DIM}{CONFIG_PATH}{RESET}")
 
 
+def _wm_bind_lines(hotkey: str) -> list[tuple[str, str]]:
+    """Config lines binding ``hotkey`` to `voiceio toggle` per tiling WM."""
+    *mods, key = hotkey.lower().split("+")
+    hypr = {"super": "SUPER", "meta": "SUPER", "win": "SUPER", "ctrl": "CTRL",
+            "alt": "ALT", "shift": "SHIFT"}
+    sway = {"super": "Mod4", "meta": "Mod4", "win": "Mod4", "ctrl": "Ctrl",
+            "alt": "Alt", "shift": "Shift"}
+    hypr_mods = " ".join(hypr.get(m, m.upper()) for m in mods)
+    sway_combo = "+".join([*(sway.get(m, m) for m in mods), key])
+    return [
+        ("hyprland", f"bind = {hypr_mods}, {key.upper()}, exec, voiceio toggle"),
+        ("i3/sway", f"bindsym {sway_combo} exec voiceio toggle"),
+    ]
+
+
 def _setup_gnome_shortcut(hotkey: str) -> bool:
     # Always use absolute path because GNOME doesn't know about venvs
     toggle_path = None
@@ -1453,9 +1468,9 @@ def run_wizard() -> None:
                 print("    Command: voiceio-toggle")
         elif backend == "socket":
             print(f"\n  {YELLOW}ℹ{RESET}  Add a keyboard shortcut in your window manager config:")
-            print(f"    {DIM}i3/sway:{RESET}   bindsym Ctrl+Alt+v exec voiceio toggle")
-            print(f"    {DIM}hyprland:{RESET}  bind = CTRL ALT, V, exec, voiceio toggle")
-            print(f"    {DIM}other:{RESET}     bind {BOLD}{hotkey}{RESET} → {BOLD}voiceio toggle{RESET}")
+            for wm, line in _wm_bind_lines(hotkey):
+                print(f"    {DIM}{wm + ':':<10}{RESET} {line}")
+            print(f"    {DIM}{'other:':<10}{RESET} bind {BOLD}{hotkey}{RESET} → {BOLD}voiceio toggle{RESET}")
             print(f"\n    {DIM}Or enable evdev (no WM config needed):{RESET}")
             print(f"    sudo usermod -aG input $USER  {DIM}(then log out and back in){RESET}")
 
