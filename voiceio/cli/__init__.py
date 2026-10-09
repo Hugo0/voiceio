@@ -565,14 +565,18 @@ def _cmd_uninstall() -> None:
                 link.unlink()
                 removed.append(str(link))
 
-        # 6. Remove the uinput udev rule (needs sudo — explicit consent).
+        # 6. Remove the uinput + keyboard udev rules (need sudo — explicit consent).
+        from voiceio.hotkeys.evdev import UACCESS_RULE_PATH
         from voiceio.typers.ydotool import UINPUT_UDEV_RULE_PATH
-        if Path(UINPUT_UDEV_RULE_PATH).exists():
-            cmd = f"sudo rm {UINPUT_UDEV_RULE_PATH}"
-            if _confirm_privileged("Remove the voiceio uinput udev rule", cmd):
+        for rule_path, what in ((UINPUT_UDEV_RULE_PATH, "uinput"),
+                                (UACCESS_RULE_PATH, "keyboard-access")):
+            if not Path(rule_path).exists():
+                continue
+            cmd = f"sudo rm {rule_path}"
+            if _confirm_privileged(f"Remove the voiceio {what} udev rule", cmd):
                 try:
-                    subprocess.run(["sudo", "rm", UINPUT_UDEV_RULE_PATH], timeout=30)
-                    removed.append(UINPUT_UDEV_RULE_PATH)
+                    subprocess.run(["sudo", "rm", rule_path], timeout=30)
+                    removed.append(rule_path)
                 except (FileNotFoundError, subprocess.TimeoutExpired):
                     print(f"  Failed. Run manually: {cmd}")
 

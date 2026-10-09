@@ -10,6 +10,19 @@ from functools import lru_cache
 
 log = logging.getLogger(__name__)
 
+# Microphone, hotkeys, tray and pynput typing ship in the `desktop` extra so a
+# headless server install stays free of audio/input libraries.
+DESKTOP_EXTRA_INSTALL = "pipx install --force 'python-voiceio[desktop]'"
+
+
+def desktop_dep_hint(package: str) -> str:
+    """One-line message for a desktop dependency that failed to import."""
+    return (
+        f"{package} is not installed. The dictation app needs voiceio's "
+        f"'desktop' extra: {DESKTOP_EXTRA_INSTALL} "
+        "(or pip install 'python-voiceio[desktop]' in your venv)"
+    )
+
 
 @dataclass(frozen=True)
 class Platform:

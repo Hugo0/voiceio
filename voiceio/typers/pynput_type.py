@@ -26,8 +26,9 @@ class PynputTyper:
         try:
             from pynput.keyboard import Controller  # noqa: F401
         except ImportError:
+            from voiceio.platform import desktop_dep_hint
             return ProbeResult(ok=False, reason="pynput not installed",
-                               fix_hint="pip install pynput")
+                               fix_hint=desktop_dep_hint("pynput"))
 
         import os
         import sys

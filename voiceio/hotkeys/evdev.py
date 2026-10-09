@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import threading
 import time
 from pathlib import Path
@@ -13,9 +14,55 @@ log = logging.getLogger(__name__)
 
 DEBOUNCE_SECS = 0.8
 
+UACCESS_RULE_NAME = "60-voiceio-uaccess.rules"
+UACCESS_RULE_PATH = f"/etc/udev/rules.d/{UACCESS_RULE_NAME}"
+_UACCESS_RULE_SRC = Path(__file__).resolve().parent.parent / "data" / UACCESS_RULE_NAME
+
+
+def uaccess_rule() -> str:
+    """The rule line(s) of the shipped udev rule, comments stripped."""
+    lines = _UACCESS_RULE_SRC.read_text().splitlines()
+    return "".join(f"{ln}\n" for ln in lines if ln.strip() and not ln.startswith("#"))
+
+
+def uaccess_install_cmd() -> list[str]:
+    """argv that installs the uaccess rule and applies it (runs via sudo).
+
+    One ``sh -c`` so the whole privileged action shows as a single string in
+    doctor's consent prompt. `trigger` re-runs the rules for existing input
+    devices, so access is granted immediately — no re-login, unlike the
+    `input` group.
+    """
+    script = (
+        f"printf %s {shlex.quote(uaccess_rule())} "
+        f"| sudo tee {UACCESS_RULE_PATH} > /dev/null "
+        "&& sudo udevadm control --reload-rules "
+        "&& sudo udevadm trigger --subsystem-match=input --action=change"
+    )
+    return ["sh", "-c", script]
+
+
+def nixos_hint() -> str:
+    return (
+        "in configuration.nix: services.udev.extraRules = ''"
+        + uaccess_rule().strip()
+        + "''; (or enable the voiceio flake's programs.voiceio), then rebuild"
+    )
+
+
+def access_hint() -> str:
+    """Short human hint for granting evdev access, used by app and wizard."""
+    from voiceio.platform import is_nixos
+    if is_nixos():
+        return nixos_hint()
+    return (
+        f"`voiceio doctor --fix` installs {UACCESS_RULE_PATH} (works at once). "
+        "Fallback: sudo usermod -aG input $USER, then log out/in"
+    )
+
 
 class EvdevHotkey:
-    """Hotkey detection via Linux evdev (needs input group)."""
+    """Hotkey detection via Linux evdev (needs read access to /dev/input)."""
 
     name = "evdev"
 
@@ -23,8 +70,9 @@ class EvdevHotkey:
         try:
             import evdev  # noqa: F401
         except ImportError:
+            from voiceio.platform import desktop_dep_hint
             return ProbeResult(ok=False, reason="evdev package not installed",
-                               fix_hint="pip install evdev")
+                               fix_hint=desktop_dep_hint("evdev"))
 
         # OK if *any* device is readable. A per-device ACL (udev `uaccess`)
         # grants keyboards only, so the first node being unreadable proves
@@ -39,11 +87,21 @@ class EvdevHotkey:
             except OSError:
                 continue
         if denied:
-            import getpass
+            from voiceio.platform import is_nixos
+            if is_nixos():
+                # /etc is read-only on NixOS; the rule must be declared.
+                return ProbeResult(
+                    ok=False, reason="No permission to read /dev/input",
+                    fix_hint=nixos_hint(),
+                )
             return ProbeResult(
                 ok=False, reason="No permission to read /dev/input",
-                fix_hint="sudo usermod -aG input $USER && newgrp input",
-                fix_cmd=["sudo", "usermod", "-aG", "input", getpass.getuser()],
+                fix_hint=(
+                    f"install udev rule {UACCESS_RULE_PATH} (grants the logged-in "
+                    "user its keyboards, no re-login). Fallback: "
+                    "sudo usermod -aG input $USER, then log out/in"
+                ),
+                fix_cmd=uaccess_install_cmd(),
             )
         return ProbeResult(ok=False, reason="No input devices found")
 

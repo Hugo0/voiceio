@@ -70,13 +70,15 @@ def probe_availability() -> tuple[bool, str, str]:
             import pystray  # noqa: F401
             return True, "pystray available", ""
         except ImportError:
-            return False, "pystray not installed", "pip install pystray"
+            from voiceio.platform import DESKTOP_EXTRA_INSTALL
+            return False, "pystray not installed", DESKTOP_EXTRA_INSTALL
     elif sys.platform == "win32":
         try:
             import pystray  # noqa: F401
             return True, "pystray available (Win32 tray)", ""
         except ImportError:
-            return False, "pystray not installed", "pip install pystray Pillow"
+            from voiceio.platform import DESKTOP_EXTRA_INSTALL
+            return False, "pystray not installed", DESKTOP_EXTRA_INSTALL
     return False, "unsupported platform", ""
 
 
