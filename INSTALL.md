@@ -106,7 +106,7 @@ voiceio service status      # expect "running"
 ```
 
 Expected: `doctor` exits 0, shows a working typer backend (ibus preferred) and a
-hotkey backend. A microphone + streaming check is available via `voiceio test`
+hotkey backend. A microphone + streaming check is available via `voiceio doctor --live`
 (needs a TTY and live audio — skip in headless/agent contexts).
 
 Tell the user: press the hotkey (default **Ctrl+Alt+V**) in any app, speak, then

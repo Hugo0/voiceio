@@ -45,15 +45,12 @@ voiceio/
 ├── numbers.py       # Spoken number → digit conversion ("twenty five" → "25")
 ├── commands.py      # Voice commands: "new line", "scratch that", "correct that"
 ├── corrections.py   # Corrections dictionary (auto-replace misheard words)
-├── autocorrect.py   # Weekly mining: frequency analysis + clustering + LLM review
-├── autocorrect_state.py # Mining cursor + deferred/dismissed terms
-├── audit.py         # Teacher-model audit: retires bad rules, ages vocab, drift rollback
-├── snapshots.py     # Corrections/vocabulary snapshots for audit rollback
+├── autocorrect.py   # Offline: unusual words in history (`vocab suggest`), correction safety gate
+├── snapshots.py     # Corrections/vocabulary snapshots
 ├── postcorrect.py   # Constrained final-pass LLM rewrite of misheard words (cloud, opt-in)
 ├── consent.py       # Explicit consent record for cloud LLM calls
 ├── retention.py     # Per-utterance audio + context storage, size caps
 ├── history.py       # Transcription history (JSONL)
-├── evaluate.py      # Replay retained audio across decoder configs (`voiceio eval`)
 ├── llm.py           # Optional local LLM cleanup via Ollama
 ├── llm_api.py       # OpenAI-compatible chat client (OpenRouter/OpenAI/etc.)
 ├── config.py        # Config schema, TOML loading, data paths, 0600/0700 permissions

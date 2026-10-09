@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/9cf5d1ac-b4bb-4cf8-b775-7a66dc16b376
 
 Press a hotkey, speak, and the text streams into whatever app has focus. Press again to commit.
 
-- **Local.** Speech is decoded on-device ([faster-whisper](https://github.com/SYSTRAN/faster-whisper) by default). Audio never leaves the machine and there is no telemetry. Two optional, off-by-default features send *text* (never audio) to an LLM endpoint you configure: final-transcript polish (`[postcorrect]`) and the weekly correction-mining review.
+- **Local.** Speech is decoded on-device ([faster-whisper](https://github.com/SYSTRAN/faster-whisper) by default). Audio never leaves the machine and there is no telemetry. Two optional, off-by-default features send *text* (never audio) to an LLM endpoint you configure: final-transcript polish (`[postcorrect]`) and an optional local Ollama cleanup (`[llm]`).
 - **Yours.** History, retained audio, corrections, vocabulary and fine-tuned models are plain local files. See [Your data](#your-data).
 - **Personal.** A vocabulary steers the decoder toward your names and jargon, corrections fix what it still mishears, and `voiceio learn` fine-tunes a model on your own voice. See [Make it yours](#make-it-yours).
 - **Linux-first.** Wayland and X11, GNOME, KDE, Hyprland, sway and i3. Backends are picked by probing what works. See [Linux support](#linux-support).
@@ -71,7 +71,7 @@ uv run voiceio setup      # also links voiceio into ~/.local/bin
 | `voiceio toggle` | Start/stop recording on the running daemon. Bind it to a key if you don't use evdev |
 | `voiceio setup` | Guided setup (`--defaults` / `--answers '{json}'` for scripts) |
 | `voiceio doctor [--fix]` | Check every backend; `--fix` repairs what it can, asking before anything that needs sudo |
-| `voiceio service install\|uninstall\|status` | systemd user unit: start on login, restart on crash |
+| `voiceio service install\|uninstall\|start\|stop\|restart\|status\|logs` | systemd user unit: start on login, restart on crash; `logs -f` follows |
 | `voiceio models list\|bench\|use` | See, compare and pick speech models ([Choose a model](#choose-a-model)) |
 | `voiceio vocab` | Manage the vocabulary that steers the decoder |
 | `voiceio corrections` | Manage find/replace rules for words it still gets wrong |
@@ -88,19 +88,18 @@ Everything voiceio keeps is in three directories (they follow `XDG_CONFIG_HOME`,
 |---|---|---|
 | **`~/.config/voiceio/`** | *Settings and what it has learned about your words* | |
 | `config.toml` | All settings | — |
-| `vocabulary.txt` | Your terms, one per line, used as decoder hotwords | Never pruned; the weekly audit moves stale terms to the bottom |
+| `vocabulary.txt` | Your terms, one per line, used as decoder hotwords | Never pruned; rarely used terms rank lower |
 | `vocab_stats.json` | Per-term usage counts used to rank the vocabulary | Rebuilt as you dictate |
-| `corrections.json` | Find/replace rules (`post grass` → `PostgreSQL`) | Rules the audit finds harmful are retired automatically |
+| `corrections.json` | Find/replace rules (`post grass` → `PostgreSQL`) | — |
 | `flagged.txt` | Words flagged with the "correct that" voice command, for review | — |
-| `snapshots/` | Copies of corrections + vocabulary taken before each weekly mining run | Last 8 kept |
-| `audit_state.json`, `autocorrect_state.json` | Mining cursor, retired rules, dismissed terms | — |
+| `snapshots/` | Copies of corrections + vocabulary from before 1.0's cleanup (safe to delete) | Last 8 kept |
 | `consent.json` | Whether you allowed cloud LLM calls (text only) | — |
 | `hints.json` | Which CLI tips you have already seen | — |
 | **`~/.local/state/voiceio/`** | *What you said* | |
 | `history.jsonl` | Every committed transcript: time, raw and final text, focused-window title | `[history] enabled`, `max_entries`, `max_age_days` (0 = keep forever) |
-| `recordings/*.wav` | The audio of each utterance, for mining, audit and `voiceio learn` | `[data] retain_audio`, `max_audio_mb` (default 4096), `min_free_gb` (default 5) |
+| `recordings/*.wav` | The audio of each utterance, for `voiceio learn` | `[data] retain_audio`, `max_audio_mb` (default 4096), `min_free_gb` (default 5) |
 | `streaming_trace.jsonl`, `postcorrect_pairs.jsonl` | Per-pass decode traces and LLM before/after pairs | `[data] capture_intermediates`; each capped at 64 MB |
-| `corrections_audit.jsonl`, `metrics.jsonl` | When rules fired; teacher-audit quality metrics | — |
+| `corrections_audit.jsonl` | When each correction rule fired (shows which rules earn their keep) | — |
 | `voiceio.log`, `worker.log`, `ibus-engine-stderr.log` | Logs | `voiceio.log` rotates at 2 MB × 3 |
 | **`~/.local/share/voiceio/learn/`** | *Personalization corpus* (only exists once you run `voiceio learn`) | Never pruned; delete freely |
 | `labels.jsonl` | Reference transcripts from the teacher model or your review | — |
@@ -118,7 +117,7 @@ Most dictation errors are proper nouns and jargon: `PostgreSQL` heard as `post g
 
 **1. Vocabulary.** Put your names and terms in `~/.config/voiceio/vocabulary.txt` (or use `voiceio vocab`). They are passed to Whisper as *hotwords* on every decode, ranked by how often you use them. One honest limit: Whisper's hotword channel is capped at 223 tokens, and a proper noun costs 5 to 7 tokens, so only about **35 terms** steer each decode. The rest are kept and ranked, but they do nothing until they rank high enough. This ceiling comes from the model, not from voiceio. [CONTRIBUTING.md](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it) explains why we still use Whisper.
 
-**2. Corrections.** Find/replace rules for what still comes out wrong (`voiceio corrections`, or say "correct that" right after a mistake). A weekly background job mines your history for recurring errors and proposes rules. A larger teacher model replays your retained audio to check them: rules that hurt are retired, and a week that made things worse is rolled back.
+**2. Corrections.** Find/replace rules for what still comes out wrong (`voiceio corrections add WRONG RIGHT`, or say "correct that" right after a mistake and review with `voiceio corrections flagged`). `voiceio vocab suggest` lists unusual words from your history — offline — so you can add the real names to your vocabulary and turn the mishearings into corrections.
 
 **3. Fine-tuning with `voiceio learn`.** This is how you get past the 35-term ceiling: teach the model your vocabulary directly, from your own retained audio.
 
