@@ -25,6 +25,9 @@ def create_typer_backend(name: str, platform: Platform, **kwargs) -> TyperBacken
     if name == "pynput":
         from voiceio.typers.pynput_type import PynputTyper
         return PynputTyper()
+    if name == "fcitx-bridge":
+        from voiceio.typers.fcitx_bridge import FcitxBridgeTyper
+        return FcitxBridgeTyper()
     if name == "ibus":
         from voiceio.typers.ibus import IBusTyper
         return IBusTyper(platform, **kwargs)

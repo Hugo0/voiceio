@@ -74,17 +74,17 @@ class TestTyperChain:
     def test_x11_prefers_ibus(self, linux_x11):
         chain = typer_chain._get_chain(linux_x11)
         assert chain[0] == "ibus"
-        assert chain[1] == "xdotool"
+        assert chain[1:3] == ["fcitx-bridge", "xdotool"]
 
     def test_wayland_gnome_prefers_ibus(self, linux_wayland_gnome):
         chain = typer_chain._get_chain(linux_wayland_gnome)
         assert chain[0] == "ibus"
-        assert chain[1] == "ydotool"
+        assert chain[1:3] == ["fcitx-bridge", "ydotool"]
 
     def test_wayland_sway_prefers_ibus(self, linux_wayland_sway):
         chain = typer_chain._get_chain(linux_wayland_sway)
         assert chain[0] == "ibus"
-        assert chain[1] == "wtype"
+        assert chain[1:3] == ["fcitx-bridge", "wtype"]
 
     def test_macos_prefers_pynput(self, macos):
         chain = typer_chain._get_chain(macos)

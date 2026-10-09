@@ -28,7 +28,8 @@ voiceio/
 │                    #   sherpa-onnx + whisper.cpp adapters (faster-whisper: transcriber.py)
 ├── learn/           # Personalization: store (corpus), teacher (label), review, augment,
 │                    #   metrics, evaluate, train (LoRA → CTranslate2), clean
-├── cli/             # CLI: __init__ (entry point, run/setup/doctor/…), learn, models
+├── cli/             # CLI: __init__ (entry point, run/setup/doctor/service), models, vocab,
+│                    #   corrections, learn, history, configcmd
 ├── server/          # Headless HTTP/WebSocket server (python -m voiceio.server)
 ├── app.py           # Desktop daemon state machine (IDLE/RECORDING/FINALIZING/ERROR), watchdog
 ├── streaming.py     # Real-time transcription session with word-level corrections

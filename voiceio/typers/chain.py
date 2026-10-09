@@ -14,12 +14,14 @@ log = logging.getLogger(__name__)
 
 # Preference order: (display_server, desktop) -> backend list
 _CHAINS: dict[tuple[str, str], list[str]] = {
-    ("x11", "*"):               ["ibus", "xdotool", "clipboard"],
-    ("wayland", "gnome"):       ["ibus", "ydotool", "clipboard"],
-    ("wayland", "kde"):         ["ibus", "ydotool", "clipboard"],
-    ("wayland", "sway"):        ["ibus", "wtype", "ydotool", "clipboard"],
-    ("wayland", "hyprland"):    ["ibus", "wtype", "ydotool", "clipboard"],
-    ("wayland", "*"):           ["ibus", "ydotool", "wtype", "clipboard"],
+    # fcitx-bridge only probes OK when fcitx5 runs with the bridge addon, in
+    # which case IBus is absent and it beats simulated keystrokes.
+    ("x11", "*"):               ["ibus", "fcitx-bridge", "xdotool", "clipboard"],
+    ("wayland", "gnome"):       ["ibus", "fcitx-bridge", "ydotool", "clipboard"],
+    ("wayland", "kde"):         ["ibus", "fcitx-bridge", "ydotool", "clipboard"],
+    ("wayland", "sway"):        ["ibus", "fcitx-bridge", "wtype", "ydotool", "clipboard"],
+    ("wayland", "hyprland"):    ["ibus", "fcitx-bridge", "wtype", "ydotool", "clipboard"],
+    ("wayland", "*"):           ["ibus", "fcitx-bridge", "ydotool", "wtype", "clipboard"],
     ("quartz", "*"):            ["pynput", "clipboard"],
     ("win32", "*"):             ["pynput", "clipboard"],
 }
