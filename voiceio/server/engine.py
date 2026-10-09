@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import io
 import logging
-import os
 import subprocess
 import time
 import wave
@@ -117,21 +116,27 @@ class VoiceEngine:
         model_cfg.device = self.device
         self.model_cfg = model_cfg
 
+        from voiceio.core.bias import BiasProvider
+        from voiceio.prompt import PromptBuilder
+
         self._vocab = VocabularyLoader(model_cfg)
         self._corrections = CorrectionDict()
-        self._hotwords: str | None = None
+        # Same biasing as the desktop: ranked vocabulary + rare correction
+        # targets as hotwords, recent transcripts as the prompt.
+        self._bias = BiasProvider(
+            self._vocab, self._corrections, PromptBuilder(),
+            language=model_cfg.language,
+        )
 
-        # Inherited by the whisper worker subprocess that Transcriber spawns.
         self.threads = self.cfg.threads
         if self.threads and self.threads != "0":
-            os.environ["OMP_NUM_THREADS"] = self.threads
+            model_cfg.cpu_threads = int(self.threads)
 
         t0 = time.monotonic()
         # Loads the model and runs a warmup decode before returning READY, so
         # the server is warm the moment it starts listening.
         self.transcriber = Transcriber(model_cfg)
         self.load_secs = time.monotonic() - t0
-        self._refresh_hotwords()
 
         self._tts = None
         self._tts_probed = False
@@ -145,30 +150,13 @@ class VoiceEngine:
         )
 
     # ── vocabulary biasing ───────────────────────────────────────────────
-    def _refresh_hotwords(self) -> None:
-        """Whisper's hotword channel is small; voiceio ranks the vocabulary by
-        usage to fill it. Both reads are mtime-cached, so this is ~two stat
-        calls once warm and picks up `voiceio correct` edits without a restart.
-        """
-        try:
-            terms = self._vocab.get_selected(
-                token_budget=self.cfg.hotwords_token_budget)
-        except Exception:  # noqa: BLE001 — biasing is a bonus, never a blocker
-            log.debug("hotword refresh failed", exc_info=True)
-            return
-        hotwords = ", ".join(terms)
-        if hotwords != self._hotwords:
-            self._hotwords = hotwords
-            self.transcriber.set_hotwords(hotwords or None)
+    def _current_bias(self):
+        self._corrections.load()  # mtime-cached: picks up edits without a restart
+        return self._bias.bias_for(self.transcriber.capabilities)
 
-    def _record_vocab_usage(self, text: str) -> None:
-        """Feed voiceio's usage stats so the hotword budget follows real use."""
-        try:
-            from voiceio import vocab_stats
-
-            vocab_stats.update_from_text(text, self._vocab.get_all())
-        except Exception:  # noqa: BLE001 — a counter must never break dictation
-            log.debug("vocab usage update failed", exc_info=True)
+    def record_usage(self, text: str) -> None:
+        """Feed usage stats + prompt history so biasing follows real use."""
+        self._bias.record_usage(text)
 
     def postprocess(self, text: str, final: bool = True) -> str:
         """The shared pipeline the desktop app uses, minus the parts that only
@@ -206,14 +194,13 @@ class VoiceEngine:
             return {"text": "", "empty": True, "audio_secs": round(secs, 2),
                     "decode_ms": round(decode_ms)}
 
-        self._refresh_hotwords()
         t1 = time.monotonic()
-        raw = self.transcriber.transcribe(audio, final=True)
+        raw = self.transcriber.decode(audio, final=True, bias=self._current_bias()).text
         whisper_ms = (time.monotonic() - t1) * 1000
 
         text = self.postprocess(raw, final=True)
         if text:
-            self._record_vocab_usage(text)
+            self.record_usage(text)
 
         return {
             "text": text,
@@ -237,7 +224,6 @@ class VoiceEngine:
 
         source = PushAudioSource(SAMPLE_RATE)
         typer = CollectingTyper()
-        self._refresh_hotwords()
         session = StreamingSession(
             self.transcriber,
             typer,
@@ -253,6 +239,7 @@ class VoiceEngine:
             llm=None,
             on_interim=on_interim,
             freeze_secs=self.vio_cfg.output.streaming_freeze_secs,
+            bias=self._current_bias(),
         )
         return session, source, typer
 

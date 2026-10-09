@@ -239,7 +239,7 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
         await pump_task
 
         if text:
-            engine._record_vocab_usage(text)
+            engine.record_usage(text)
 
         if not ws.closed and not overrun:
             await ws.send_json({

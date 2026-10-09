@@ -100,7 +100,7 @@ class FakeEngine:
         audio = np.zeros(2205, dtype=np.int16)  # 0.1s @ 22050
         return wav_bytes(audio, 22050), 22050, "espeak"
 
-    def _record_vocab_usage(self, text):
+    def record_usage(self, text):
         self.vocab_recorded.append(text)
 
     def shutdown(self):
