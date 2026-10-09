@@ -17,7 +17,12 @@ import wave
 from pathlib import Path
 
 import numpy as np
-import sounddevice as sd
+
+try:
+    import sounddevice as sd
+except ImportError as _e:
+    from voiceio.platform import desktop_dep_hint
+    raise ImportError(desktop_dep_hint("sounddevice")) from _e
 
 log = logging.getLogger(__name__)
 

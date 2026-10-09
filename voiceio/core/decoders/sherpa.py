@@ -44,7 +44,7 @@ class SherpaTransducer:
         try:
             import sherpa_onnx
         except ImportError as e:
-            raise DecodeError("sherpa-onnx not installed: pip install sherpa-onnx") from e
+            raise DecodeError("sherpa-onnx not installed: pip install 'python-voiceio[sherpa]'") from e
         self._sherpa = sherpa_onnx
         self._dir = Path(model_dir).expanduser()
         self.name = f"sherpa:{self._dir.name}:{method}"

@@ -84,7 +84,7 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
         report.audio_reason = ("PortAudio library not found — install: "
                                + plat.system_deps_install_cmd(["portaudio"]))
     except ImportError:
-        report.audio_reason = "sounddevice not installed (pip install sounddevice)"
+        report.audio_reason = plat.desktop_dep_hint("sounddevice")
     else:
         try:
             _sd.query_devices(kind="input")

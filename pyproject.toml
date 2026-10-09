@@ -20,34 +20,34 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [
+    # Headless transcription only: decode, VAD, vocabulary ranking. Microphone,
+    # hotkeys, tray and text injection live in the `desktop` extra so a server
+    # install (`.[server]`) needs no display or audio stack.
     "faster-whisper>=1.0.0",
-    "sounddevice>=0.4.6",
     "numpy>=1.24.0",
     "onnxruntime>=1.16.0",
     "wordfreq>=3.0",
-    "evdev>=1.6.0; sys_platform == 'linux'",
-    "pynput>=1.7.6",
-    "pyperclip>=1.8.0; sys_platform == 'win32'",
-    "win11toast>=0.36; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
-win = ["pyperclip>=1.8.0", "win11toast>=0.36"]
-tray = ["pystray>=0.19", "Pillow>=10.0"]
-tts = ["piper-tts>=1.2.0"]
-tts-cloud = ["edge-tts>=6.1.0"]
-# Headless HTTP/WebSocket server (`python -m voiceio.server`). Desktop installs
-# do not get aiohttp; server installs do not need a display. Note that the
-# *base* dependencies above still include the desktop input/audio libraries —
-# a headless box wants `--no-deps` plus this list (see voiceio/server/README).
+# The dictation app: microphone capture, global hotkeys, tray icon. System
+# packages (PortAudio, IBus, a C toolchain for evdev) are separate — see README.
+desktop = [
+    "sounddevice>=0.4.6",
+    "evdev>=1.6.0; sys_platform == 'linux'",
+    "pynput>=1.7.6",
+    "pystray>=0.19",
+    "Pillow>=10.0",
+]
+# Headless HTTP/WebSocket server (`python -m voiceio.server`).
 server = ["aiohttp>=3.9"]
+# Text-to-speech: local (piper) and cloud (edge-tts) engines.
+tts = ["piper-tts>=1.2.0", "edge-tts>=6.1.0"]
 # `voiceio learn train`: LoRA fine-tuning (a GPU helps; see voiceio/learn/train.py)
 train = ["torch>=2.2", "transformers>=4.40", "peft>=0.10"]
+# Alternative decoder runtime (Parakeet & co.); see CONTRIBUTING.md "Model choice".
+sherpa = ["sherpa-onnx>=1.12"]
 dev = ["pytest>=7.0", "pytest-mock", "ruff>=0.15,<0.18"]
-# Convenience bundle for a full Linux install (tray icon + local TTS). The core
-# Linux deps (evdev, sounddevice) are already unconditional; system packages
-# (IBus, PortAudio, a C toolchain) are installed separately — see README.
-linux = ["pystray>=0.19", "Pillow>=10.0", "piper-tts>=1.2.0"]
 
 [project.urls]
 Homepage = "https://github.com/Hugo0/voiceio"
@@ -74,3 +74,4 @@ include = ["voiceio*"]
 [tool.setuptools.package-data]
 "voiceio.sounds" = ["*.wav"]
 "voiceio.models" = ["*.onnx"]
+"voiceio.data" = ["*.rules"]

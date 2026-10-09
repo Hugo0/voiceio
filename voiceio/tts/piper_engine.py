@@ -27,7 +27,7 @@ class PiperEngine:
         except ImportError as e:
             return ProbeResult(
                 ok=False, reason=f"piper-tts not fully installed: {e}",
-                fix_hint="pip install piper-tts",
+                fix_hint="pip install 'python-voiceio[tts]' (or: pip install piper-tts)",
             )
 
     def _ensure_voice(self):

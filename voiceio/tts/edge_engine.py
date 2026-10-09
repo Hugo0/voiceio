@@ -22,7 +22,7 @@ class EdgeEngine:
         except ImportError:
             return ProbeResult(
                 ok=False, reason="edge-tts not installed",
-                fix_hint="pip install edge-tts",
+                fix_hint="pip install 'python-voiceio[tts]' (or: pip install edge-tts)",
             )
         try:
             import soundfile  # noqa: F401
