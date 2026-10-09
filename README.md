@@ -16,6 +16,9 @@ Press a hotkey, speak, and the text streams into whatever app has focus. Press a
 - **Personal.** A vocabulary steers the decoder toward your names and jargon, corrections fix what it still mishears, and `voiceio learn` fine-tunes a model on your own voice. See [Make it yours](#make-it-yours).
 - **Linux-first.** Wayland and X11, GNOME, KDE, Hyprland, sway and i3. Backends are picked by probing what works. See [Linux support](#linux-support).
 
+
+> **Upgrading from 0.x?** See [UPGRADING.md](UPGRADING.md) — 1.0 renames a few commands and moves desktop dependencies to the `[desktop]` extra.
+
 ## Quickstart
 
 ```bash
