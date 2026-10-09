@@ -15,7 +15,6 @@ import numpy as np
 from voiceio import config, platform as plat, tray
 from voiceio.commands import CommandProcessor
 from voiceio.core.decoders.base import Bias
-from voiceio.corrections import CorrectionDict
 from voiceio.hotkeys import chain as hotkey_chain
 from voiceio.hotkeys.socket_backend import SocketHotkey
 from voiceio.recorder import AudioRecorder
@@ -24,7 +23,6 @@ from voiceio.core.decoders import build_decoder
 from voiceio.transcriber import describe_transcript
 from voiceio.typers import chain as typer_chain
 from voiceio.vad import load_vad
-from voiceio.vocabulary import VocabularyLoader
 
 if TYPE_CHECKING:
     from voiceio.typers.base import TyperBackend
@@ -161,19 +159,6 @@ class VoiceIO:
         vad = load_vad(cfg.audio)
         self.recorder = AudioRecorder(cfg.audio, vad=vad)
 
-        self._corrections = CorrectionDict()
-        # mtime-cached loader so `voiceio correct` vocabulary edits are picked
-        # up per-recording without a daemon restart.
-        self._vocab_loader = VocabularyLoader(cfg.model)
-        from voiceio.core.bias import BiasProvider
-        from voiceio.prompt import PromptBuilder
-        self._prompt_builder = PromptBuilder()
-        # Vocabulary → hotwords, recent transcripts → prompt; rebuilt per
-        # recording and passed with each decode.
-        self._bias = BiasProvider(
-            self._vocab_loader, self._corrections, self._prompt_builder,
-            language=cfg.model.language,
-        )
         self._recording_bias = Bias()
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
@@ -201,11 +186,15 @@ class VoiceIO:
             else:
                 log.warning("PostCorrect enabled but no API key resolved (disabled)")
 
-        from voiceio.core.pipeline import Pipeline
-        self._pipeline = Pipeline.from_config(
-            cfg, corrections=self._corrections, commands=self._command_processor,
+        # The shared engine: this decoder plus the user's vocabulary,
+        # corrections, prompt history and text pipeline (same as the server).
+        from voiceio.core.engine import Engine
+        self.engine = Engine.from_config(
+            cfg, decoder=self.transcriber, commands=self._command_processor,
             postcorrect=self._postcorrect, llm=self._llm,
         )
+        self._corrections = self.engine.corrections
+        self._pipeline = self.engine.pipeline
 
         # Explicit state machine
         self._state = _State.IDLE
@@ -416,10 +405,9 @@ class VoiceIO:
                 target=self._respawn_engine_for_recording, daemon=True,
             ).start()
         self._activate_ibus()
-        self._corrections.load()  # hot-reload corrections on each recording
         # Vocabulary and corrections are mtime-cached, so edits made with
         # `voiceio vocab`/`corrections` apply from the next recording.
-        bias = self._bias.bias_for(self.transcriber.capabilities)
+        bias = self.engine.bias()
         self._recording_bias = bias
         if self.cfg.data.capture_context:
             # Snapshot the dictation target now — focus may change by finalize
@@ -431,14 +419,11 @@ class VoiceIO:
         self._play_record_cue(start=True)
         tray.set_recording(True)
         if self._streaming:
-            self._session = StreamingSession(
-                self.transcriber, self._typer, self.recorder,
+            self._session = self.engine.session(
+                self.recorder, self._typer, bias=bias,
                 generation=self._generation,
-                pipeline=self._pipeline,
                 on_typer_broken=self._on_typer_broken,
                 on_interim=self._on_interim_text,
-                freeze_secs=self.cfg.output.streaming_freeze_secs,
-                bias=bias,
             )
             self._session.start()
         log.info("Recording... press [%s] again to stop", self.cfg.hotkey.key)
@@ -465,8 +450,8 @@ class VoiceIO:
             # budget. The long tail that can never fit in hotwords gets its only
             # chance to be corrected here.
             self._postcorrect.set_context(
-                vocabulary=", ".join(self._vocab_loader.get_all()),
-                recent=self._prompt_builder.recent(3),
+                vocabulary=", ".join(self.engine.vocabulary_terms),
+                recent=self.engine.recent(3),
                 title=self._context_title,
             )
 
@@ -590,7 +575,7 @@ class VoiceIO:
             self._copy_result_async(final_text)
             self._play_feedback(final_text)
             stored = self._strip_voice_prefix(final_text)
-            self._bias.record_usage(stored)
+            self.engine.record_usage(stored)
             latency = dict(session.final_latency)
             # stop-to-commit: what the user actually waits for
             latency["finalize_total"] = round(time.monotonic() - t_final, 3)
@@ -659,7 +644,7 @@ class VoiceIO:
                     self._copy_result_async(text)
                     self._play_feedback(text)
                     stored = self._strip_voice_prefix(text)
-                    self._bias.record_usage(stored)
+                    self.engine.record_usage(stored)
                     from voiceio import history
                     history.append(
                         stored,

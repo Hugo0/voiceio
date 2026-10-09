@@ -50,6 +50,9 @@ class ServerConfig:
     compute_type: str = ""   # "" = inherit
     device: str = "auto"
     threads: str = DEFAULT_THREADS
+    # Decoder processes: 2 adds a draft lane for interim results so a stream's
+    # final never waits behind one (+~300 MB). 1 suits small shared boxes.
+    lanes: int = 1
 
     # ── limits ───────────────────────────────────────────────────────────
     # Request body cap. 25MB is ~2h of 24kbps opus, so the real limiter is
@@ -91,6 +94,7 @@ class ServerConfig:
             compute_type=e(prefix, "COMPUTE", ""),
             device=e(prefix, "DEVICE", "auto"),
             threads=e(prefix, "THREADS", DEFAULT_THREADS),
+            lanes=int(e(prefix, "LANES", "1")),
             max_bytes=int(e(prefix, "MAX_BYTES", str(25 * 1024 * 1024))),
             max_audio_secs=float(e(prefix, "MAX_SECS", "120")),
             tts_engine=e(prefix, "TTS_ENGINE", "auto"),

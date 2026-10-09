@@ -38,6 +38,14 @@ class BiasProvider:
         self._rare_targets: list[str] = []
         self._rare_targets_mtime: object = object()
 
+    @property
+    def vocabulary(self) -> VocabularyLoader:
+        return self._vocab
+
+    def recent(self, n: int = 3) -> list[str]:
+        """The last `n` committed utterances (oldest first)."""
+        return self._prompts.recent(n) if self._prompts is not None else []
+
     def bias_for(self, caps: Capabilities) -> Bias:
         """A fresh Bias for one recording/request. Never raises: biasing is a
         bonus and must not be able to block a dictation."""

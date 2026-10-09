@@ -97,9 +97,6 @@ class VoiceEngine:
 
     def __init__(self, cfg: ServerConfig | None = None) -> None:
         from voiceio import config as vio_config
-        from voiceio.corrections import CorrectionDict
-        from voiceio.transcriber import Transcriber
-        from voiceio.vocabulary import VocabularyLoader
 
         self.cfg = cfg or ServerConfig()
         self.started_at = time.time()
@@ -116,32 +113,21 @@ class VoiceEngine:
         model_cfg.device = self.device
         self.model_cfg = model_cfg
 
-        from voiceio.core.bias import BiasProvider
-        from voiceio.prompt import PromptBuilder
-
-        self._vocab = VocabularyLoader(model_cfg)
-        self._corrections = CorrectionDict()
-        # Same biasing as the desktop: ranked vocabulary + rare correction
-        # targets as hotwords, recent transcripts as the prompt.
-        self._bias = BiasProvider(
-            self._vocab, self._corrections, PromptBuilder(),
-            language=model_cfg.language,
-        )
-
-        from voiceio.core.pipeline import Pipeline
-        # No voice prefix: the server has always returned bare text, and its
-        # clients decide how to mark it.
-        self._pipeline = Pipeline.from_config(
-            self.vio_cfg, corrections=self._corrections, prefix=False)
-
         self.threads = self.cfg.threads
         if self.threads and self.threads != "0":
             model_cfg.cpu_threads = int(self.threads)
 
+        from voiceio.core.engine import Engine
+
         t0 = time.monotonic()
-        # Loads the model and runs a warmup decode before returning READY, so
-        # the server is warm the moment it starts listening.
-        self.transcriber = Transcriber(model_cfg)
+        # Loads the model and runs a warmup decode before returning, so the
+        # server is warm the moment it starts listening. The desktop's
+        # vocabulary, corrections and prompt history apply here too; no voice
+        # commands (no cursor), no cloud stages, no voice prefix (clients mark
+        # text themselves).
+        self.engine = Engine.from_config(
+            self.vio_cfg, lanes=self.cfg.lanes, prefix=False)
+        self.transcriber = self.engine.decoder
         self.load_secs = time.monotonic() - t0
 
         self._tts = None
@@ -152,23 +138,15 @@ class VoiceEngine:
             "(%d vocabulary terms, %d corrections)",
             model_cfg.name, self.device, model_cfg.compute_type, self.threads,
             self.load_secs,
-            len(self._vocab.get_all()), len(self._corrections.list_all()),
+            len(self.engine.vocabulary_terms), len(self.engine.corrections.list_all()),
         )
-
-    # ── vocabulary biasing ───────────────────────────────────────────────
-    def _current_bias(self):
-        self._corrections.load()  # mtime-cached: picks up edits without a restart
-        return self._bias.bias_for(self.transcriber.capabilities)
 
     def record_usage(self, text: str) -> None:
         """Feed usage stats + prompt history so biasing follows real use."""
-        self._bias.record_usage(text)
+        self.engine.record_usage(text)
 
     def postprocess(self, text: str, final: bool = True) -> str:
-        """The desktop pipeline minus what only makes sense at a cursor (voice
-        editing commands) or would send text to a cloud LLM — this server is
-        offline by construction."""
-        return self._pipeline(text, final=final).text if text else text
+        return self.engine.pipeline(text, final=final).text if text else text
 
     # ── transcription ────────────────────────────────────────────────────
     def transcribe(self, data: bytes) -> dict:
@@ -187,10 +165,9 @@ class VoiceEngine:
                     "decode_ms": round(decode_ms)}
 
         t1 = time.monotonic()
-        raw = self.transcriber.decode(audio, final=True, bias=self._current_bias()).text
+        result = self.engine.transcribe(audio)
         whisper_ms = (time.monotonic() - t1) * 1000
-
-        text = self.postprocess(raw, final=True)
+        text, raw = result.text, result.raw
         if text:
             self.record_usage(text)
 
@@ -211,20 +188,11 @@ class VoiceEngine:
         and ends with `session.stop(source.get_audio_so_far())`.
         """
         from voiceio.audio_source import PushAudioSource
-        from voiceio.streaming import StreamingSession
         from voiceio.typers.collecting import CollectingTyper
 
         source = PushAudioSource(SAMPLE_RATE)
         typer = CollectingTyper()
-        session = StreamingSession(
-            self.transcriber,
-            typer,
-            source,
-            pipeline=self._pipeline,
-            on_interim=on_interim,
-            freeze_secs=self.vio_cfg.output.streaming_freeze_secs,
-            bias=self._current_bias(),
-        )
+        session = self.engine.session(source, typer, on_interim=on_interim)
         return session, source, typer
 
     # ── text to speech ───────────────────────────────────────────────────
@@ -273,7 +241,7 @@ class VoiceEngine:
         tts_name = None
         if self._tts_probed and self._tts is not None:
             tts_name = self._tts.name
-        alive = self.transcriber.is_worker_alive()
+        alive = self.transcriber.healthy()
         return {
             "ok": alive,
             "model": self.model_cfg.name,
@@ -283,8 +251,8 @@ class VoiceEngine:
             "threads": self.threads,
             "worker_alive": alive,
             "load_secs": round(self.load_secs, 2),
-            "vocabulary_terms": len(self._vocab.get_all()),
-            "corrections": len(self._corrections.list_all()),
+            "vocabulary_terms": len(self.engine.vocabulary_terms),
+            "corrections": len(self.engine.corrections.list_all()),
             "max_bytes": self.cfg.max_bytes,
             "max_audio_secs": self.cfg.max_audio_secs,
             # Added by the voiceio server module (the fields above are the
@@ -298,7 +266,7 @@ class VoiceEngine:
         }
 
     def shutdown(self) -> None:
-        self.transcriber.shutdown()
+        self.engine.close()
         if self._tts is not None:
             try:
                 self._tts.shutdown()
