@@ -188,3 +188,17 @@ def test_reset():
     typer.update_preedit("b")
     typer.reset()
     assert typer.text == ""
+
+
+def test_audio_buffer_views_survive_growth_and_clear():
+    from voiceio.audio_source import AudioBuffer
+    buf = AudioBuffer(initial_samples=4)
+    buf.append(np.arange(3, dtype=np.float32))
+    early = buf.view()
+    buf.append(np.arange(3, 10, dtype=np.float32))   # forces growth
+    assert list(early) == [0, 1, 2]
+    assert list(buf.view()) == list(range(10))
+    snapshot = buf.view()
+    buf.clear()
+    buf.append(np.full(10, 7, dtype=np.float32))
+    assert list(snapshot) == list(range(10))          # not overwritten

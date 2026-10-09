@@ -50,6 +50,41 @@ class AudioSource(Protocol):
         ...
 
 
+class AudioBuffer:
+    """Growable mono float32 buffer: O(1) amortized append, O(1) read.
+
+    `view()` returns the samples so far without copying. Appends never move
+    data a previous view points at (growth allocates a new array; the old
+    view keeps the old one alive), so a reader can decode a view while the
+    audio callback keeps writing. Not thread-safe by itself; callers lock.
+    """
+
+    def __init__(self, initial_samples: int = SAMPLE_RATE * 60):
+        self._buf = np.empty(max(1, initial_samples), dtype=np.float32)
+        self._n = 0
+
+    def __len__(self) -> int:
+        return self._n
+
+    def append(self, samples: np.ndarray) -> None:
+        samples = np.asarray(samples, dtype=np.float32).reshape(-1)
+        end = self._n + len(samples)
+        if end > len(self._buf):
+            grown = np.empty(max(end, 2 * len(self._buf)), dtype=np.float32)
+            grown[:self._n] = self._buf[:self._n]
+            self._buf = grown
+        self._buf[self._n:end] = samples
+        self._n = end
+
+    def view(self) -> np.ndarray:
+        return self._buf[:self._n]
+
+    def clear(self) -> None:
+        self._n = 0
+        # Fresh array: a view handed out earlier must not see overwrites.
+        self._buf = np.empty(len(self._buf), dtype=np.float32)
+
+
 def pcm16_to_float32(data: bytes) -> np.ndarray:
     """Signed 16-bit little-endian PCM → float32 in [-1, 1).
 
@@ -74,8 +109,7 @@ class PushAudioSource:
 
     def __init__(self, sample_rate: int = SAMPLE_RATE) -> None:
         self.sample_rate = sample_rate
-        self._chunks: list[np.ndarray] = []
-        self._n_samples = 0
+        self._buffer = AudioBuffer(sample_rate * 60)
         self._lock = threading.Lock()
         self._on_speech_pause: Callable[[], None] | None = None
         self._closed = False
@@ -100,15 +134,10 @@ class PushAudioSource:
             samples = np.asarray(chunk, dtype=np.float32)
         if samples.ndim > 1:  # interleaved stereo → mono
             samples = samples.mean(axis=1, dtype=np.float32)
-        if len(samples) == 0:
-            with self._lock:
-                return self._n_samples
         with self._lock:
-            if self._closed:
-                return self._n_samples
-            self._chunks.append(samples)
-            self._n_samples += len(samples)
-            return self._n_samples
+            if len(samples) and not self._closed:
+                self._buffer.append(samples)
+            return len(self._buffer)
 
     def notify_speech_pause(self) -> None:
         """Tell the consumer a pause happened, so it can decode now rather
@@ -126,14 +155,7 @@ class PushAudioSource:
     # ── consumer side (the AudioSource protocol) ─────────────────────────
     def get_audio_so_far(self) -> np.ndarray | None:
         with self._lock:
-            if not self._chunks:
-                return None
-            # Collapse to a single array and keep it: repeated interim decodes
-            # would otherwise re-concatenate an ever-growing chunk list every
-            # second, which is quadratic over a long dictation.
-            if len(self._chunks) > 1:
-                self._chunks = [np.concatenate(self._chunks)]
-            return self._chunks[0]
+            return self._buffer.view() if len(self._buffer) else None
 
     def set_on_speech_pause(self, callback: Callable[[], None] | None) -> None:
         self._on_speech_pause = callback
@@ -142,9 +164,9 @@ class PushAudioSource:
     @property
     def duration_secs(self) -> float:
         with self._lock:
-            return self._n_samples / self.sample_rate
+            return len(self._buffer) / self.sample_rate
 
     @property
     def n_samples(self) -> int:
         with self._lock:
-            return self._n_samples
+            return len(self._buffer)

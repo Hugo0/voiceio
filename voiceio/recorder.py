@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Callable
 import numpy as np
 import sounddevice as sd
 
+from voiceio.audio_source import AudioBuffer
+
 if TYPE_CHECKING:
     from voiceio.config import AudioConfig
     from voiceio.vad import VadBackend
@@ -89,7 +91,9 @@ class AudioRecorder:
         self.prebuffer_secs = cfg.prebuffer_secs
 
         self._ring = RingBuffer(int(self.prebuffer_secs * self.sample_rate))
-        self._chunks: list[np.ndarray] = []
+        # Growable buffer: get_audio_so_far() is a view, not a re-concatenation
+        # of every chunk (which made each interim pass O(recording length)).
+        self._audio = AudioBuffer(cfg.sample_rate * 60)
         self._stream: sd.InputStream | None = None
         self._lock = threading.Lock()
         self._recording = False
@@ -236,8 +240,10 @@ class AudioRecorder:
             self._vad.reset()
             # Grab pre-buffer
             prebuf = self._ring.get()
-            self._chunks = [prebuf.reshape(-1, 1)] if len(prebuf) > 0 else []
-            self._total_samples = sum(len(c) for c in self._chunks)
+            self._audio.clear()
+            if len(prebuf) > 0:
+                self._audio.append(prebuf)
+            self._total_samples = len(self._audio)
             self._silent_chunks = 0.0
             self._sustained_silence = 0.0
             self._heard_speech = False
@@ -258,28 +264,24 @@ class AudioRecorder:
                 return None
             self._recording = False
 
-            if not self._chunks:
+            if not len(self._audio):
                 log.warning("No audio captured")
                 return None
 
-            audio = np.concatenate(self._chunks, axis=0).flatten()
+            audio = self._audio.view().copy()
+            self._audio.clear()
             duration = len(audio) / self.sample_rate
-
             if duration < 0.3:
                 log.warning("Audio too short (%.1fs), skipping", duration)
-                self._chunks = []
                 return None
 
             log.info("Recording stopped, %.1fs audio", duration)
-            self._chunks = []
             return audio
 
     def get_audio_so_far(self) -> np.ndarray | None:
         """Get all audio captured so far (for streaming)."""
         with self._lock:
-            if not self._chunks:
-                return None
-            return np.concatenate(self._chunks, axis=0).flatten()
+            return self._audio.view() if len(self._audio) else None
 
     def set_on_speech_pause(self, callback: Callable[[], None] | None) -> None:
         """Set/clear the speech pause callback (used by streaming session)."""
@@ -318,7 +320,8 @@ class AudioRecorder:
             return
 
         chunk = indata.copy()
-        self._chunks.append(chunk)
+        with self._lock:
+            self._audio.append(chunk)
         self._total_samples += chunk.shape[0]
 
         # Level metering

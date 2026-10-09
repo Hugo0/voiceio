@@ -58,7 +58,7 @@ class TestRecorderMeter:
     def test_clipping_detected_on_flat_top(self):
         rec, _ = self._recorder()
         rec._recording = True
-        rec._chunks = []
+        rec._audio.clear()
         chunk = np.full((1024, 1), 0.995, dtype=np.float32)  # saturated
         rec._callback(chunk, 1024, None, None)
         meter = rec.get_meter()
@@ -68,7 +68,7 @@ class TestRecorderMeter:
     def test_isolated_peak_not_counted_as_clipping(self):
         rec, _ = self._recorder()
         rec._recording = True
-        rec._chunks = []
+        rec._audio.clear()
         chunk = np.full((1024, 1), 0.1, dtype=np.float32)
         chunk[500] = 1.0  # single-sample transient (plosive), not a flat top
         rec._callback(chunk, 1024, None, None)
