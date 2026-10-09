@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
+from voiceio.core.decoders.base import Bias
 from voiceio.transcriber import transcribe_timeout
 from voiceio.typers.base import StreamingTyper
 
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from voiceio.corrections import CorrectionDict
     from voiceio.llm import LLMProcessor
     from voiceio.postcorrect import PostCorrector
-    from voiceio.transcriber import Transcriber
+    from voiceio.core.decoders.base import Decoder
     from voiceio.typers.base import TyperBackend
 
 log = logging.getLogger(__name__)
@@ -136,7 +137,7 @@ class StreamingSession:
 
     def __init__(
         self,
-        transcriber: Transcriber,
+        transcriber: Decoder,
         typer: TyperBackend,
         recorder: AudioSource,
         generation: int = 0,
@@ -152,9 +153,13 @@ class StreamingSession:
         on_typer_broken: Callable[[], None] | None = None,
         is_current: Callable[[], bool] | None = None,
         on_interim: Callable[[str], None] | None = None,
-        freeze_secs: float = 25.0,
+        freeze_secs: float = 15.0,
+        bias: Bias | None = None,
     ):
         self._transcriber = transcriber
+        # Captured once per session: vocabulary/prompt changes made while this
+        # recording runs apply to the next one, never halfway through this.
+        self._bias = bias or Bias()
         self._typer = typer
         # Output-ownership gate: the app sets this so a superseded session (its
         # generation was overtaken by a newer recording) stops emitting ANY
@@ -299,11 +304,11 @@ class StreamingSession:
             log.exception("Final transcribe/apply error")
         self._final_audio = None  # release memory
 
-    def _frozen_context(self) -> str | None:
-        """Frozen-text suffix used to condition the tail decode."""
-        if not self._frozen_raw:
-            return None
-        return self._frozen_raw[-_FREEZE_CONTEXT_CHARS:]
+    def _tail_bias(self) -> Bias:
+        """Session bias plus the frozen-text suffix, which conditions the tail
+        decode so sentences stay coherent across a freeze cut."""
+        context = self._frozen_raw[-_FREEZE_CONTEXT_CHARS:] if self._frozen_raw else None
+        return self._bias.with_context(context)
 
     def _freeze_chunk(self, audio: np.ndarray, chunk: np.ndarray) -> None:
         """Beam-decode `chunk` (the tail up to a pause cut) and freeze it.
@@ -313,17 +318,15 @@ class StreamingSession:
         """
         t0 = time.monotonic()
         try:
-            chunk_text = self._transcriber.transcribe(
-                chunk, final=True, context=self._frozen_context(),
-            )
+            result = self._transcriber.decode(chunk, final=True, bias=self._tail_bias())
         except Exception:
             log.exception("Freeze decode failed (boundary unchanged)")
             return
+        chunk_text = result.text
         t_decode = time.monotonic() - t0
         self._frozen_raw = _join_text(self._frozen_raw, chunk_text)
         self._frozen_samples += len(chunk)
-        self._frozen_segments.extend(
-            list(getattr(self._transcriber, "last_segments", [])))
+        self._frozen_segments.extend(result.segments)
         self._last_decode_end = len(audio)
         self._last_decode_secs = t_decode
         self.trace.append({
@@ -387,9 +390,7 @@ class StreamingSession:
         # must not be dropped); interim passes skip sub-0.3s tails.
         if len(tail) > (0 if final else self._sample_rate * 0.3):
             try:
-                tail_text = self._transcriber.transcribe(
-                    tail, final=final, context=self._frozen_context(),
-                )
+                result = self._transcriber.decode(tail, final=final, bias=self._tail_bias())
             except Exception:
                 # Decode FAILED (timeout/crash) — this is not silence. Never
                 # advance the freeze boundary or char-diff against a partial
@@ -406,7 +407,8 @@ class StreamingSession:
                     }
                     self._commit_interim_on_final()
                 return
-            tail_segments = list(getattr(self._transcriber, "last_segments", []))
+            tail_text = result.text
+            tail_segments = list(result.segments)
         t_transcribe = time.monotonic() - t0
         self._last_decode_end = len(audio)
         self._last_decode_secs = t_transcribe

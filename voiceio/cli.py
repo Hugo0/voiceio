@@ -823,7 +823,7 @@ def _show_vocab() -> None:
     it still reaches the post-correction LLM — but it does NOT bias decoding,
     and until now there was no way to see which side of the line a term fell on.
     """
-    from voiceio.app import _HOTWORDS_TOKEN_BUDGET
+    from voiceio.tokens import HOTWORDS_TOKEN_BUDGET as _HOTWORDS_TOKEN_BUDGET
     from voiceio.config import load
     from voiceio.tokens import count_tokens
     from voiceio.vocab_stats import VocabStats

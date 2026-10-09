@@ -144,28 +144,24 @@ class TestTimeoutRaises:
             t = Transcriber(ModelConfig())
         return t, mock_proc
 
-    def test_timeout_raises_and_clears_segments(self):
+    def test_timeout_raises(self):
         import numpy as np
         import pytest
         from voiceio.transcriber import TranscriptionError
         t, mock_proc = self._make()
-        t.last_segments = [{"text": "stale"}]
         with patch.object(t, "_read_with_timeout", return_value=None), \
              patch.object(t, "_kill_worker"), patch.object(t, "_ensure_worker"):
             with pytest.raises(TranscriptionError):
                 t.transcribe(np.zeros(16000, dtype=np.float32))
-        assert t.last_segments == []
 
-    def test_invalid_response_raises_and_clears_segments(self):
+    def test_invalid_response_raises(self):
         import numpy as np
         import pytest
         from voiceio.transcriber import TranscriptionError
         t, mock_proc = self._make()
-        t.last_segments = [{"text": "stale"}]
         with patch.object(t, "_read_with_timeout", return_value="not json{"):
             with pytest.raises(TranscriptionError):
                 t.transcribe(np.zeros(16000, dtype=np.float32))
-        assert t.last_segments == []
 
 
 class TestWorkerStartTimeout:

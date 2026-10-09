@@ -14,6 +14,7 @@ import numpy as np
 
 from voiceio import config, platform as plat, tray
 from voiceio.commands import CommandProcessor
+from voiceio.core.decoders.base import Bias
 from voiceio.corrections import CorrectionDict
 from voiceio.hotkeys import chain as hotkey_chain
 from voiceio.hotkeys.socket_backend import SocketHotkey
@@ -96,21 +97,6 @@ def _import_graphical_env() -> None:
 
 _HEALTH_CHECK_INTERVAL = 10  # seconds between health checks
 
-# Whisper's decoder has a hard 448-token sequence budget shared by hotwords,
-# initial_prompt AND the transcription output. Hotwords + prompt must stay well
-# under half of it or output gets truncated mid-utterance.
-#
-# This is a TOKEN budget, counted for real (voiceio.tokens) — the old 600-char
-# proxy assumed ~4 chars/token, but proper nouns (the whole point of a custom
-# vocabulary) run ~2.6, so "600 chars" was really 238 tokens: already past
-# faster-whisper's own 223-token hotwords cap, which then silently dropped the
-# tail.
-#
-# Derived, not guessed: 448 total - 200 output reserve - 120 prompt - 4 overhead
-# = 124. At ~3.5 tokens/term that is ~34 terms. Fewer terms than the old config
-# pretended to carry, but they are real: the old 223-token list left ~50 tokens
-# to transcribe with and truncated freeze chunks mid-sentence.
-_HOTWORDS_TOKEN_BUDGET = 120
 
 
 class _State(enum.Enum):
@@ -178,12 +164,16 @@ class VoiceIO:
         # mtime-cached loader so `voiceio correct` vocabulary edits are picked
         # up per-recording without a daemon restart.
         self._vocab_loader = VocabularyLoader(cfg.model)
-        # Vocabulary biases the decoder via hotwords; initial_prompt carries
-        # recent-transcript context (rebuilt per recording via PromptBuilder).
-        self._hotwords = ""
-        self._refresh_hotwords()
+        from voiceio.core.bias import BiasProvider
         from voiceio.prompt import PromptBuilder
         self._prompt_builder = PromptBuilder()
+        # Vocabulary → hotwords, recent transcripts → prompt; rebuilt per
+        # recording and passed with each decode.
+        self._bias = BiasProvider(
+            self._vocab_loader, self._corrections, self._prompt_builder,
+            language=cfg.model.language,
+        )
+        self._recording_bias = Bias()
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._cleanup = cfg.output.punctuation_cleanup
@@ -365,58 +355,6 @@ class VoiceIO:
             # The generation counter ensures the old finalizer exits cleanly.
             self._do_start()
 
-    def _refresh_hotwords(self) -> None:
-        """Rebuild Whisper hotwords: rank by usage, fill the token budget.
-
-        Selection is mandatory and permanent — the budget holds ~40-60 terms and
-        the vocabulary only grows — so the slots go to the terms actually being
-        dictated (voiceio.vocab_stats), highest-scoring first.
-
-        Both reads are mtime-cached and `set_hotwords` only fires when the string
-        changed, so the steady-state cost here is a couple of `stat` calls. That
-        matters: this runs synchronously before `recorder.start()`.
-        """
-        terms = self._vocab_loader.get_selected(token_budget=_HOTWORDS_TOKEN_BUDGET)
-        # Only merge RARE correction targets (proper nouns, technical terms):
-        # common-word targets ("review", "company") add nothing to decoder bias
-        # and hundreds of them blow Whisper's 448-token prompt+output budget,
-        # which truncates transcriptions mid-utterance.
-        vocab = ", ".join(terms + self._rare_correction_targets())
-        if vocab != self._hotwords:
-            self._hotwords = vocab
-            # Set unconditionally: an emptied vocabulary must CLEAR the hotwords,
-            # not leave the previous string biasing every future decode.
-            self.transcriber.set_hotwords(vocab or None)
-
-    def _record_vocab_usage(self, text: str) -> None:
-        """Record which vocabulary terms this utterance used (finalize path only).
-
-        This is the feedback signal that decides who gets the hotword budget next
-        time. Deliberately not on the recording-start path, and never fatal — a
-        usage counter must not be able to break a dictation.
-        """
-        try:
-            from voiceio import vocab_stats
-            vocab_stats.update_from_text(text, self._vocab_loader.get_all())
-        except Exception:  # noqa: BLE001
-            log.debug("vocab usage update failed", exc_info=True)
-
-    def _rare_correction_targets(self) -> list[str]:
-        """Correction targets worth biasing, cached against corrections mtime.
-
-        `is_common` over every target used to be recomputed on each recording
-        start; the result only changes when corrections.json does.
-        """
-        mtime = getattr(self._corrections, "_mtime", None)
-        if getattr(self, "_rare_targets_mtime", object()) != mtime:
-            from voiceio.wordfreq import is_common
-            self._rare_targets = [
-                t for t in self._corrections.vocabulary_terms()
-                if not is_common(t, self.cfg.model.language)
-            ]
-            self._rare_targets_mtime = mtime
-        return self._rare_targets
-
     def _do_start(self) -> None:
         """Transition to RECORDING."""
         # A new recording supersedes any finalizer still running: it must stop
@@ -475,8 +413,10 @@ class VoiceIO:
             ).start()
         self._activate_ibus()
         self._corrections.load()  # hot-reload corrections on each recording
-        self._refresh_hotwords()  # hot-reload vocabulary (mtime-cached)
-        self.transcriber.set_initial_prompt(self._prompt_builder.build())
+        # Vocabulary and corrections are mtime-cached, so edits made with
+        # `voiceio vocab`/`corrections` apply from the next recording.
+        bias = self._bias.bias_for(self.transcriber.capabilities)
+        self._recording_bias = bias
         if self.cfg.data.capture_context:
             # Snapshot the dictation target now — focus may change by finalize
             self._context_title = None
@@ -502,6 +442,7 @@ class VoiceIO:
                 on_typer_broken=self._on_typer_broken,
                 on_interim=self._on_interim_text,
                 freeze_secs=self.cfg.output.streaming_freeze_secs,
+                bias=bias,
             )
             self._session.start()
         log.info("Recording... press [%s] again to stop", self.cfg.hotkey.key)
@@ -555,7 +496,7 @@ class VoiceIO:
                 # _process owns deactivation (its finally block).
                 threading.Thread(
                     target=self._process,
-                    args=(audio, gen),
+                    args=(audio, gen, self._recording_bias),
                     daemon=True,
                 ).start()
             else:
@@ -653,8 +594,7 @@ class VoiceIO:
             self._copy_result_async(final_text)
             self._play_feedback(final_text)
             stored = self._strip_voice_prefix(final_text)
-            self._prompt_builder.add_transcript(stored)
-            self._record_vocab_usage(stored)
+            self._bias.record_usage(stored)
             latency = dict(session.final_latency)
             # stop-to-commit: what the user actually waits for
             latency["finalize_total"] = round(time.monotonic() - t_final, 3)
@@ -690,19 +630,20 @@ class VoiceIO:
                 self._state = _State.IDLE
                 tray.set_processing(False)
 
-    def _process(self, audio: np.ndarray, gen: int) -> None:
+    def _process(self, audio: np.ndarray, gen: int, bias: Bias | None = None) -> None:
         """Batch transcription (non-streaming mode)."""
         try:
             if self._generation != gen:
                 return
             extra = self._retention_extra(audio)
             t0 = time.monotonic()
-            raw = self.transcriber.transcribe(audio, final=True)
+            result = self.transcriber.decode(audio, final=True, bias=bias or Bias())
+            raw = result.text
             latency = {
                 "audio_secs": round(len(audio) / self.recorder.sample_rate, 2),
                 "transcribe": round(time.monotonic() - t0, 3),
             }
-            segments = self.transcriber.last_segments
+            segments = list(result.segments)
             text = raw
             if self._generation != gen:
                 return
@@ -735,7 +676,7 @@ class VoiceIO:
                     self._copy_result_async(text)
                     self._play_feedback(text)
                     stored = self._strip_voice_prefix(text)
-                    self._prompt_builder.add_transcript(stored)
+                    self._bias.record_usage(stored)
                     from voiceio import history
                     history.append(
                         stored,

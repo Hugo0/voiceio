@@ -100,7 +100,7 @@ class TestSharedBudget:
         45-60. Worst case it went negative and faster-whisper raised
         "The maximum decoding length must be > 0".
         """
-        from voiceio.app import _HOTWORDS_TOKEN_BUDGET
+        from voiceio.tokens import HOTWORDS_TOKEN_BUDGET as _HOTWORDS_TOKEN_BUDGET
 
         total = _HOTWORDS_TOKEN_BUDGET + PROMPT_TOKEN_BUDGET + OUTPUT_RESERVE_TOKENS
         assert total + 4 <= MAX_SEQUENCE_TOKENS

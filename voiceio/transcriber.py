@@ -1,4 +1,8 @@
-"""Subprocess-isolated faster-whisper transcriber with crash recovery."""
+"""faster-whisper decoder in an isolated subprocess, with crash recovery.
+
+Implements `voiceio.core.decoders.Decoder`. The model runs in its own process
+(voiceio.worker) so a native crash or hang costs a restart, not the daemon.
+"""
 from __future__ import annotations
 
 import base64
@@ -14,7 +18,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from voiceio.tokens import PROMPT_TOKEN_BUDGET, truncate_to_tokens
+from voiceio.core.decoders.base import (
+    Bias,
+    BiasMode,
+    Capabilities,
+    DecodeError,
+    DecodeResult,
+)
+from voiceio.tokens import HOTWORDS_TOKEN_BUDGET, PROMPT_TOKEN_BUDGET, truncate_to_tokens
 
 if TYPE_CHECKING:
     from voiceio.config import ModelConfig
@@ -29,10 +40,9 @@ def describe_transcript(text: str) -> str:
     return f"{len(text.split())} words" if text else "(silence)"
 
 
-class TranscriptionError(RuntimeError):
-    """Decode failed (timeout / worker crash). Distinct from a legitimate
-    empty result ("" = silence) so callers never treat lost audio as decoded
-    silence — the streaming freeze/final paths must not advance state on it."""
+# Historical name, kept for callers and tests.
+TranscriptionError = DecodeError
+
 # Realtime-factor headroom for the read timeout. Whisper decodes well faster
 # than realtime, so 1.5x the audio duration is a generous ceiling that still
 # never kills a long dictation mid-decode.
@@ -85,27 +95,22 @@ def normalize_audio(audio: np.ndarray) -> np.ndarray:
 
 
 class Transcriber:
+    """faster-whisper `Decoder`. Bias travels with each request; the object
+    holds no per-recording state, so concurrent sessions can share it."""
+
+    capabilities = Capabilities(
+        bias=BiasMode.PROMPT | BiasMode.HOTWORDS,
+        max_bias_tokens=HOTWORDS_TOKEN_BUDGET,
+    )
+
     def __init__(self, cfg: ModelConfig):
         self._cfg = cfg
+        self.name = f"faster-whisper:{cfg.name}"
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
         self._restarts = 0
         self._last_crash_time = 0.0  # monotonic; for restart-budget reset
-        self._initial_prompt: str | None = None
-        self._hotwords: str | None = None
-        # Segment metadata (confidence etc.) from the most recent transcribe()
-        # call. Read it immediately after the call that produced it.
-        self.last_segments: list[dict] = []
         self._start_worker()
-
-    def set_initial_prompt(self, prompt: str | None) -> None:
-        """Set the initial_prompt (recent-transcript context conditioning)."""
-        self._initial_prompt = prompt or None
-
-    def set_hotwords(self, hotwords: str | None) -> None:
-        """Set hotwords (vocabulary bias). Composes with initial_prompt:
-        faster-whisper prepends hotwords before the prompt tokens."""
-        self._hotwords = hotwords or None
 
     def _start_worker(self) -> None:
         log.info(
@@ -181,16 +186,26 @@ class Transcriber:
         log.warning("Worker died, restarting (attempt %d/%d)", self._restarts, MAX_RESTARTS)
         self._start_worker()
 
-    def transcribe(
-        self, audio: np.ndarray, final: bool = False, context: str | None = None,
-    ) -> str:
-        """Transcribe audio. `final=True` marks the pass whose text the user
+    def healthy(self) -> bool:
+        return self.is_worker_alive()
+
+    def close(self) -> None:
+        self.shutdown()
+
+    def transcribe(self, audio: np.ndarray, final: bool = False,
+                   bias: Bias = Bias()) -> str:
+        """Convenience: `decode()` returning only the text."""
+        return self.decode(audio, final=final, bias=bias).text
+
+    def decode(self, audio: np.ndarray, *, final: bool = False,
+               bias: Bias = Bias()) -> DecodeResult:
+        """Decode audio. `final=True` marks the pass whose text the user
         keeps (streaming final / batch): it gets beam search; interim streaming
         passes stay greedy for latency.
 
-        `context` is per-call text appended to the initial_prompt — used by
-        incremental finalization to condition a tail decode on the already-
-        frozen transcript so sentences stay coherent across the cut.
+        `bias.context` is appended to `bias.prompt` — incremental finalization
+        conditions a tail decode on the already-frozen transcript so sentences
+        stay coherent across the cut.
         """
         with self._lock:
             self._ensure_worker()
@@ -208,12 +223,12 @@ class Transcriber:
             # output. At ~171 tokens of prompt on top of a 223-token hotwords
             # list, only ~50 tokens were left to transcribe: freeze chunks hold
             # 45-60 words and were being cut off mid-sentence.
-            prompt = "\n".join(p for p in (self._initial_prompt, context) if p)
+            prompt = "\n".join(p for p in (bias.prompt, bias.context) if p)
             if prompt:
                 prompt = truncate_to_tokens(prompt, PROMPT_TOKEN_BUDGET, self._cfg.name)
                 req["initial_prompt"] = prompt
-            if self._hotwords:
-                req["hotwords"] = self._hotwords
+            if bias.hotwords:
+                req["hotwords"] = bias.hotwords
             try:
                 self._proc.stdin.write(json.dumps(req) + "\n")
                 self._proc.stdin.flush()
@@ -229,7 +244,6 @@ class Transcriber:
             timeout = transcribe_timeout(duration)
             result_line = self._read_with_timeout(timeout)
             if result_line is None:
-                self.last_segments = []
                 log.warning("Transcription timed out after %.0fs, killing worker "
                             "(stack dump in %s)", timeout, self._stderr_path)
                 self._dump_worker_stack()
@@ -243,11 +257,9 @@ class Transcriber:
             try:
                 result = json.loads(result_line)
             except (json.JSONDecodeError, TypeError):
-                self.last_segments = []
                 log.warning("Invalid response from worker: %s", repr(result_line)[:100])
                 raise TranscriptionError("invalid worker response")
             text = result.get("text", "")
-            self.last_segments = result.get("segments", [])
 
             elapsed = time.monotonic() - t0
             ratio = duration / elapsed if elapsed > 0 else 999
@@ -260,7 +272,7 @@ class Transcriber:
             log.debug("Transcript: %s", text)
             # Reset restart counter on success
             self._restarts = 0
-            return text
+            return DecodeResult(text, tuple(result.get("segments", ())), elapsed)
 
     def _read_with_timeout(self, timeout: float) -> str | None:
         """Read a line from stdout with a timeout."""

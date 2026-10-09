@@ -5,6 +5,8 @@ import threading
 import time
 from unittest.mock import MagicMock, patch
 
+from fakes import FakeDecoder
+
 import numpy as np
 import pytest
 
@@ -18,7 +20,7 @@ def _make_vio(mock_transcriber=None):
     mock_typer = MagicMock()
     mock_typer.name = "clipboard"
     if mock_transcriber is None:
-        mock_transcriber = MagicMock()
+        mock_transcriber = FakeDecoder()
 
     with patch("voiceio.app.hotkey_chain.select", return_value=mock_hotkey), \
          patch("voiceio.app.typer_chain.select", return_value=mock_typer), \
@@ -59,7 +61,7 @@ class TestVoiceIOInit:
         assert vio._typer is mock_typer
 
     def test_on_hotkey_toggle_cycle(self):
-        mock_trans = MagicMock()
+        mock_trans = FakeDecoder()
         mock_trans.transcribe.return_value = "hello world"
         vio, _, _ = _make_vio(mock_trans)
 
@@ -217,7 +219,7 @@ class TestStateMachine:
     def test_can_start_during_finalizing(self):
         """User can start a new recording while old one finalizes."""
         from voiceio.app import _State
-        mock_trans = MagicMock()
+        mock_trans = FakeDecoder()
         mock_trans.transcribe.return_value = "hello"
         vio, _, _ = _make_vio(mock_trans)
 

@@ -132,7 +132,7 @@ class TestPromptBudget:
         wrong unit: proper nouns tokenize at ~2.6 chars/token, so 600 chars was
         really 238 tokens, already past faster-whisper's 223 cap.
         """
-        from voiceio.app import _HOTWORDS_TOKEN_BUDGET
+        from voiceio.tokens import HOTWORDS_TOKEN_BUDGET as _HOTWORDS_TOKEN_BUDGET
         from voiceio.tokens import (
             HOTWORDS_TOKEN_CAP,
             MAX_SEQUENCE_TOKENS,

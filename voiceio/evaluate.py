@@ -233,7 +233,7 @@ def evaluate(
         log.warning("Teacher produced no reference text")
         return []
 
-    from voiceio.app import _HOTWORDS_TOKEN_BUDGET
+    from voiceio.tokens import HOTWORDS_TOKEN_BUDGET as _HOTWORDS_TOKEN_BUDGET
 
     stats = VocabStats()
     stats.load()

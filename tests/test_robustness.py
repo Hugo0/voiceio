@@ -6,6 +6,8 @@ import threading
 import time
 from unittest.mock import MagicMock, patch
 
+from fakes import FakeDecoder
+
 import numpy as np
 import pytest
 from voiceio.config import Config
@@ -22,7 +24,7 @@ def _make_vio(mock_transcriber=None):
     mock_typer = MagicMock()
     mock_typer.name = "clipboard"
     if mock_transcriber is None:
-        mock_transcriber = MagicMock()
+        mock_transcriber = FakeDecoder()
 
     with patch("voiceio.app.hotkey_chain.select", return_value=mock_hotkey), \
          patch("voiceio.app.typer_chain.select", return_value=mock_typer), \
@@ -549,7 +551,7 @@ class TestPreFlightStreamCheck:
 class TestStreamingWorkerExceptionHandling:
     def test_worker_catches_exception_and_continues(self):
         """Worker loop should catch exceptions in _transcribe_and_apply and keep running."""
-        mock_transcriber = MagicMock()
+        mock_transcriber = FakeDecoder()
         mock_typer = MagicMock()
         mock_typer.name = "clipboard"
         mock_recorder = MagicMock()
@@ -591,7 +593,7 @@ class TestStreamingWorkerExceptionHandling:
 
     def test_final_transcription_exception_does_not_crash(self):
         """Exception during final transcription should be caught."""
-        mock_transcriber = MagicMock()
+        mock_transcriber = FakeDecoder()
         mock_transcriber.transcribe.side_effect = RuntimeError("model crash")
         mock_typer = MagicMock()
         mock_typer.name = "clipboard"

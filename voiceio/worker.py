@@ -116,11 +116,9 @@ def main() -> None:
             beam_size=int(options.get("beam_size", 1)),
             initial_prompt=initial_prompt,
             hotwords=hotwords,
-            # Greedy-at-T=0 only. The default 6-step temperature fallback
-            # re-decodes the window whenever compression ratio / logprob trips
-            # (common on jargon), multiplying latency, and the hot samples are
-            # where hallucinations come from.
-            temperature=0.0,
+            # Temperature: library default fallback schedule for now. T=0 alone
+            # was measured to fall into repetition loops on ~1 in 5 long clips
+            # (a 4-gram repeated 11-35x) that the fallback re-decode rescues.
             max_new_tokens=max_new_tokens(model, len(audio) / 16000, hotwords, initial_prompt),
             # Short dictation utterances: conditioning on previous text lets one
             # bad window poison the rest (repetition loops); vad_filter drops the

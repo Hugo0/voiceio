@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from fakes import FakeDecoder
+
 from voiceio.typers.base import TyperBackend
 
 import numpy as np
@@ -76,7 +78,7 @@ class TestWordMatchLen:
 class TestApplyCorrection:
     def _make_session(self):
         return StreamingSession(
-            transcriber=MagicMock(),
+            transcriber=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
@@ -173,7 +175,7 @@ class TestApplyCorrection:
 class TestWhisperSequence:
     def _simulate(self, transcriptions: list[str]) -> tuple[list, str]:
         s = StreamingSession(
-            transcriber=MagicMock(),
+            transcriber=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
@@ -242,7 +244,7 @@ def test_fixture_no_large_streaming_deletions(fixture_name):
         pytest.skip("Silent recording")
 
     s = StreamingSession(
-        transcriber=MagicMock(),
+        transcriber=FakeDecoder(),
         typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
@@ -270,7 +272,7 @@ def test_fixture_final_text_correct(fixture_name):
         pytest.skip("Silent recording")
 
     s = StreamingSession(
-        transcriber=MagicMock(),
+        transcriber=FakeDecoder(),
         typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
@@ -293,7 +295,7 @@ def test_fixture_text_grows(fixture_name):
         pytest.skip("Too few transcriptions")
 
     s = StreamingSession(
-        transcriber=MagicMock(),
+        transcriber=FakeDecoder(),
         typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
@@ -342,7 +344,7 @@ class TestPreeditPath:
         typer.type_text = MagicMock()
         typer.delete_chars = MagicMock()
         return StreamingSession(
-            transcriber=MagicMock(),
+            transcriber=FakeDecoder(),
             typer=typer,
             recorder=MagicMock(),
         )
@@ -408,7 +410,7 @@ class TestOutputOwnershipGate:
 
     def _session(self, is_current):
         return StreamingSession(
-            transcriber=MagicMock(),
+            transcriber=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
             is_current=is_current,
@@ -436,7 +438,7 @@ class TestOutputOwnershipGate:
         typer.commit_text = MagicMock()
         typer.update_preedit = MagicMock()
         s = StreamingSession(
-            transcriber=MagicMock(), typer=typer, recorder=MagicMock(),
+            transcriber=FakeDecoder(), typer=typer, recorder=MagicMock(),
             is_current=lambda: False,
         )
         s._typed_text = "Hello"
@@ -445,7 +447,7 @@ class TestOutputOwnershipGate:
 
     def test_default_is_current_true(self):
         s = StreamingSession(
-            transcriber=MagicMock(),
+            transcriber=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
@@ -460,7 +462,7 @@ class TestCommitInterimOnFinal:
         typer.name = "mock-ibus"
         typer.commit_text = MagicMock()
         s = StreamingSession(
-            transcriber=MagicMock(), typer=typer, recorder=MagicMock(),
+            transcriber=FakeDecoder(), typer=typer, recorder=MagicMock(),
             is_current=is_current,
         )
         return s, typer
@@ -486,7 +488,7 @@ class TestCommitInterimOnFinal:
     def test_final_empty_text_commits_interim(self):
         """Full path: final transcription returns '' (timeout) but interim
         preedit exists -> it's committed, not dropped."""
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         transcriber.transcribe.return_value = ""  # simulate timeout / empty
         transcriber.last_segments = []
         typer = MagicMock(spec=_MockStreamingTyper)
@@ -506,7 +508,7 @@ class TestCommitInterimOnFinal:
 class TestSetTyper:
     def test_swap_resets_typed_text(self):
         s = StreamingSession(
-            transcriber=MagicMock(),
+            transcriber=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
@@ -521,7 +523,7 @@ class TestSetTyper:
 
 class TestWorkerLoop:
     def test_fires_on_event(self):
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         transcriber.transcribe.return_value = "Hello"
         typer = MagicMock(spec=TyperBackend)
         recorder = MagicMock()
@@ -545,7 +547,7 @@ class TestWorkerLoop:
         typer.type_text.assert_called_with("Hello")
 
     def test_stop_does_final_transcription(self):
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         transcriber.transcribe.return_value = "Final text"
         typer = MagicMock(spec=TyperBackend)
         recorder = MagicMock()
@@ -564,7 +566,7 @@ class TestWorkerLoop:
 
     def test_vad_pauses_collapse(self):
         call_count = 0
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
 
         def slow_transcribe(audio, final=False, context=None):
             nonlocal call_count
@@ -603,7 +605,7 @@ class TestOnInterim:
     def _make_session(self, cb):
         recorder = MagicMock()
         recorder.sample_rate = 16000
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         session = StreamingSession(
             transcriber=transcriber,
             typer=MagicMock(spec=TyperBackend),
@@ -668,7 +670,7 @@ class TestSegmentFreeze:
     def _make_session(self, freeze_secs=2.0):
         recorder = MagicMock()
         recorder.sample_rate = SR
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         transcriber.last_segments = []
         session = StreamingSession(
             transcriber=transcriber,
@@ -782,7 +784,7 @@ class TestDecodeTrace:
     def test_trace_records_pass_kinds(self):
         recorder = MagicMock()
         recorder.sample_rate = SR
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         transcriber.last_segments = []
         s = StreamingSession(
             transcriber=transcriber,
@@ -809,7 +811,7 @@ class TestDecodeFailureSafety:
     def _make_session(self, freeze_secs=2.0, typer_spec=TyperBackend):
         recorder = MagicMock()
         recorder.sample_rate = SR
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         transcriber.last_segments = []
         s = StreamingSession(
             transcriber=transcriber,
@@ -895,7 +897,7 @@ class TestDecodeBackpressure:
     def _make_session(self):
         recorder = MagicMock()
         recorder.sample_rate = SR
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         transcriber.last_segments = []
         s = StreamingSession(
             transcriber=transcriber,
@@ -938,7 +940,7 @@ class TestStaleInterimAfterStop:
         """A slow interim decode finishing post-stop must not touch the display."""
         recorder = MagicMock()
         recorder.sample_rate = SR
-        transcriber = MagicMock()
+        transcriber = FakeDecoder()
         transcriber.last_segments = []
         s = StreamingSession(
             transcriber=transcriber,

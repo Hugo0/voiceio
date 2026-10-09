@@ -39,6 +39,13 @@ OUTPUT_RESERVE_TOKENS = 200
 # words; they were being cut off.
 PROMPT_TOKEN_BUDGET = 120
 
+# Hotwords the vocabulary ranker may fill: 448 total - 200 output reserve -
+# 120 prompt - 4 overhead = 124. At ~3.5 tokens/term that is ~34 terms — the
+# architectural ceiling CLAUDE.md describes. Counted for real: the old 600-char
+# proxy assumed ~4 chars/token, but proper nouns run ~2.6, so it was really 238
+# tokens, past faster-whisper's own cap, which silently dropped the tail.
+HOTWORDS_TOKEN_BUDGET = 120
+
 
 def truncate_to_tokens(text: str, max_tokens: int, model_name: str) -> str:
     """Trim `text` from the FRONT to fit `max_tokens`.
