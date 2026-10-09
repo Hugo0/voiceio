@@ -91,9 +91,9 @@ class TestGuardedSwaps:
 # tests/test_ibus_session.py. Here: the app hands it the right generation.)
 
 class TestIBusDeactivation:
-    def test_release_uses_the_daemon_generation(self):
+    def test_release_uses_the_daemon_recording_id(self):
         vio = _make_app(typer_name="ibus")
-        vio._generation = 6
+        vio._recording = 6
         with patch("voiceio.ibus.session.threading.Thread") as MockThread:
             vio._ibus._wanted = 1  # a live claim
             vio._ibus.release(5)  # a newer recording already started

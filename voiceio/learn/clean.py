@@ -52,8 +52,9 @@ def _audio_missing(row: dict) -> bool:
 def _history_reason(row: dict) -> str | None:
     if row.get("text", "").strip().lower() not in _FIXTURE_TEXTS:
         return None
-    # A real mic test leaves a duration and a retained recording behind.
-    if not row.get("duration") or _audio_missing(row):
+    # Fixtures were written without a duration; a real dictation always has
+    # one, even after retention pruned its recording.
+    if not row.get("duration") and _audio_missing(row):
         return "fixture text, no recording"
     return None
 

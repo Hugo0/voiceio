@@ -282,7 +282,7 @@ class StreamingSession:
                 break
             try:
                 self._transcribe_and_apply()
-            except subprocess.CalledProcessError:
+            except (subprocess.CalledProcessError, OSError):
                 self._typer_fail_count += 1
                 if (self._typer_fail_count >= _TYPER_FAIL_THRESHOLD
                         and not self._typer_broken_signalled):

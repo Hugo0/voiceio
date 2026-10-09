@@ -63,9 +63,10 @@ def load_model(
 # Whisper shares one 448-token window between prompt and output.
 _MAX_LENGTH = 448
 # Generous ceiling on output rate: fast English speech is ~4 words/s ≈ 5.5
-# tokens/s. A decode stuck in a repetition loop runs to the window limit.
-_TOKENS_PER_SEC = 7
-_TOKEN_SLACK = 20
+# tokens/s, and proper nouns cost 5-7 tokens each, so allow ~2x that. A
+# decode stuck in a repetition loop otherwise runs to the window limit.
+_TOKENS_PER_SEC = 10
+_TOKEN_SLACK = 32
 
 
 def max_new_tokens(model: WhisperModel, audio_secs: float,

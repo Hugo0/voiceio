@@ -74,7 +74,7 @@ def main() -> None:
     if args.command is None:
         # A pre-1.0 systemd unit runs bare `voiceio`; keep it working until
         # `voiceio service install` (or doctor --fix) rewrites it.
-        if os.environ.get("INVOCATION_ID"):
+        if os.environ.get("INVOCATION_ID") and not sys.stdin.isatty():
             return _cmd_run(p_run.parse_args([]))
         parser.print_help()
         return
@@ -128,6 +128,9 @@ def _cmd_run(args: argparse.Namespace) -> None:
     log.info("Config: %s", args.config or _default_cfg)
     log.info("Logs: %s", LOG_PATH)
 
+    from voiceio import service
+    if service.CORRECT_TIMER_PATH.exists():  # pre-1.0 cloud-mining timer
+        service.uninstall_correct_timer()
     from voiceio.app import VoiceIO
     app = VoiceIO(cfg)
     if sys.platform != "win32":
@@ -351,7 +354,8 @@ def _cmd_toggle() -> None:
     """Send toggle command to running daemon."""
     from voiceio.hotkeys.socket_backend import send_toggle
     if not send_toggle():
-        print("voiceio daemon is not running. Start it with: voiceio", file=sys.stderr)
+        print("voiceio daemon is not running. Start it with: voiceio service start "
+              "(or `voiceio run` in a terminal)", file=sys.stderr)
         sys.exit(1)
 
 

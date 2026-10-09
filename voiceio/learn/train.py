@@ -144,10 +144,11 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
         with torch.no_grad():
             losses = [model(input_features=f, labels=lab).loss.item()
                       for f, lab in batches("dev", shuffle=False)]
-        dev = float(np.mean(losses)) if losses else 0.0
+        # No dev split (tiny dataset): keep the latest epoch.
+        dev = float(np.mean(losses)) if losses else float("-inf")
         log.info("epoch %d dev loss %.4f", epoch + 1, dev)
         print(f"  epoch {epoch + 1}/{cfg.epochs}: dev loss {dev:.4f}", flush=True)
-        if dev < best:
+        if dev <= best or not losses:
             best = dev
             model.save_pretrained(out / "adapter")
 

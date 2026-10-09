@@ -199,7 +199,14 @@ class VoiceIO:
 
         # Explicit state machine
         self._state = _State.IDLE
-        self._generation = 0          # bumped on every start and stop; leaked threads check this
+        # Output ownership: bumped on stop, so a finalizer whose recording was
+        # followed by another stop knows its output is stale. A recording
+        # started while the previous one finalizes does NOT supersede it —
+        # that finalizer still commits its text.
+        self._generation = 0
+        # Input-source ownership: bumped on start. A finalizer releases the
+        # IBus claim only if no newer recording has claimed it since.
+        self._recording = 0
         self._session: StreamingSession | None = None
         self._record_start: float = 0
         self._last_clip_warn: float = 0
@@ -236,7 +243,7 @@ class VoiceIO:
         self._ibus = IBusSession(
             lambda: self.platform,
             is_idle=lambda: self._state == _State.IDLE,
-            generation=lambda: self._generation,
+            generation=lambda: self._recording,
         )
 
         # Audio stream recovery backoff
@@ -338,10 +345,6 @@ class VoiceIO:
 
     def _do_start(self) -> None:
         """Transition to RECORDING."""
-        # A new recording supersedes any finalizer still running: it must stop
-        # emitting output and must not restore the input source this
-        # recording is about to claim. (Stop bumps again for batch threads.)
-        self._generation += 1
         # Pre-flight: ensure audio stream is healthy before recording
         ok, reason = self.recorder.stream_health()
         if not ok:
@@ -382,8 +385,9 @@ class VoiceIO:
             log.warning("Mic appears silent or muted (pre-buffer is all zeros)")
 
         self._state = _State.RECORDING
+        self._recording += 1
         if self._typer.name == "ibus":
-            self._ibus.claim(self._generation)
+            self._ibus.claim(self._recording)
         # Vocabulary and corrections are mtime-cached, so edits made with
         # `voiceio vocab`/`corrections` apply from the next recording.
         bias = self.engine.bias()
@@ -412,6 +416,7 @@ class VoiceIO:
         elapsed = time.monotonic() - self._record_start
         self._generation += 1
         gen = self._generation
+        rid = self._recording
 
         # Stop audio capture immediately — chime and recorder stop are synchronous
         self._play_record_cue(start=False)
@@ -446,7 +451,7 @@ class VoiceIO:
             # touches the recorder. Generation check cancels if superseded.
             threading.Thread(
                 target=self._finalize_streaming,
-                args=(session, audio, elapsed, gen),
+                args=(session, audio, elapsed, gen, rid),
                 daemon=True,
             ).start()
         elif not self._streaming:
@@ -456,18 +461,18 @@ class VoiceIO:
                 # _process owns deactivation (its finally block).
                 threading.Thread(
                     target=self._process,
-                    args=(audio, gen, self._recording_bias),
+                    args=(audio, gen, rid, self._recording_bias),
                     daemon=True,
                 ).start()
             else:
                 # No processing thread will run — release the source here.
-                self._ibus.release(gen)
+                self._ibus.release(rid)
         else:
             # Streaming mode but session already gone (race) — nothing to do
             self._state = _State.IDLE
             log.debug("Stop: streaming session already finalized")
             # No finalizer will run to release the input source, so do it here.
-            self._ibus.release(gen)
+            self._ibus.release(rid)
 
     def _capture_context(self) -> None:
         from voiceio import retention
@@ -528,7 +533,7 @@ class VoiceIO:
 
     def _finalize_streaming(
         self, session: StreamingSession, audio: np.ndarray | None,
-        elapsed: float, gen: int,
+        elapsed: float, gen: int, rid: int,
     ) -> None:
         """Run final transcription and commit in background thread."""
         t_final = time.monotonic()
@@ -541,7 +546,7 @@ class VoiceIO:
         extra = self._retention_extra(audio)
         final_text = session.stop(audio)
         if self._generation != gen:
-            # Superseded by a newer recording: its output is suppressed, but
+            # A later recording has already stopped: this output is stale, but
             # the user's words must not vanish — keep them in history.
             log.info("Finalize superseded (gen %d, current %d): %s saved to history only",
                      gen, self._generation, describe_transcript(final_text))
@@ -549,6 +554,7 @@ class VoiceIO:
                 from voiceio import history
                 history.append(self._strip_voice_prefix(final_text),
                                raw=session.raw_final_text, duration=elapsed)
+            self._ibus.release(rid)
             return
         if final_text:
             self._copy_result_async(final_text)
@@ -581,16 +587,16 @@ class VoiceIO:
         log.debug("Final text: %r", final_text)
         self._warn_if_nothing_captured(final_text, gen)
         # Release the IBus input source now that the final commit is done.
-        # Generation-checked inside: if a newer recording started, it already
-        # re-claimed the source and we must not restore it out from under it.
-        self._ibus.release(gen)
+        # A no-op if a newer recording has claimed it since.
+        self._ibus.release(rid)
         # Transition to IDLE under lock to avoid racing with _toggle
         with self._hotkey_lock:
             if self._generation == gen and self._state == _State.FINALIZING:
                 self._state = _State.IDLE
                 tray.set_processing(False)
 
-    def _process(self, audio: np.ndarray, gen: int, bias: Bias | None = None) -> None:
+    def _process(self, audio: np.ndarray, gen: int, rid: int = 0,
+                 bias: Bias | None = None) -> None:
         """Batch transcription (non-streaming mode)."""
         try:
             if self._generation != gen:
@@ -638,7 +644,7 @@ class VoiceIO:
             log.exception("Processing failed")
         finally:
             # Release the IBus input source after the batch commit (or failure).
-            self._ibus.release(gen)
+            self._ibus.release(rid)
 
     # ── Text-to-speech ─────────────────────────────────────────────
 

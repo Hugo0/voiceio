@@ -39,6 +39,14 @@ desktop = [
     "pystray>=0.19",
     "Pillow>=10.0",
 ]
+# Pre-1.0 name for the desktop install; kept so existing setups keep syncing.
+linux = [
+    "sounddevice>=0.4.6",
+    "evdev>=1.6.0; sys_platform == 'linux'",
+    "pynput>=1.7.6",
+    "pystray>=0.19",
+    "Pillow>=10.0",
+]
 # Headless HTTP/WebSocket server (`python -m voiceio.server`).
 server = ["aiohttp>=3.9"]
 # Text-to-speech: local (piper) and cloud (edge-tts) engines.

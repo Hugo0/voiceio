@@ -17,10 +17,12 @@ import struct
 from pathlib import Path
 
 from voiceio.backends import ProbeResult
+# Same per-commit budget as IBus: fcitx5 relays a commit to the app as one
+# Wayland message, and Wayland drops the client past 4096 bytes.
+from voiceio.ibus.textlimit import MAX_TEXT_BYTES as _MAX_PAYLOAD
 
 _VERSION = 1
 _COMMIT, _DELETE = 1, 2
-_MAX_PAYLOAD = 64 * 1024 - 2
 
 
 def socket_path() -> Path:
@@ -35,11 +37,18 @@ class FcitxBridgeTyper:
         self._sock: socket.socket | None = None
 
     def probe(self) -> ProbeResult:
-        if not socket_path().exists():
+        # connect() on a datagram socket fails fast if nobody is bound — a
+        # stale socket file left by a crashed fcitx5 doesn't count.
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            probe.connect(str(socket_path()))
+        except OSError:
             return ProbeResult(
                 ok=False, reason="fcitx5-text-bridge addon not running",
                 fix_hint="install https://github.com/981213/fcitx5-text-bridge and restart fcitx5",
             )
+        finally:
+            probe.close()
         return ProbeResult(ok=True)
 
     def _send(self, op: int, payload: bytes) -> None:

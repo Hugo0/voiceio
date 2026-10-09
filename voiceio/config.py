@@ -399,7 +399,7 @@ def set_value(section: str, key: str, value: str | int | float | bool,
     rendered = (str(value).lower() if isinstance(value, bool)
                 else str(value) if isinstance(value, (int, float))
                 else _json.dumps(value))  # TOML basic strings share JSON escaping
-    header = rf"^\[{re.escape(section)}\][ \t]*$"
+    header = rf"^\[{re.escape(section)}\][ \t]*(#.*)?$"
     m = re.search(header, content, re.MULTILINE)
     if m is None:
         sep = "" if not content or content.endswith("\n\n") else ("\n" if content.endswith("\n") else "\n\n")
@@ -408,12 +408,16 @@ def set_value(section: str, key: str, value: str | int | float | bool,
         nxt = re.search(r"^\[", content[m.end():], re.MULTILINE)
         end = m.end() + nxt.start() if nxt else len(content)
         body = content[m.end():end]
-        line = re.compile(rf"^#?[ \t]*{re.escape(key)}[ \t]*=.*$", re.MULTILINE)
-        if line.search(body):
-            body = line.sub(lambda _: f"{key} = {rendered}", body, count=1)
+        live = re.compile(rf"^[ \t]*{re.escape(key)}[ \t]*=.*$", re.MULTILINE)
+        commented = re.compile(rf"^#[ \t]*{re.escape(key)}[ \t]*=.*$", re.MULTILINE)
+        target = live if live.search(body) else commented if commented.search(body) else None
+        if target is not None:
+            body = target.sub(lambda _: f"{key} = {rendered}", body, count=1)
         else:
             body = f"\n{key} = {rendered}" + body
         content = content[:m.end()] + body + content[end:]
+    # Never leave a file the daemon can't parse.
+    tomllib.loads(content)
     secure_write(path, content)
 
 

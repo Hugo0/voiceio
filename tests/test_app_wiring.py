@@ -178,43 +178,44 @@ class TestStateMachine:
         gen_before = vio._generation
 
         vio.on_hotkey()
-        gen_recording = vio._generation
-        assert gen_recording > gen_before  # start supersedes old finalizers
+        assert vio._generation == gen_before  # starting supersedes nothing
         _feed_audio(vio)
         _allow_stop(vio)
         vio.on_hotkey()
 
-        assert vio._generation == gen_recording + 1
+        assert vio._generation == gen_before + 1
 
-    def test_start_during_finalize_supersedes_old_finalizer(self):
-        """Regression: the generation only moved on stop, so a finalizer still
-        running when the next recording started stayed 'current' — it could
-        restore the input source and emit output mid-recording."""
+    def test_start_during_finalize_keeps_old_output_but_not_its_claim(self):
+        """Regression (review): starting the next recording while the previous
+        one finalizes must not suppress the previous text (IBus users lost the
+        sentence on screen, batch mode dropped it entirely) — but the old
+        finalizer must not release the input source the new one claimed."""
         vio, _, _ = _make_vio()
         vio.on_hotkey()
         _feed_audio(vio)
         _allow_stop(vio)
         finalizing = threading.Event()
         release = threading.Event()
-        gens = []
+        seen = []
 
-        def fake_finalize(session, audio, elapsed, gen):
+        def fake_finalize(session, audio, elapsed, gen, rid):
             finalizing.set()
             release.wait(5)
-            gens.append((gen, vio._generation))
+            seen.append((gen == vio._generation, rid == vio._recording))
 
         with patch.object(vio, "_finalize_streaming", side_effect=fake_finalize):
-            vio.on_hotkey()          # stop A → finalizer thread starts
+            vio.on_hotkey()          # stop A
             assert finalizing.wait(5)
             vio._last_hotkey = time.monotonic() - 5.0
             vio.on_hotkey()          # start B while A finalizes
             release.set()
             for _ in range(50):
-                if gens:
+                if seen:
                     break
                 time.sleep(0.05)
-        (gen_a, current), = gens
-        assert gen_a != current, "old finalizer must see itself superseded"
+        (output_current, claim_current), = seen
+        assert output_current, "A's text must still be committed"
+        assert not claim_current, "A must not release B's input-source claim"
 
     def test_can_start_during_finalizing(self):
         """User can start a new recording while old one finalizes."""
@@ -310,7 +311,7 @@ class TestIBusWiring:
     def test_record_start_claims_with_current_generation(self):
         vio = self._vio_ibus()
         vio.on_hotkey()
-        vio._ibus.claim.assert_called_once_with(vio._generation)
+        vio._ibus.claim.assert_called_once_with(vio._recording)
         assert vio.recorder.is_recording
 
     def test_no_claim_for_other_typers(self):

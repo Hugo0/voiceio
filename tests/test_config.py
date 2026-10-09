@@ -112,3 +112,25 @@ def test_example_config_matches_defaults():
     for name, section in example.items():
         known = {f.name for f in dataclasses.fields(getattr(cfg, name))}
         assert set(section) <= known, f"[{name}] documents unknown {set(section) - known}"
+
+
+def test_set_value_prefers_live_line_and_header_comments(tmp_path):
+    """Regressions from review: a commented duplicate was replaced instead of
+    the live key, and a header with a trailing comment wasn't recognized."""
+    from voiceio.config import set_value
+    p = tmp_path / "config.toml"
+    p.write_text("[output]  # mine\n# streaming_freeze_secs = 15\nstreaming_freeze_secs = 10\n")
+    set_value("output", "streaming_freeze_secs", 8.0, path=p)
+    assert tomllib.loads(p.read_text()) == {"output": {"streaming_freeze_secs": 8.0}}
+    assert p.read_text().count("[output]") == 1
+
+
+def test_set_value_never_writes_unparseable_toml(tmp_path):
+    import pytest as _pytest
+    from voiceio.config import set_value
+    p = tmp_path / "config.toml"
+    p.write_text("[model]\nname = \"small\"\n")
+    before = p.read_text()
+    with _pytest.raises(tomllib.TOMLDecodeError):
+        set_value("model", "bad key", "x", path=p)
+    assert p.read_text() == before

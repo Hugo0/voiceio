@@ -44,5 +44,12 @@ def build_decoder(model_cfg, lanes: int | None = None) -> Decoder:
     final = Transcriber(model_cfg)
     if lanes < 2:
         return final
+    try:
+        draft = Transcriber(model_cfg)
+    except Exception:  # noqa: BLE001 — e.g. no memory for a second copy
+        import logging
+        logging.getLogger(__name__).warning(
+            "Could not start a second decoder process; using one lane", exc_info=True)
+        return final
     from voiceio.core.decoders.lanes import DualLane
-    return DualLane(draft=Transcriber(model_cfg), final=final)
+    return DualLane(draft=draft, final=final)

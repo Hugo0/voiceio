@@ -109,11 +109,11 @@ def _start_indicator(
 
 
 _MENU_COMMANDS: dict[str, list[str]] = {
-    "correct": ["voiceio", "correct", "--auto"],
+    "correct": ["voiceio", "corrections", "flagged"],
     "history": ["voiceio", "history"],
     "demo": ["voiceio", "demo"],
     "doctor": ["voiceio", "doctor"],
-    "logs": ["voiceio", "logs"],
+    "logs": ["voiceio", "service", "logs"],
 }
 
 

@@ -37,3 +37,13 @@ def test_long_text_is_split_on_utf8_boundaries(bridge, monkeypatch):
     parts = [bridge.recv(100)[2:] for _ in range(2)]
     assert b"".join(parts).decode() == "aaaéé"
     assert all(p.decode() for p in parts)  # each part is valid UTF-8
+
+
+def test_stale_socket_file_does_not_probe_ok(tmp_path, monkeypatch):
+    """A crashed fcitx5 leaves its socket file behind."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    srv.bind(str(fcitx_bridge.socket_path()))
+    srv.close()  # file remains, nobody listening
+    assert fcitx_bridge.socket_path().exists()
+    assert not fcitx_bridge.FcitxBridgeTyper().probe().ok

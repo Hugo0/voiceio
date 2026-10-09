@@ -956,7 +956,7 @@ def run_test() -> None:
         ok = _test_hotkey(cfg.hotkey.key, cfg.hotkey.backend)
         if not ok:
             print(f"\n  {YELLOW}Troubleshooting:{RESET}")
-            print(f"  {DIM}• On Wayland/GNOME: run {BOLD}voiceio --setup-shortcut{RESET}")
+            print(f"  {DIM}• On Wayland/GNOME: run {BOLD}voiceio setup{RESET}")
             print(f"  {DIM}• Or add shortcut manually: Settings → Keyboard → Custom Shortcuts{RESET}")
             print(f"  {DIM}  Command: voiceio toggle{RESET}")
 
@@ -1520,7 +1520,7 @@ def _print_ready_panel(hotkey: str, autostart: bool) -> None:
     start_hint = (
         "  voiceio is running and will start automatically on login."
         if autostart
-        else f"  Start voiceio:\n    {CYAN}voiceio{RESET}"
+        else f"  Start voiceio:\n    {CYAN}voiceio run{RESET}"
     )
     path_note = ""
     if not _is_pipx_install() and not shutil.which("voiceio"):
