@@ -186,7 +186,8 @@ class PostCorrectConfig:
     # custom base_url set a model your endpoint serves (empty = use
     # [autocorrect].model).
     model: str = "google/gemini-2.5-flash-lite"
-    timeout_secs: float = 8.0
+    # It blocks the commit: past this the original text is kept.
+    timeout_secs: float = 3.0
     min_words: int = 4           # skip utterances shorter than this
 
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from voiceio.config import Config, PostCorrectConfig
 from voiceio.postcorrect import PostCorrector
 
@@ -340,3 +342,26 @@ def test_recorded_context_is_effective_context(tmp_path, monkeypatch):
         pc.correct("Chris chat is the tool", context="Fresh Window")
     entries = _read_pairs(tmp_path / "pairs.jsonl")
     assert entries[0]["context"] == "Fresh Window"
+
+
+@pytest.mark.parametrize("original,corrected,reason", [
+    ("We had explained it to the team already", "We explained it to the team already",
+     "deleted_content"),
+    ("we shipped 1 fix and 2 features today", "we shipped one fix and two features today",
+     "numbers"),
+    ("the chip assay results look good to me", "the **ChIP** assay results look good to me",
+     "markdown"),
+])
+def test_guard_rejects_meaning_changes(original, corrected, reason):
+    pc = PostCorrector(_cfg(remove_disfluencies=True))
+    assert pc._guard(original, corrected) == (False, reason)
+
+
+@pytest.mark.parametrize("original,corrected", [
+    ("so um we should like ship it today", "we should ship it today"),
+    ("we should we must ship it today now", "we must ship it today now"),
+    ("the the build passed on the first try", "the build passed on the first try"),
+])
+def test_guard_allows_filler_repeats_and_false_starts(original, corrected):
+    pc = PostCorrector(_cfg(remove_disfluencies=True))
+    assert pc._guard(original, corrected) == (True, "")

@@ -35,6 +35,56 @@ _MAX_REPLACE_FRAC = 0.15    # ASR word-fixes only, never wholesale rewording
 _MAX_DELETE_FRAC = 0.4      # backstop against deleting real content
 
 
+# Words a disfluency pass may drop on their own. Anything else may only go as
+# part of a repetition or false start (see _deletion_ok); deleting a lone
+# content word ("We had explained" → "We explained") changes meaning.
+_FILLER_WORDS = frozenset({
+    "um", "uh", "er", "erm", "ah", "eh", "hmm", "mm", "like", "just", "actually",
+    "basically", "literally", "really", "so", "yeah", "okay", "ok", "well", "now",
+    "right", "you", "know", "i", "mean", "sort", "kind", "of", "or", "something",
+    "whatever", "anyway", "anyways", "and", "but", "then", "hey", "wait", "alright",
+})
+# Multi-word fillers containing a word that must never go alone ("don't").
+_FILLER_PHRASES = (
+    ("i", "don't", "know"), ("i", "dont", "know"), ("all", "right"),
+    ("by", "the", "way"), ("and", "so", "on"),
+)
+
+
+def _all_filler(run: list[str]) -> bool:
+    i = 0
+    while i < len(run):
+        for phrase in _FILLER_PHRASES:
+            if tuple(run[i:i + len(phrase)]) == phrase:
+                i += len(phrase)
+                break
+        else:
+            if run[i] not in _FILLER_WORDS:
+                return False
+            i += 1
+    return True
+
+
+_MARKDOWN = ("**", "__", "`", "# ", "* ", "- ")
+
+
+def _deletion_ok(words: list[str], i1: int, i2: int) -> bool:
+    """A deleted run is legitimate filler, a repetition, or a false start."""
+    run = words[i1:i2]
+    if _all_filler(run):
+        return True
+    after = words[i2:i2 + len(run)]
+    if run == after:                       # "the the", "we should we should"
+        return True
+    # False start: the speaker restarts with the run's opening word
+    # ("we should we must" → "we must").
+    return i2 < len(words) and words[i2] == run[0]
+
+
+def _numbers(words: list[str]) -> list[str]:
+    return [w for w in words if any(c.isdigit() for c in w)]
+
+
 def _norm_words(text: str) -> list[str]:
     """Lowercased, punctuation-stripped word list for the guard's diff, so a
     sentence split or capitalization isn't misread as a content change."""
@@ -48,7 +98,6 @@ def _norm_words(text: str) -> list[str]:
 
 _SYSTEM_PROMPT = (
     "You fix automatic speech recognition errors in dictated text. "
-    "The user dictates about software engineering and their projects. "
     "Fix ONLY misrecognized words (wrong proper nouns, homophone errors, "
     "garbled technical terms). NEVER rephrase, summarize, add or remove "
     "content, or change style/punctuation beyond the fixed words. "
@@ -59,8 +108,7 @@ _SYSTEM_PROMPT = (
 # mirror the guards — the model is told exactly what the diff check enforces.
 _SYSTEM_PROMPT_CLEAN = (
     "You convert dictated speech into clean, concise written text. The user "
-    "dictates about software engineering and their projects, and wants it to "
-    "read like something they wrote, not spoke. Do exactly two things:\n"
+    "wants it to read like something they wrote, not spoke. Do exactly two things:\n"
     "1. Fix words the recognizer misheard (wrong proper nouns, homophones, "
     "garbled technical terms).\n"
     "2. Cut spoken disfluency so it reads tight and clear:\n"
@@ -323,6 +371,12 @@ class PostCorrector:
         capital letter, a comma — is never miscounted as rewording. Outside
         disfluency mode the original conservative fix-only guards apply.
         """
+        # Hard limits in both modes: no formatting, and every number survives
+        # (the model kept turning numbers.py's "1" back into "one").
+        if any(m in corrected and m not in text for m in _MARKDOWN):
+            return False, "markdown"
+        if _numbers(_norm_words(text)) != _numbers(_norm_words(corrected)):
+            return False, "numbers"
         aw, bw = text.split(), corrected.split()
         if not self._remove_disfluencies:
             n = len(aw)
@@ -341,6 +395,8 @@ class PostCorrector:
             elif tag == "replace":
                 replaced += max(i2 - i1, j2 - j1)
             elif tag == "delete":
+                if not _deletion_ok(aw, i1, i2):
+                    return False, "deleted_content"
                 deleted += i2 - i1
         n = len(aw)
         if inserted > _MAX_INSERTED_WORDS:
