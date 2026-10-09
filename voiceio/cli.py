@@ -124,9 +124,15 @@ def main() -> None:
     # ── voiceio logs ───────────────────────────────────────────────────
     sub.add_parser("logs", help="Show recent log output")
 
+    # ── voiceio learn ──────────────────────────────────────────────────
+    from voiceio.learn import cli as learn_cli
+    learn_cli.register(sub)
+
     args = parser.parse_args()
 
-    if args.command == "setup":
+    if args.command == "learn":
+        args.func(args)
+    elif args.command == "setup":
         _cmd_setup(args)
     elif args.command == "doctor":
         _cmd_doctor(args)
@@ -1652,48 +1658,14 @@ def _confirm_add_vocabulary(cfg, terms: list[str], state, *, silent: bool = Fals
 
 def _save_api_key(cfg, key: str) -> None:
     """Save an API key + auto-detected provider to the config file."""
-    from voiceio.config import CONFIG_PATH
+    from voiceio.config import set_value
     from voiceio.llm_api import detect_provider
 
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-
     base_url, model = detect_provider(key)
+    for field, value in (("api_key", key), ("base_url", base_url), ("model", model)):
+        set_value("autocorrect", field, value)  # 0600: the file now holds a secret
 
-    if CONFIG_PATH.exists():
-        content = CONFIG_PATH.read_text(encoding="utf-8")
-    else:
-        content = ""
-
-    import re
-
-    def _set_field(content: str, field: str, value: str) -> str:
-        """Set a field under [autocorrect], adding it if missing."""
-        if re.search(r"^\[autocorrect\]", content, re.MULTILINE):
-            # Try to replace existing line (commented or not)
-            new, n = re.subn(
-                rf"(^\[autocorrect\][^\[]*?)^#?\s*{field}\s*=.*$",
-                rf'\1{field} = "{value}"',
-                content, count=1, flags=re.MULTILINE,
-            )
-            if n:
-                return new
-            # Field didn't exist — append after [autocorrect]
-            return re.sub(
-                r"^(\[autocorrect\].*)$",
-                rf'\1\n{field} = "{value}"',
-                content, count=1, flags=re.MULTILINE,
-            )
-        else:
-            return content + f'\n[autocorrect]\n{field} = "{value}"\n'
-
-    content = _set_field(content, "api_key", key)
-    content = _set_field(content, "base_url", base_url)
-    content = _set_field(content, "model", model)
-
-    from voiceio import config as _config
     from voiceio import consent
-    # config.toml now holds a secret — write it 0600 in a 0700 dir.
-    _config.secure_write(CONFIG_PATH, content)
     # Deliberately configuring a cloud key is explicit cloud consent.
     consent.record_consent(source="api-key")
 

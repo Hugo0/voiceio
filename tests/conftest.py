@@ -35,6 +35,7 @@ def pytest_sessionstart(session):
 @pytest.fixture(autouse=True)
 def _isolate_user_state(tmp_path, monkeypatch):
     """Keep tests out of the user's real state dir (recordings, history)."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))  # voiceio.learn
     monkeypatch.setattr("voiceio.retention.RECORDINGS_DIR", tmp_path / "recordings")
     monkeypatch.setattr("voiceio.config.RECORDINGS_DIR", tmp_path / "recordings")
     monkeypatch.setattr("voiceio.config.HISTORY_PATH", tmp_path / "history.jsonl")

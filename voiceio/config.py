@@ -382,6 +382,39 @@ def secure_write(path: Path, text: str, *, encoding: str = "utf-8") -> None:
         raise
 
 
+def set_value(section: str, key: str, value: str | int | float | bool,
+              path: Path | None = None) -> None:
+    """Set one key in config.toml, keeping the user's comments and layout.
+
+    Replaces an existing (or commented-out) `key =` line inside `[section]`,
+    else adds it under the header, else appends the section. Written 0600.
+    """
+    import json as _json
+    import re
+
+    path = path or CONFIG_PATH
+    content = path.read_text(encoding="utf-8") if path.exists() else ""
+    rendered = (str(value).lower() if isinstance(value, bool)
+                else str(value) if isinstance(value, (int, float))
+                else _json.dumps(value))  # TOML basic strings share JSON escaping
+    header = rf"^\[{re.escape(section)}\][ \t]*$"
+    m = re.search(header, content, re.MULTILINE)
+    if m is None:
+        sep = "" if not content or content.endswith("\n\n") else ("\n" if content.endswith("\n") else "\n\n")
+        content += f"{sep}[{section}]\n{key} = {rendered}\n"
+    else:
+        nxt = re.search(r"^\[", content[m.end():], re.MULTILINE)
+        end = m.end() + nxt.start() if nxt else len(content)
+        body = content[m.end():end]
+        line = re.compile(rf"^#?[ \t]*{re.escape(key)}[ \t]*=.*$", re.MULTILINE)
+        if line.search(body):
+            body = line.sub(lambda _: f"{key} = {rendered}", body, count=1)
+        else:
+            body = f"\n{key} = {rendered}" + body
+        content = content[:m.end()] + body + content[end:]
+    secure_write(path, content)
+
+
 def check_permissions() -> list[tuple[Path, int, int]]:
     """Return [(path, actual_mode, expected_mode)] for anything too permissive.
 

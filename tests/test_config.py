@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import textwrap
+import tomllib
 from pathlib import Path
 
 from voiceio.config import load, _migrate_v1
@@ -74,3 +75,19 @@ def test_copy_to_clipboard_default_and_override(tmp_path):
     """))
     cfg = load(path=config_file)
     assert cfg.output.copy_to_clipboard == "live"
+
+
+def test_set_value_preserves_comments_and_sections(tmp_path):
+    from voiceio.config import set_value
+    p = tmp_path / "config.toml"
+    p.write_text('# my notes\n[model]\nname = "small"  # fast\n#language = "de"\n\n[tts]\nenabled = true\n')
+    set_value("model", "name", "/home/u/models/run1/ct2", path=p)
+    set_value("model", "language", "en", path=p)
+    set_value("output", "streaming_freeze_secs", 8.0, path=p)
+    set_value("tts", "enabled", False, path=p)
+    text = p.read_text()
+    assert text.startswith("# my notes\n")
+    data = tomllib.loads(text)
+    assert data["model"] == {"name": "/home/u/models/run1/ct2", "language": "en"}
+    assert data["output"]["streaming_freeze_secs"] == 8.0
+    assert data["tts"]["enabled"] is False
