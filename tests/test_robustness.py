@@ -768,7 +768,7 @@ class TestBootRaceAndReProbe:
         ]), patch("voiceio.app.typer_chain.select", return_value=better), \
              patch("voiceio.app.typer_chain._get_chain",
                    return_value=["ibus", "clipboard"]), \
-             patch.object(vio, "_ensure_ibus_engine") as mock_ensure:
+             patch.object(vio._ibus, "ensure_engine") as mock_ensure:
             result = vio._try_upgrade_typer(reason="test")
             assert result is True
             assert vio._typer is better
@@ -837,7 +837,7 @@ class TestBootRaceAndReProbe:
              patch("voiceio.app.typer_chain.resolve", return_value=[
                  ("ibus", better, MagicMock(ok=True)),
              ]), patch("voiceio.app.typer_chain.select", return_value=better), \
-             patch.object(vio, "_ensure_ibus_engine"):
+             patch.object(vio._ibus, "ensure_engine"):
             vio._check_health()
 
         assert vio._typer is better

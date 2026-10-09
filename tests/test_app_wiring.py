@@ -296,147 +296,51 @@ class TestClipboardMirror:
             mock_copy.assert_called_once_with("hello world")
 
 
-class TestEngineLifecycle:
-    """Dormant-engine reaping is normal; recovery must not steal the source."""
+class TestIBusWiring:
+    """The app drives IBusSession (tests/test_ibus_session.py covers the
+    lifecycle itself): claim at start, generation-checked release after the
+    final commit, watchdog delegated with the idle flag."""
 
-    def _vio_ibus(self, proc_poll=-15):
+    def _vio_ibus(self):
         vio, mock_typer, _ = _make_vio()
         mock_typer.name = "ibus"
-        proc = MagicMock()
-        proc.poll.return_value = proc_poll
-        proc.returncode = -15
-        vio._engine_proc = proc
-        return vio, proc
+        vio._ibus = MagicMock()
+        return vio
 
-    def test_idle_engine_death_respawns_without_activation(self):
-        """ibus-daemon reaping a dormant engine must respawn it registered
-        but NEVER activated — the activate/dormant dance grabbed the input
-        source every cycle, and leaving the engine dead let ibus-daemon
-        exec-spawn a socket-stealing duplicate on accidental activation."""
-        vio, proc = self._vio_ibus(proc_poll=-15)
-        with patch.object(vio, "_ensure_ibus_engine") as ensure, \
-             patch.object(vio, "_health_typer_upkeep"):
-            vio._check_health()
-        ensure.assert_called_once_with(activate=False)
-        assert vio._engine_proc is None
-
-    def test_mid_recording_engine_death_recovered(self):
-        from voiceio.app import _State
-        vio, proc = self._vio_ibus(proc_poll=-15)
-        vio._state = _State.RECORDING
-        with patch.object(vio, "_ensure_ibus_engine") as ensure:
-            vio._check_health()
-        ensure.assert_called_once_with()  # default activate=True
-
-    def test_single_missed_ping_tolerated(self):
-        """One missed ping on a loaded system is not a zombie."""
-        vio, proc = self._vio_ibus(proc_poll=None)
-        with patch.object(vio, "_ping_ibus_engine", return_value=False), \
-             patch.object(vio, "_ensure_ibus_engine") as ensure, \
-             patch.object(vio, "_health_typer_upkeep"):
-            vio._check_health()
-        ensure.assert_not_called()
-        proc.kill.assert_not_called()
-        assert vio._engine_ping_fails == 1
-
-    def test_two_missed_pings_restart_zombie(self):
-        vio, proc = self._vio_ibus(proc_poll=None)
-        with patch.object(vio, "_ping_ibus_engine", return_value=False), \
-             patch.object(vio, "_ensure_ibus_engine") as ensure, \
-             patch.object(vio, "_health_typer_upkeep"):
-            vio._check_health()
-            vio._check_health()
-        ensure.assert_called_once_with(activate=False)
-        proc.kill.assert_called_once()
-
-    def test_dormant_spawn_never_touches_input_source(self):
-        """activate=False must not run `ibus engine voiceio` or gsettings —
-        idle spawns that claimed the source were the focus churn that wiped
-        visible preedits and stole the keyboard mid-typing."""
-        vio, _, _ = _make_vio()
-        with patch("voiceio.app.subprocess.run") as run, \
-             patch("voiceio.app.subprocess.Popen") as popen, \
-             patch.object(vio, "_kill_stale_engine"), \
-             patch("voiceio.ibus.SOCKET_PATH") as sock_path, \
-             patch("voiceio.ibus.READY_PATH"):
-            sock_path.exists.return_value = True
-            run.return_value = MagicMock(returncode=0, stdout="xkb:us::eng\n")
-            vio._spawn_ibus_engine(activate=False)
-        assert vio._engine_proc is not None  # engine process was spawned
-        run_cmds = [c[0][0] for c in run.call_args_list]
-        popen_cmds = [c[0][0] for c in popen.call_args_list if c[0]]
-        assert ["ibus", "engine", "voiceio"] not in run_cmds + popen_cmds
-        assert not any("gsettings" in cmd[0] for cmd in run_cmds + popen_cmds)
-
-    def test_successful_ping_resets_counter(self):
-        vio, proc = self._vio_ibus(proc_poll=None)
-        vio._engine_ping_fails = 1
-        with patch.object(vio, "_ping_ibus_engine", return_value=True), \
-             patch.object(vio, "_ensure_ibus_engine") as ensure, \
-             patch.object(vio, "_health_typer_upkeep"):
-            vio._check_health()
-        ensure.assert_not_called()
-        assert vio._engine_ping_fails == 0
-
-    def test_record_start_respawns_reaped_engine(self):
-        vio, mock_typer, _ = _make_vio()
-        mock_typer.name = "ibus"
-        vio._engine_proc = None  # reaped while dormant
-        spawned = threading.Event()
-        with patch.object(vio, "_ensure_ibus_engine", side_effect=lambda: spawned.set()), \
-             patch.object(vio, "_switch_gnome_input_source"):
-            vio.on_hotkey()  # start recording
-            assert spawned.wait(timeout=2), "engine respawn not triggered"
+    def test_record_start_claims_with_current_generation(self):
+        vio = self._vio_ibus()
+        vio.on_hotkey()
+        vio._ibus.claim.assert_called_once_with(vio._generation)
         assert vio.recorder.is_recording
 
-
-class TestEngineRelease:
-    """Going dormant must release ibus's GLOBAL engine, not just gsettings."""
-
-    def test_release_sets_user_engine_unconditionally(self):
-        """Release must not query first: a stale reading during the async
-        activation made it skip itself and leave voiceio globally active."""
+    def test_no_claim_for_other_typers(self):
         vio, _, _ = _make_vio()
-        vio._prev_ibus_engine = "xkb:us::eng"
-        with patch("voiceio.app.subprocess.run") as run:
-            run.return_value = MagicMock(returncode=0)
-            vio._release_ibus_engine()
-        assert run.call_count == 1
-        assert run.call_args[0][0] == ["ibus", "engine", "xkb:us::eng"]
+        vio._ibus = MagicMock()
+        vio.on_hotkey()
+        vio._ibus.claim.assert_not_called()
 
-    def test_fallback_derived_from_sources_when_prev_stale(self):
-        """A stale 'voiceio' prev (inherited from a crashed daemon) must not
-        be restored; derive the user's xkb layout instead."""
-        vio, _, _ = _make_vio()
-        vio._prev_ibus_engine = "voiceio"
-        with patch("voiceio.app.subprocess.run") as run:
-            run.return_value = MagicMock(
-                returncode=0, stdout="[('xkb', 'de'), ('ibus', 'voiceio')]\n",
-            )
-            assert vio._ibus_engine_fallback() == "xkb:de::eng"
+    def test_finalize_releases_its_generation(self):
+        vio = self._vio_ibus()
+        vio.on_hotkey()
+        _feed_audio(vio)
+        _allow_stop(vio)
+        vio.on_hotkey()
+        gen = vio._generation
+        for _ in range(100):
+            if vio._ibus.release.called:
+                break
+            time.sleep(0.05)
+        vio._ibus.release.assert_called_with(gen)
 
-    def test_restore_input_source_releases_engine(self):
-        vio, _, _ = _make_vio()
-        vio.platform.is_gnome = True
-        with patch.object(vio, "_set_gnome_input_source_index"), \
-             patch.object(vio, "_release_ibus_engine") as release:
-            vio._restore_input_source()
-        release.assert_called_once()
-
-
-def test_activation_claims_global_engine():
-    """gsettings 'current' is legacy/no-op on newer GNOME — activation must
-    also claim the global engine directly (mirror of the dormant release)."""
-    vio, _, _ = _make_vio()
-    vio.platform.is_gnome = True
-    with patch("voiceio.app.subprocess.run") as run:
-        run.side_effect = [
-            MagicMock(returncode=0, stdout="[('xkb', 'us'), ('ibus', 'voiceio')]\n"),  # sources
-            MagicMock(returncode=0, stdout="0\n"),   # current (prev)
-            MagicMock(returncode=0),                 # gsettings set current
-            MagicMock(returncode=0),                 # ibus engine voiceio
-        ]
-        with patch("time.sleep"):
-            vio._switch_gnome_input_source("voiceio")
-    cmds = [c[0][0] for c in run.call_args_list]
-    assert ["ibus", "engine", "voiceio"] in cmds
+    def test_health_delegates_with_idle_flag(self):
+        from voiceio.app import _State
+        vio = self._vio_ibus()
+        vio._ibus.hijacked.return_value = False
+        with patch.object(vio, "_health_typer_upkeep"):
+            vio._check_health()
+        vio._ibus.health_tick.assert_called_once_with(True)
+        vio._ibus.hijacked.assert_not_called()  # never while idle
+        vio._state = _State.RECORDING
+        vio._check_health()
+        vio._ibus.health_tick.assert_called_with(False)
+        vio._ibus.hijacked.assert_called_once()
