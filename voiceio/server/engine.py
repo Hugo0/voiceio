@@ -128,6 +128,12 @@ class VoiceEngine:
             language=model_cfg.language,
         )
 
+        from voiceio.core.pipeline import Pipeline
+        # No voice prefix: the server has always returned bare text, and its
+        # clients decide how to mark it.
+        self._pipeline = Pipeline.from_config(
+            self.vio_cfg, corrections=self._corrections, prefix=False)
+
         self.threads = self.cfg.threads
         if self.threads and self.threads != "0":
             model_cfg.cpu_threads = int(self.threads)
@@ -159,24 +165,10 @@ class VoiceEngine:
         self._bias.record_usage(text)
 
     def postprocess(self, text: str, final: bool = True) -> str:
-        """The shared pipeline the desktop app uses, minus the parts that only
-        make sense at a cursor (voice editing commands) or that would send text
-        to a cloud LLM (postcorrect/llm) — this server is offline by
-        construction."""
-        if not text:
-            return text
-        from voiceio.postprocess import apply_pipeline
-
-        out, _abort = apply_pipeline(
-            text,
-            do_cleanup=self.vio_cfg.output.punctuation_cleanup,
-            remove_disfluencies=self.vio_cfg.output.remove_disfluencies,
-            number_conversion=self.vio_cfg.output.number_conversion,
-            language=self.model_cfg.language,
-            corrections=self._corrections,
-            final=final,
-        )
-        return out
+        """The desktop pipeline minus what only makes sense at a cursor (voice
+        editing commands) or would send text to a cloud LLM — this server is
+        offline by construction."""
+        return self._pipeline(text, final=final).text if text else text
 
     # ── transcription ────────────────────────────────────────────────────
     def transcribe(self, data: bytes) -> dict:
@@ -228,15 +220,7 @@ class VoiceEngine:
             self.transcriber,
             typer,
             source,
-            cleanup=self.vio_cfg.output.punctuation_cleanup,
-            remove_disfluencies=self.vio_cfg.output.remove_disfluencies,
-            number_conversion=self.vio_cfg.output.number_conversion,
-            language=self.model_cfg.language,
-            corrections=self._corrections,
-            # No commands (no cursor), no postcorrect/llm (no cloud).
-            commands=None,
-            postcorrect=None,
-            llm=None,
+            pipeline=self._pipeline,
             on_interim=on_interim,
             freeze_secs=self.vio_cfg.output.streaming_freeze_secs,
             bias=self._current_bias(),

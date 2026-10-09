@@ -16,11 +16,8 @@ from voiceio.typers.base import StreamingTyper
 
 if TYPE_CHECKING:
     from voiceio.audio_source import AudioSource
-    from voiceio.commands import CommandProcessor
-    from voiceio.corrections import CorrectionDict
-    from voiceio.llm import LLMProcessor
-    from voiceio.postcorrect import PostCorrector
     from voiceio.core.decoders.base import Decoder
+    from voiceio.core.pipeline import Pipeline
     from voiceio.typers.base import TyperBackend
 
 log = logging.getLogger(__name__)
@@ -141,15 +138,7 @@ class StreamingSession:
         typer: TyperBackend,
         recorder: AudioSource,
         generation: int = 0,
-        cleanup: bool = False,
-        remove_disfluencies: bool = False,
-        number_conversion: bool = False,
-        language: str = "en",
-        commands: CommandProcessor | None = None,
-        corrections: CorrectionDict | None = None,
-        postcorrect: PostCorrector | None = None,
-        llm: LLMProcessor | None = None,
-        voice_input_prefix: str = "",
+        pipeline: Pipeline | None = None,
         on_typer_broken: Callable[[], None] | None = None,
         is_current: Callable[[], bool] | None = None,
         on_interim: Callable[[str], None] | None = None,
@@ -169,15 +158,10 @@ class StreamingSession:
         self._recorder: AudioSource | None = recorder
         self._sample_rate = recorder.sample_rate
         self._generation = generation
-        self._cleanup = cleanup
-        self._remove_disfluencies = remove_disfluencies
-        self._number_conversion = number_conversion
-        self._language = language
-        self._commands = commands
-        self._corrections = corrections
-        self._postcorrect = postcorrect
-        self._llm = llm
-        self._voice_input_prefix = voice_input_prefix
+        if pipeline is None:
+            from voiceio.core.pipeline import Pipeline
+            pipeline = Pipeline([])
+        self._pipeline = pipeline
         self._on_typer_broken = on_typer_broken
         self._on_interim = on_interim
         self._typer_fail_count = 0
@@ -455,26 +439,13 @@ class StreamingSession:
                 return
 
         if raw:
-            from voiceio.postprocess import apply_pipeline
             t1 = time.monotonic()
-            text, abort = apply_pipeline(
-                raw,
-                do_cleanup=self._cleanup,
-                remove_disfluencies=self._remove_disfluencies,
-                number_conversion=self._number_conversion,
-                language=self._language,
-                commands=self._commands,
-                corrections=self._corrections,
-                postcorrect=self._postcorrect,
-                llm=self._llm,
-                voice_input_prefix=self._voice_input_prefix,
-                final=final,
-            )
+            processed = self._pipeline(raw, final=final)
+            text, abort = processed.text, processed.abort
             if final:
                 self.final_latency["pipeline"] = round(time.monotonic() - t1, 3)
-                pc_secs = getattr(self._postcorrect, "last_secs", None)
-                if pc_secs is not None:
-                    self.final_latency["postcorrect"] = round(pc_secs, 3)
+                if "postcorrect" in processed.timings:
+                    self.final_latency["postcorrect"] = processed.timings["postcorrect"]
             if abort:
                 # A voice command wiped the utterance — discard frozen text
                 # too, or the next pass would resurrect it.

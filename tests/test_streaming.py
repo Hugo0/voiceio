@@ -772,8 +772,10 @@ class TestSegmentFreeze:
         s._typed_text = "hello there friend"
         rec.get_audio_so_far.return_value = np.concatenate([_silent(3), _loud(1.5)])
         tr.transcribe.return_value = "scratch that"
-        with patch("voiceio.postprocess.apply_pipeline", return_value=("", True)):
-            s._transcribe_and_apply()
+        from voiceio.commands import CommandProcessor
+        from voiceio.core.pipeline import Commands, Pipeline
+        s._pipeline = Pipeline([Commands(CommandProcessor(editing=True))])
+        s._transcribe_and_apply()
         assert s._frozen_raw == ""
         assert s._typed_text == ""
         # Frozen boundary advances so the wiped audio is never re-decoded

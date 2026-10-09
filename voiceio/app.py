@@ -176,9 +176,6 @@ class VoiceIO:
         self._recording_bias = Bias()
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
-        self._cleanup = cfg.output.punctuation_cleanup
-        self._number_conversion = cfg.output.number_conversion
-        self._remove_disfluencies = cfg.output.remove_disfluencies
         self._voice_input_prefix = cfg.output.voice_input_prefix
         self._streaming = cfg.output.streaming
 
@@ -202,6 +199,12 @@ class VoiceIO:
                 log.info("PostCorrect: %s", cfg.postcorrect.model or cfg.autocorrect.model)
             else:
                 log.warning("PostCorrect enabled but no API key resolved (disabled)")
+
+        from voiceio.core.pipeline import Pipeline
+        self._pipeline = Pipeline.from_config(
+            cfg, corrections=self._corrections, commands=self._command_processor,
+            postcorrect=self._postcorrect, llm=self._llm,
+        )
 
         # Explicit state machine
         self._state = _State.IDLE
@@ -430,15 +433,7 @@ class VoiceIO:
             self._session = StreamingSession(
                 self.transcriber, self._typer, self.recorder,
                 generation=self._generation,
-                cleanup=self._cleanup,
-                remove_disfluencies=self._remove_disfluencies,
-                number_conversion=self._number_conversion,
-                language=self.cfg.model.language,
-                commands=self._command_processor,
-                corrections=self._corrections,
-                postcorrect=self._postcorrect,
-                llm=self._llm,
-                voice_input_prefix=self._voice_input_prefix,
+                pipeline=self._pipeline,
                 on_typer_broken=self._on_typer_broken,
                 on_interim=self._on_interim_text,
                 freeze_secs=self.cfg.output.streaming_freeze_secs,
@@ -648,25 +643,12 @@ class VoiceIO:
             if self._generation != gen:
                 return
             if text:
-                from voiceio.postprocess import apply_pipeline
                 t1 = time.monotonic()
-                text, abort = apply_pipeline(
-                    text,
-                    do_cleanup=self._cleanup,
-                    remove_disfluencies=self._remove_disfluencies,
-                    number_conversion=self._number_conversion,
-                    language=self.cfg.model.language,
-                    commands=self._command_processor,
-                    corrections=self._corrections,
-                    postcorrect=self._postcorrect,
-                    llm=self._llm,
-                    voice_input_prefix=self._voice_input_prefix,
-                    final=True,
-                )
+                processed = self._pipeline(text, final=True)
+                text, abort = processed.text, processed.abort
                 latency["pipeline"] = round(time.monotonic() - t1, 3)
-                pc_secs = getattr(self._postcorrect, "last_secs", None)
-                if pc_secs is not None:
-                    latency["postcorrect"] = round(pc_secs, 3)
+                if "postcorrect" in processed.timings:
+                    latency["postcorrect"] = processed.timings["postcorrect"]
                 extra["latency"] = latency
                 if abort:
                     return
