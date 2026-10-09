@@ -179,6 +179,9 @@ class StreamingSession:
         # serialized (apply lock) so an abandoned interim can't type over the
         # final text.
         self._freeze_lock = threading.Lock()
+        # Sample offset where an in-flight freeze will end, else None: lets
+        # stop() decode the rest in parallel instead of waiting for it.
+        self._freeze_pending_end: int | None = None
         self._apply_lock = threading.Lock()
         self._worker_thread: threading.Thread | None = None
         self._final_audio: np.ndarray | None = None  # set on stop
@@ -249,11 +252,12 @@ class StreamingSession:
         self._stop_event.set()
         self._pending.set()  # wake the worker so it exits
         dur = len(audio) / self._sample_rate if audio is not None else 0.0
+        pre = self._decode_past_pending_freeze(audio)
         # Wait for an in-flight freeze (bounded like a decode), never for an
         # in-flight interim: its result is discarded anyway.
         if self._freeze_lock.acquire(timeout=transcribe_timeout(dur) + 2):
             try:
-                self._transcribe_and_apply(min_seconds=0.5, final=True)
+                self._transcribe_and_apply(min_seconds=0.5, final=True, pre=pre)
             except Exception:
                 log.exception("Final transcribe/apply error")
             finally:
@@ -268,6 +272,20 @@ class StreamingSession:
             self._recorder = None
         log.debug("Streaming session stopped, typed: '%s'", self._typed_text)
         return self._typed_text
+
+    def _decode_past_pending_freeze(self, audio: np.ndarray | None):
+        """If a freeze is decoding on the final lane, decode the audio after
+        its cut on the draft lane meanwhile, so stop waits for the longer of
+        the two instead of their sum. Returns (start_sample, result) or None."""
+        end = self._freeze_pending_end
+        draft = getattr(self._transcriber, "draft", None)
+        if end is None or draft is None or audio is None or len(audio) <= end:
+            return None
+        try:
+            return end, draft.decode(audio[end:], final=True, bias=self._tail_bias())
+        except Exception:  # noqa: BLE001 — the normal final path still runs
+            log.debug("Parallel tail decode failed; decoding after the freeze", exc_info=True)
+            return None
 
     def _on_vad_pause(self) -> None:
         """Called from audio thread on speech pause. Signals worker."""
@@ -338,7 +356,7 @@ class StreamingSession:
         )
 
     def _transcribe_and_apply(
-        self, min_seconds: float = 1.0, final: bool = False,
+        self, min_seconds: float = 1.0, final: bool = False, pre=None,
     ) -> None:
         """Get audio, transcribe the un-frozen tail, apply correction.
 
@@ -381,7 +399,11 @@ class StreamingSession:
                     # Stop may have won the race for the lock and already
                     # finalized from the current boundary.
                     if not self._stop_event.is_set():
-                        self._freeze_chunk(audio, tail[:cut])
+                        self._freeze_pending_end = self._frozen_samples + cut
+                        try:
+                            self._freeze_chunk(audio, tail[:cut])
+                        finally:
+                            self._freeze_pending_end = None
                 return
 
         tail_text = ""
@@ -391,7 +413,10 @@ class StreamingSession:
         # must not be dropped); interim passes skip sub-0.3s tails.
         if len(tail) > (0 if final else self._sample_rate * 0.3):
             try:
-                result = self._transcriber.decode(tail, final=final, bias=self._tail_bias())
+                if pre is not None and pre[0] == self._frozen_samples:
+                    result = pre[1]  # decoded in parallel with the last freeze
+                else:
+                    result = self._transcriber.decode(tail, final=final, bias=self._tail_bias())
             except Exception:
                 # Decode FAILED (timeout/crash) — this is not silence. Never
                 # advance the freeze boundary or char-diff against a partial

@@ -1036,3 +1036,43 @@ def test_freeze_cut_forced_when_no_pause_in_search_span():
     assert _find_freeze_cut(speech, SR, 2.0) is None
     cut = _find_freeze_cut(speech, SR, 2.0, force=True)
     assert cut is not None and SR * 2 <= cut <= SR * (2 + _FREEZE_SEARCH_SECS)
+
+
+def test_stop_decodes_tail_in_parallel_with_inflight_freeze():
+    """With two lanes, stop must not serialize behind a freeze decode: the
+    audio past the freeze cut is decoded on the draft lane meanwhile."""
+    from voiceio.core.decoders.lanes import DualLane
+    freeze_started = threading.Event()
+    release_freeze = threading.Event()
+    final_lane, draft = FakeDecoder(), FakeDecoder()
+    calls = []
+
+    def final_side(audio, final=False, context=None):
+        calls.append(("final", len(audio)))
+        freeze_started.set()
+        release_freeze.wait(10)
+        return "frozen part"
+
+    final_lane.transcribe.side_effect = final_side
+    draft.transcribe.side_effect = lambda audio, final=False, context=None: (
+        calls.append(("draft", final)) or ("tail part" if final else "interim"))
+    recorder = MagicMock()
+    recorder.sample_rate = SR
+    audio = np.concatenate([_loud(2), _silent(1), _loud(1)])
+    recorder.get_audio_so_far.return_value = audio
+    s = StreamingSession(DualLane(draft, final_lane), MagicMock(spec=TyperBackend),
+                         recorder, freeze_secs=2.0)
+    s._last_decode_secs = 0.0
+    t = threading.Thread(target=s._transcribe_and_apply, daemon=True)
+    t.start()                       # freeze pass blocks on the final lane
+    assert freeze_started.wait(5)
+    stopper = threading.Thread(target=lambda: calls.append(("result", s.stop(audio))))
+    stopper.start()
+    for _ in range(100):            # draft tail decode happens while frozen
+        if ("draft", True) in calls:
+            break
+        time.sleep(0.02)
+    assert ("draft", True) in calls
+    release_freeze.set()
+    stopper.join(5)
+    assert ("result", "frozen part tail part") in calls
