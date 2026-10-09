@@ -16,7 +16,7 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libportaudio2 portaudio19-dev
       - name: Install package
-        run: pip install -e ".[linux,dev]"
+        run: pip install -e ".[desktop,server,dev]"
       - name: Run tests
         run: pytest tests/ -x -q
 
@@ -53,16 +53,12 @@ jobs:
           gh release create "$VERSION" dist/* --notes "$(cat <<NOTES
           ## Install
 
-          ### Windows
-          Download **[VoiceIO-${VERSION_NUM}-windows-setup.exe](https://github.com/Hugo0/voiceio/releases/download/${VERSION}/VoiceIO-${VERSION_NUM}-windows-setup.exe)** and run the installer.
-
-          > *Advanced users: [voiceio-windows-x64.zip](https://github.com/Hugo0/voiceio/releases/download/${VERSION}/voiceio-windows-x64.zip) is a portable build — extract and run \`voiceio.exe\` directly, no installation needed.*
-
-          ### Linux / macOS
           \`\`\`bash
-          pipx install python-voiceio
+          pipx install 'python-voiceio[desktop]'
           voiceio setup
           \`\`\`
+
+          See the README for distro packages and NixOS.
 
           ---
 
