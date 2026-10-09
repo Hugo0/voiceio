@@ -41,6 +41,8 @@ tts-cloud = ["edge-tts>=6.1.0"]
 # *base* dependencies above still include the desktop input/audio libraries —
 # a headless box wants `--no-deps` plus this list (see voiceio/server/README).
 server = ["aiohttp>=3.9"]
+# `voiceio learn train`: LoRA fine-tuning (a GPU helps; see voiceio/learn/train.py)
+train = ["torch>=2.2", "transformers>=4.40", "peft>=0.10"]
 dev = ["pytest>=7.0", "pytest-mock", "ruff>=0.15,<0.18"]
 # Convenience bundle for a full Linux install (tray icon + local TTS). The core
 # Linux deps (evdev, sounddevice) are already unconditional; system packages

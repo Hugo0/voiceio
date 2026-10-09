@@ -71,6 +71,9 @@ class ModelConfig:
     # 2 = a second model process for interim previews, so pressing stop never
     # waits behind one (~+300 MB RAM for "small"). 1 = a single process.
     decode_lanes: int = 2
+    # sherpa-onnx models only: "greedy_search" (default) or
+    # "modified_beam_search" (required for hotwords).
+    decoding: str = ""
     vocabulary_file: str = ""  # path to vocabulary.txt
 
 

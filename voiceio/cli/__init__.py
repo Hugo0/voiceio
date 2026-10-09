@@ -125,12 +125,14 @@ def main() -> None:
     sub.add_parser("logs", help="Show recent log output")
 
     # ── voiceio learn ──────────────────────────────────────────────────
-    from voiceio.learn import cli as learn_cli
+    from voiceio.cli import learn as learn_cli
+    from voiceio.cli import models as models_cli
     learn_cli.register(sub)
+    models_cli.register(sub)
 
     args = parser.parse_args()
 
-    if args.command == "learn":
+    if args.command in ("learn", "models"):
         args.func(args)
     elif args.command == "setup":
         _cmd_setup(args)
