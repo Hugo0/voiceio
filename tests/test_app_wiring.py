@@ -24,7 +24,7 @@ def _make_vio(mock_transcriber=None):
 
     with patch("voiceio.app.hotkey_chain.select", return_value=mock_hotkey), \
          patch("voiceio.app.typer_chain.select", return_value=mock_typer), \
-         patch("voiceio.app.Transcriber", return_value=mock_transcriber), \
+         patch("voiceio.app.build_decoder", return_value=mock_transcriber), \
          patch("voiceio.app.plat.detect") as mock_detect:
         mock_detect.return_value = MagicMock(display_server="wayland", desktop="gnome")
 

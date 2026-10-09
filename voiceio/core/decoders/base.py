@@ -76,4 +76,9 @@ class Decoder(Protocol):
 
     def healthy(self) -> bool: ...
 
+    def recover(self) -> None:
+        """Make a dead decoder usable again (e.g. restart its worker).
+        Raises if it can't — the caller decides whether that is fatal."""
+        ...
+
     def close(self) -> None: ...

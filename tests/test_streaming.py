@@ -960,3 +960,79 @@ class TestStaleInterimAfterStop:
         s._transcribe_and_apply()
         s._typer.update_preedit.assert_not_called()
         assert s._typed_text == "Okay."  # display state untouched
+
+
+class TestStopDoesNotWaitForInterim:
+    """With a dedicated final lane, pressing stop must not queue behind the
+    interim preview that happens to be decoding (measured p90 10s of waiting)."""
+
+    def test_final_runs_while_interim_still_decoding(self):
+        from voiceio.core.decoders.lanes import DualLane
+        interim_started = threading.Event()
+        release_interim = threading.Event()
+
+        draft = FakeDecoder()
+
+        def slow_interim(audio, final=False, context=None):
+            interim_started.set()
+            release_interim.wait(10)
+            return "stale interim"
+
+        draft.transcribe.side_effect = slow_interim
+        final_lane = FakeDecoder()
+        final_lane.transcribe.return_value = "final words"
+
+        typer = MagicMock(spec=TyperBackend)
+        recorder = MagicMock()
+        recorder.sample_rate = SR
+        recorder.get_audio_so_far.return_value = _loud(2)
+        session = StreamingSession(DualLane(draft, final_lane), typer, recorder)
+        session.start()
+        session._pending.set()
+        assert interim_started.wait(5)
+
+        t0 = time.monotonic()
+        text = session.stop(_loud(2))
+        elapsed = time.monotonic() - t0
+        release_interim.set()
+
+        assert text == "final words"
+        assert elapsed < 1.0, f"stop waited {elapsed:.1f}s on the interim"
+        typer.type_text.assert_called_with("final words")
+
+    def test_abandoned_interim_never_types_after_final(self):
+        from voiceio.core.decoders.lanes import DualLane
+        release_interim = threading.Event()
+        started = threading.Event()
+        draft = FakeDecoder()
+
+        def slow_interim(audio, final=False, context=None):
+            started.set()
+            release_interim.wait(10)
+            return "stale interim text"
+
+        draft.transcribe.side_effect = slow_interim
+        final_lane = FakeDecoder()
+        final_lane.transcribe.return_value = "final words"
+        typer = MagicMock(spec=TyperBackend)
+        recorder = MagicMock()
+        recorder.sample_rate = SR
+        recorder.get_audio_so_far.return_value = _loud(2)
+        session = StreamingSession(DualLane(draft, final_lane), typer, recorder)
+        session.start()
+        session._pending.set()
+        assert started.wait(5)
+        session.stop(_loud(2))
+        release_interim.set()
+        session._worker_thread.join(5)
+        typed = [c.args[0] for c in typer.type_text.call_args_list]
+        assert "stale interim text" not in " ".join(typed)
+
+
+def test_freeze_cut_forced_when_no_pause_in_search_span():
+    from voiceio.streaming import _FREEZE_SEARCH_SECS, _find_freeze_cut
+    rng = np.random.default_rng(0)
+    speech = (rng.standard_normal(int(SR * (2 + _FREEZE_SEARCH_SECS + 1))) * 0.3).astype(np.float32)
+    assert _find_freeze_cut(speech, SR, 2.0) is None
+    cut = _find_freeze_cut(speech, SR, 2.0, force=True)
+    assert cut is not None and SR * 2 <= cut <= SR * (2 + _FREEZE_SEARCH_SECS)

@@ -189,6 +189,10 @@ class Transcriber:
     def healthy(self) -> bool:
         return self.is_worker_alive()
 
+    def recover(self) -> None:
+        with self._lock:
+            self._ensure_worker()
+
     def close(self) -> None:
         self.shutdown()
 

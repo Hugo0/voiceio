@@ -20,7 +20,8 @@ from voiceio.hotkeys import chain as hotkey_chain
 from voiceio.hotkeys.socket_backend import SocketHotkey
 from voiceio.recorder import AudioRecorder
 from voiceio.streaming import StreamingSession
-from voiceio.transcriber import Transcriber, describe_transcript
+from voiceio.core.decoders import build_decoder
+from voiceio.transcriber import describe_transcript
 from voiceio.typers import chain as typer_chain
 from voiceio.vad import load_vad
 from voiceio.vocabulary import VocabularyLoader
@@ -153,7 +154,7 @@ class VoiceIO:
 
         print(f"Loading model '{cfg.model.name}'...", end="", flush=True)
         t0 = time.monotonic()
-        self.transcriber = Transcriber(cfg.model)
+        self.transcriber = build_decoder(cfg.model)
         print(f" ready ({time.monotonic() - t0:.1f}s)")
 
         # VAD, vocabulary, commands
@@ -347,7 +348,7 @@ class VoiceIO:
             # Attempt recovery: try to restart worker, then start recording
             log.info("Attempting recovery from error state")
             try:
-                self.transcriber._ensure_worker()
+                self.transcriber.recover()
                 self._state = _State.IDLE
                 tray.set_error(False)
                 self._do_start()
@@ -1392,9 +1393,9 @@ class VoiceIO:
             tray.restart(self.on_hotkey)
 
         # Transcriber: ensure worker is alive
-        if not self.transcriber.is_worker_alive():
+        if not self.transcriber.healthy():
             try:
-                self.transcriber._ensure_worker()
+                self.transcriber.recover()
                 log.info("Resume: transcriber worker restarted")
             except RuntimeError:
                 log.error("Resume: transcriber worker failed")
@@ -1402,11 +1403,11 @@ class VoiceIO:
     def _check_health(self) -> None:
         """Run one health check cycle."""
         # Check transcriber worker
-        if not self.transcriber.is_worker_alive():
+        if not self.transcriber.healthy():
             if self._state == _State.RECORDING:
                 log.warning("Transcriber worker died during recording")
             try:
-                self.transcriber._ensure_worker()
+                self.transcriber.recover()
                 log.info("Transcriber worker recovered")
             except RuntimeError:
                 log.error("Transcriber worker permanently failed")
@@ -1651,7 +1652,7 @@ class VoiceIO:
             if self._tts_engine:
                 self._tts_engine.shutdown()
             self.recorder.close_stream()
-            self.transcriber.shutdown()
+            self.transcriber.close()
             tray.stop()
             self._stop_ibus_engine()
             self._pid_fd.close()

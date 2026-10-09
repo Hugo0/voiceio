@@ -68,6 +68,9 @@ class ModelConfig:
     # CTranslate2 threads per decode. 0 = auto (half the logical cores, 4-8);
     # the library default is a fixed 4, leaving most of a modern CPU idle.
     cpu_threads: int = 0
+    # 2 = a second model process for interim previews, so pressing stop never
+    # waits behind one (~+300 MB RAM for "small"). 1 = a single process.
+    decode_lanes: int = 2
     vocabulary_file: str = ""  # path to vocabulary.txt
 
 
@@ -110,7 +113,7 @@ class OutputConfig:
     # stop-time final decode only cover the short remaining tail. Smaller
     # chunks decode faster (less worker blocking) at slightly more boundary
     # risk. 0 disables (full re-decode at stop).
-    streaming_freeze_secs: float = 15.0
+    streaming_freeze_secs: float = 8.0
     # Mirror transcribed text to the system clipboard so it can be pasted:
     #   "off"   — never
     #   "final" — the corrected final text, once ready

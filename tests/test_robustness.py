@@ -28,7 +28,7 @@ def _make_vio(mock_transcriber=None):
 
     with patch("voiceio.app.hotkey_chain.select", return_value=mock_hotkey), \
          patch("voiceio.app.typer_chain.select", return_value=mock_typer), \
-         patch("voiceio.app.Transcriber", return_value=mock_transcriber), \
+         patch("voiceio.app.build_decoder", return_value=mock_transcriber), \
          patch("voiceio.app.plat.detect") as mock_detect:
         mock_detect.return_value = MagicMock(display_server="wayland", desktop="gnome")
 
@@ -421,7 +421,7 @@ class TestHealthWatchdogAudioBackoff:
         vio, _, _ = _make_vio()
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock()
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.app.tray"):
             vio._check_health()
@@ -434,7 +434,7 @@ class TestHealthWatchdogAudioBackoff:
         vio._next_stream_retry = 0  # allow retry
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock()  # succeeds (no exception)
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.app.tray"):
             vio._check_health()
@@ -448,7 +448,7 @@ class TestHealthWatchdogAudioBackoff:
         vio._next_stream_retry = 0
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock(side_effect=OSError("device gone"))
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.app.tray"):
             vio._check_health()
@@ -463,7 +463,7 @@ class TestHealthWatchdogAudioBackoff:
         vio._next_stream_retry = time.monotonic() + 999  # far future
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock()
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.app.tray"):
             vio._check_health()
@@ -476,7 +476,7 @@ class TestHealthWatchdogAudioBackoff:
         vio._stream_fail_count = 3
         vio._next_stream_retry = time.monotonic() + 100
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.app.tray"):
             vio._check_health()
@@ -489,7 +489,7 @@ class TestHealthWatchdogAudioBackoff:
         vio, _, _ = _make_vio()
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock(side_effect=OSError("device gone"))
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         delays = []
         with patch("voiceio.app.tray"):
@@ -629,7 +629,7 @@ class TestTrayWatchdog:
         vio, _, _ = _make_vio()
         vio.cfg.tray.enabled = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.app.tray") as mock_tray:
             mock_tray.is_alive.return_value = False
@@ -640,7 +640,7 @@ class TestTrayWatchdog:
         vio, _, _ = _make_vio()
         vio.cfg.tray.enabled = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.app.tray") as mock_tray:
             mock_tray.is_alive.return_value = True
@@ -651,7 +651,7 @@ class TestTrayWatchdog:
         vio, _, _ = _make_vio()
         vio.cfg.tray.enabled = False
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.app.tray") as mock_tray:
             vio._check_health()
@@ -812,7 +812,7 @@ class TestBootRaceAndReProbe:
         vio._typer = MagicMock()
         vio._typer.name = "clipboard"
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.is_worker_alive = MagicMock(return_value=True)
+        vio.transcriber.healthy = MagicMock(return_value=True)
         vio.cfg.tray.enabled = False
 
         # Env arrives; health check should re-import, re-detect, and upgrade.

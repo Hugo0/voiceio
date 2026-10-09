@@ -26,7 +26,7 @@ def _make_app(typer_name="clipboard"):
 
     with patch("voiceio.app.hotkey_chain.select", return_value=mock_hotkey), \
          patch("voiceio.app.typer_chain.select", return_value=mock_typer), \
-         patch("voiceio.app.Transcriber", return_value=MagicMock()), \
+         patch("voiceio.app.build_decoder", return_value=MagicMock()), \
          patch("voiceio.app.plat.detect") as mock_detect:
         mock_detect.return_value = MagicMock(
             display_server="wayland", desktop="gnome", is_gnome=True,
@@ -78,7 +78,7 @@ class TestGuardedSwaps:
         from voiceio.app import _State
         vio = _make_app()
         vio._state = _State.RECORDING
-        vio.transcriber.is_worker_alive.return_value = True
+        vio.transcriber.healthy.return_value = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.cfg.tray.enabled = False
         vio._health_typer_upkeep = MagicMock()
@@ -153,7 +153,7 @@ class TestIBusGoodCitizen:
         from voiceio.app import _State
         vio = _make_app(typer_name="ibus")
         vio._state = _State.IDLE
-        vio.transcriber.is_worker_alive.return_value = True
+        vio.transcriber.healthy.return_value = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.cfg.tray.enabled = False
         vio._health_typer_upkeep = MagicMock()

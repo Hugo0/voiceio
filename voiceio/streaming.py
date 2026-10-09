@@ -36,8 +36,11 @@ _FREEZE_SILENCE_RATIO = 0.6
 _FREEZE_SILENCE_FLOOR = 1e-4  # digital silence is always quiet
 # How far past freeze_secs to look for a pause. Real speech has a usable
 # pause every ~5s (measured: longest pause-free stretch 5.6s in a 3min
-# "continuous" note), so 20s of search span practically always finds one.
-_FREEZE_SEARCH_SECS = 20.0
+# "continuous" note), so 8s of search span almost always finds one. When it
+# doesn't, the tail is cut at its quietest window anyway: a cut at a soft
+# spot beats re-decoding an ever-growing tail at stop (observed: 17 long
+# dictations never froze, one decoding 121s of audio after stop).
+_FREEZE_SEARCH_SECS = 8.0
 # Whisper conditions on ~224 prompt tokens; more frozen context is wasted.
 _FREEZE_CONTEXT_CHARS = 400
 
@@ -47,7 +50,7 @@ def _rms(samples: np.ndarray) -> float:
 
 
 def _find_freeze_cut(
-    tail: np.ndarray, sample_rate: int, min_secs: float,
+    tail: np.ndarray, sample_rate: int, min_secs: float, *, force: bool = False,
 ) -> int | None:
     """Sample index of the best freeze cut in `tail`, or None.
 
@@ -64,7 +67,7 @@ def _find_freeze_cut(
     if end - start < win:
         return None
     threshold = max(_FREEZE_SILENCE_RATIO * _rms(tail[:end]), _FREEZE_SILENCE_FLOOR)
-    best_cut, best_rms = None, threshold
+    best_cut, best_rms = None, float("inf") if force else threshold
     for i in range(start, end - win + 1, win // 2):
         window_rms = _rms(tail[i:i + win])
         if window_rms < best_rms:
@@ -169,6 +172,14 @@ class StreamingSession:
         self._typed_text = ""
         self._pending = threading.Event()
         self._stop_event = threading.Event()
+        # The final pass runs in stop()'s thread, concurrently with whatever
+        # interim the worker has in flight. A freeze in flight is progress the
+        # final pass builds on, so it waits for that (freeze lock); an interim
+        # is not, so it is abandoned — never waited for. Display updates are
+        # serialized (apply lock) so an abandoned interim can't type over the
+        # final text.
+        self._freeze_lock = threading.Lock()
+        self._apply_lock = threading.Lock()
         self._worker_thread: threading.Thread | None = None
         self._final_audio: np.ndarray | None = None  # set on stop
         # Incremental finalization: audio before _frozen_samples has already
@@ -236,14 +247,21 @@ class StreamingSession:
         """
         self._final_audio = audio
         self._stop_event.set()
-        self._pending.set()  # wake worker for final pass
-        if self._worker_thread is not None:
-            # Scale the join to the final-pass audio length so a long dictation
-            # isn't abandoned before its (longer) decode finishes.
-            dur = len(audio) / self._sample_rate if audio is not None else 0.0
-            self._worker_thread.join(timeout=transcribe_timeout(dur) + 2)
-            if self._worker_thread.is_alive():
-                log.warning("Streaming worker did not exit in time (gen=%d)", self._generation)
+        self._pending.set()  # wake the worker so it exits
+        dur = len(audio) / self._sample_rate if audio is not None else 0.0
+        # Wait for an in-flight freeze (bounded like a decode), never for an
+        # in-flight interim: its result is discarded anyway.
+        if self._freeze_lock.acquire(timeout=transcribe_timeout(dur) + 2):
+            try:
+                self._transcribe_and_apply(min_seconds=0.5, final=True)
+            except Exception:
+                log.exception("Final transcribe/apply error")
+            finally:
+                self._freeze_lock.release()
+        else:
+            log.warning("Freeze pass did not finish in time (gen=%d)", self._generation)
+            self._commit_interim_on_final()
+        self._final_audio = None  # release memory
         # Release recorder reference — session must not touch it after stop
         if self._recorder is not None:
             self._recorder.set_on_speech_pause(None)
@@ -280,13 +298,6 @@ class StreamingSession:
                                   self._typer_fail_count, _TYPER_FAIL_THRESHOLD)
             except Exception:
                 log.exception("Streaming transcribe/apply error (non-fatal)")
-
-        # Final transcription on stop using the audio snapshot
-        try:
-            self._transcribe_and_apply(min_seconds=0.5, final=True)
-        except Exception:
-            log.exception("Final transcribe/apply error")
-        self._final_audio = None  # release memory
 
     def _tail_bias(self) -> Bias:
         """Session bias plus the frozen-text suffix, which conditions the tail
@@ -362,9 +373,15 @@ class StreamingSession:
         # text already covers this audio; the next interim refreshes it.
         if (not final and self._freeze_secs > 0
                 and len(tail) >= self._freeze_secs * self._sample_rate):
-            cut = _find_freeze_cut(tail, self._sample_rate, self._freeze_secs)
+            # Past the whole search span with no pause found: force a cut.
+            force = len(tail) >= (self._freeze_secs + _FREEZE_SEARCH_SECS) * self._sample_rate
+            cut = _find_freeze_cut(tail, self._sample_rate, self._freeze_secs, force=force)
             if cut is not None:
-                self._freeze_chunk(audio, tail[:cut])
+                with self._freeze_lock:
+                    # Stop may have won the race for the lock and already
+                    # finalized from the current boundary.
+                    if not self._stop_event.is_set():
+                        self._freeze_chunk(audio, tail[:cut])
                 return
 
         tail_text = ""
@@ -438,6 +455,14 @@ class StreamingSession:
                 self._commit_interim_on_final()
                 return
 
+        with self._apply_lock:
+            # Re-check under the lock: the final pass may have committed while
+            # this interim was decoding.
+            if not final and self._stop_event.is_set():
+                return
+            self._process_and_display(raw, audio, final)
+
+    def _process_and_display(self, raw: str, audio: np.ndarray, final: bool) -> None:
         if raw:
             t1 = time.monotonic()
             processed = self._pipeline(raw, final=final)
