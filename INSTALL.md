@@ -2,7 +2,7 @@
 
 Terse, imperative, copy-pasteable. This is the install runbook for an AI agent
 setting up **voiceio** (local voice dictation) on a user's **Linux** machine.
-Windows/macOS are experimental and out of scope here.
+Windows/macOS are best-effort and out of scope here. NixOS: use the flake (see README).
 
 > Contributing to the codebase instead? See [CONTRIBUTING.md](CONTRIBUTING.md)
 > (also exposed as `AGENTS.md`).
@@ -39,7 +39,7 @@ voiceio doctor          # prints "Missing system dependencies:" + one install co
 ## 2. Install voiceio
 
 ```bash
-pipx install python-voiceio
+pipx install 'python-voiceio[desktop]'   # the base package alone is headless (no mic/hotkeys)
 pipx ensurepath          # puts ~/.local/bin on PATH; open a new shell after
 ```
 
@@ -135,8 +135,12 @@ press it again to commit.
   until the system is usable.
 - **Hotkey does nothing (GNOME/Wayland, socket backend)** → the DE shortcut may
   not have registered. Check Settings → Keyboard → Custom Shortcuts; command
-  must be `voiceio-toggle`. Or add the user to the `input` group for evdev:
-  `sudo usermod -aG input $USER` (log out/in), then re-run setup.
+  must be `voiceio-toggle`. Or enable evdev hotkeys: `voiceio doctor --fix`
+  installs `/etc/udev/rules.d/60-voiceio-uaccess.rules` (asks for sudo, works
+  without re-login). Fallback: `sudo usermod -aG input $USER` (log out/in).
+  Then re-run setup.
+- **`sounddevice is not installed` / desktop extra missing** → reinstall with
+  `pipx install --force 'python-voiceio[desktop]'`.
 - **Nothing types in a terminal** → expected; terminals use the clipboard
   fallback, GUI apps use IBus.
 

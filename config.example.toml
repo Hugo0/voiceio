@@ -50,7 +50,7 @@ sound_enabled = true     # Play sounds on start/stop recording
 notify_clipboard = false # Show desktop notification with transcribed text
 
 [tray]
-enabled = false          # Show system tray icon (requires: pip install voiceio[tray])
+enabled = false          # Show system tray icon (needs the desktop extra: python-voiceio[desktop])
 
 [daemon]
 log_level = "INFO"       # DEBUG, INFO, WARNING, ERROR

@@ -1,270 +1,219 @@
 # voiceio
 
-```
- ██╗   ██╗ ██████╗ ██╗ ██████╗███████╗██╗ ██████╗
- ██║   ██║██╔═══██╗██║██╔════╝██╔════╝██║██╔═══██╗
- ██║   ██║██║   ██║██║██║     █████╗  ██║██║   ██║
- ╚██╗ ██╔╝██║   ██║██║██║     ██╔══╝  ██║██║   ██║
-  ╚████╔╝ ╚██████╔╝██║╚██████╗███████╗██║╚██████╔╝
-   ╚═══╝   ╚═════╝ ╚═╝ ╚═════╝╚══════╝╚═╝ ╚═════╝
-```
-
 [![CI](https://github.com/Hugo0/voiceio/actions/workflows/ci.yml/badge.svg)](https://github.com/Hugo0/voiceio/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Downloads](https://img.shields.io/pepy/dt/python-voiceio)](https://pepy.tech/projects/python-voiceio)
 
-Voice dictation for Linux. Local, yours, and it learns how you speak.
+Voice dictation for Linux. It runs on your machine, keeps what it learns in files you can read, and gets better at your words the longer you use it.
 
 https://github.com/user-attachments/assets/9cf5d1ac-b4bb-4cf8-b775-7a66dc16b376
 
-Open-source, sovereign voice input/output. Your speech is transcribed on your own machine, everything it learns about you stays in local files you own, and it gets better the more you use it.
+Press a hotkey, speak, and the text streams into whatever app has focus. Press again to commit.
 
-- **Local & sovereign** — speech is transcribed on-device with [faster-whisper](https://github.com/SYSTRAN/faster-whisper); audio never leaves the machine. Your history, retained audio, corrections, and vocabulary all live in plain local files (JSONL / TOML / txt) you can read, edit, and delete. Zero telemetry. The one honest nuance: two *optional, off-by-default* features send text (never audio) to a cloud LLM you configure yourself — final-transcript polish (`[postcorrect]`) and the weekly correction-mining review.
-- **Improves with use — automatically** — every utterance teaches it your words and names. See [How it learns](#how-it-learns).
-- **Linux-first & hackable** — Wayland/X11, GNOME/KDE/sway/i3, chosen automatically by chain-and-probe backends. It's plain Python you can read in an afternoon and [contribute to](CLAUDE.md).
+- **Local.** Speech is decoded on-device ([faster-whisper](https://github.com/SYSTRAN/faster-whisper) by default). Audio never leaves the machine and there is no telemetry. Two optional, off-by-default features send *text* (never audio) to an LLM endpoint you configure: final-transcript polish (`[postcorrect]`) and the weekly correction-mining review.
+- **Yours.** History, retained audio, corrections, vocabulary and fine-tuned models are plain local files. See [Your data](#your-data).
+- **Personal.** A vocabulary steers the decoder toward your names and jargon, corrections fix what it still mishears, and `voiceio learn` fine-tunes a model on your own voice. See [Make it yours](#make-it-yours).
+- **Linux-first.** Wayland and X11, GNOME, KDE, Hyprland, sway and i3. Backends are picked by probing what works. See [Linux support](#linux-support).
 
-> **Linux-first.** voiceio is developed and tested daily on Linux (GNOME/Wayland). Windows and macOS ship as **experimental, untested** targets — the code paths exist but are unmaintained and likely broken. See [Experimental platforms](#experimental-platforms).
-
-## Quick start
+## Quickstart
 
 ```bash
-# 1. Install system dependencies (Ubuntu/Debian). build-essential + python3-dev
-#    are needed to compile evdev (no prebuilt wheel); portaudio for the mic.
-sudo apt install pipx build-essential python3-dev portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi
+# 1. System packages: a C toolchain (evdev has no wheel), PortAudio, IBus + GObject bindings
+sudo apt install pipx build-essential python3-dev portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi   # Debian/Ubuntu
+sudo dnf install pipx gcc gcc-c++ make python3-devel portaudio-devel ibus ibus-libs python3-gobject   # Fedora
+sudo pacman -S python-pipx base-devel portaudio ibus python-gobject                                   # Arch
 
-# 2. Install voiceio
-pipx install python-voiceio
+# 2. voiceio with the desktop extra (microphone, hotkeys, tray)
+pipx install 'python-voiceio[desktop]'
 
-# 3. Run the setup wizard
+# 3. Guided setup: model download, hotkey, autostart
 voiceio setup
 ```
 
-That's it. Press **Ctrl+Alt+V** (or your chosen hotkey) to start dictating.
+Then press **Ctrl+Alt+V**, speak, and press it again. `voiceio doctor` tells you what is working and `voiceio doctor --fix` repairs what it can.
 
-**Installing with an AI agent?** Point it at [INSTALL.md](INSTALL.md) — a terse,
-copy-pasteable runbook (`voiceio setup --defaults` / `--answers '{json}'`, no TTY needed).
+NixOS users: see [NixOS](#nixos). Agents installing voiceio non-interactively: see [INSTALL.md](INSTALL.md).
 
 <details>
-<summary><strong>Fedora</strong></summary>
+<summary><strong>Extras</strong></summary>
+
+The base package (`pip install python-voiceio`) is headless transcription only: no microphone, hotkeys or display needed.
+
+| Extra | Adds |
+|---|---|
+| `desktop` | The dictation app: microphone (sounddevice), hotkeys (evdev, pynput), tray icon |
+| `server` | HTTP/WebSocket transcription server: `python -m voiceio.server` |
+| `tts` | Text-to-speech: piper (local), edge-tts (cloud) |
+| `sherpa` | sherpa-onnx runtime for non-Whisper models (experimental) |
+| `train` | `voiceio learn train`: LoRA fine-tuning (torch, transformers, peft) |
+
+</details>
+
+<details>
+<summary><strong>From source</strong></summary>
 
 ```bash
-sudo dnf install pipx gcc gcc-c++ make python3-devel portaudio-devel ibus ibus-libs python3-gobject
-pipx install python-voiceio
-voiceio setup
+git clone https://github.com/Hugo0/voiceio && cd voiceio
+uv sync --extra desktop --extra dev
+uv run voiceio setup      # also links voiceio into ~/.local/bin
 ```
+
 </details>
-
-<details>
-<summary><strong>Arch Linux</strong></summary>
-
-```bash
-sudo pacman -S python-pipx base-devel portaudio ibus python-gobject
-# base-devel provides gcc/make; the python package ships headers.
-pipx install python-voiceio
-voiceio setup
-```
-</details>
-
-<details>
-<summary><strong>Windows / macOS (experimental)</strong></summary>
-
-See [Experimental platforms](#experimental-platforms) below — these builds are untested and unmaintained.
-</details>
-
-<details>
-<summary><strong>Build from source</strong></summary>
-
-If you want the source code locally to hack on or customize for personal use. PRs are welcome!
-
-```bash
-git clone https://github.com/Hugo0/voiceio
-cd voiceio
-uv pip install -e ".[linux,dev]"
-
-# Bootstrap CLI commands onto PATH (creates ~/.local/bin/voiceio)
-uv run voiceio setup
-```
-
-> **Note:** Source installs live inside a virtualenv, so `voiceio` isn't on PATH until setup creates symlinks in `~/.local/bin/`. If `voiceio` isn't found after setup, restart your terminal or run `export PATH="$HOME/.local/bin:$PATH"`.
-</details>
-
-> You can also install with `uv tool install python-voiceio` or `pip install python-voiceio`.
-
-## How it works
-
-```
-hotkey → mic capture → whisper (local) → text at cursor
-          pre-buffered   streaming        IBus / clipboard
-```
-
-Press your hotkey to start recording (1s pre-buffer catches the first syllable). Text streams into the focused app as an underlined preview. Press again to commit. Transcription runs locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), text is injected through IBus (any GTK/Qt app) with clipboard fallback for terminals. It runs in real time on a modern CPU and ships with model tiers from `tiny` to `large-v3`.
-
-## How it learns
-
-Most dictation tools transcribe the same way on day 100 as on day 1. voiceio adapts to *you* — your jargon, names, and accent — entirely from data that never leaves your machine.
-
-```mermaid
-flowchart LR
-    subgraph live ["every utterance"]
-        A["🎙️ dictate"] --> B["store audio + raw text\n+ confidence (local)"]
-        A --> C["hotwords + recent context\nbias the Whisper decoder"]
-        A --> D["optional LLM pass fixes\nmisheard proper nouns"]
-    end
-    subgraph weekly ["weekly, in the background"]
-        E["mine history for recurring errors\n→ learn corrections + vocabulary\n(safety-gated, multi-vote)"] --> F["teacher model replays your audio\n→ audits what was learned"]
-        F -->|"bad rule"| G["auto-retired"]
-        F -->|"quality regressed"| H["whole week rolled back"]
-    end
-    B --> E
-    F -->|"confirmed"| C
-```
-
-1. **Capture** — every utterance stores its audio, raw text, and confidence in local files.
-2. **Bias** — your vocabulary and recent context steer the Whisper decoder (hotwords / prompt) on every recording.
-3. **Contextual fix** — an optional LLM pass repairs misheard proper nouns using surrounding context.
-4. **Mine** — a weekly background job scans your history for recurring errors and auto-learns corrections and vocabulary. Multi-vote adjudication and a protected-languages guard (for bilingual users) keep it safe; it never asks you to triage.
-5. **Audit** — a teacher model (a larger Whisper) replays your retained audio to verify what was learned. Bad rules are retired automatically, and a system-level drift metric rolls back an entire week of learning if quality regressed.
-
-Rules are always **probationary, never tenured** — anything that stops helping is dropped. Your only touchpoint is an occasional desktop notification telling you what was learned.
-
-## Features
-
-- **Streaming**: text appears as you speak, not after you stop
-- **Works everywhere**: IBus input method for GUI apps, clipboard for terminals
-- **Wayland + X11**: evdev hotkeys work on both, no root required
-- **Pre-buffer**: never miss the first syllable
-- **Voice commands**: "new line", "comma", "scratch that", punctuation by name
-- **Autocorrect**: LLM-powered review of recurring Whisper mistakes (`voiceio correct`)
-- **Text-to-speech**: hear selected text spoken back (Piper, eSpeak, Edge TTS)
-- **Smart post-processing**: numbers ("twenty five" → "25"), punctuation, capitalization
-- **Auto-healing**: falls back to the next working backend if one fails
-- **Autostart**: optional systemd service, restarts on crash
-- **Self-diagnosing**: `voiceio doctor` checks everything, `--fix` repairs it
-
-## Models
-
-| Model | Size | Speed | Accuracy | Good for |
-|-------|------|-------|----------|----------|
-| `tiny` | 75 MB | ~10x realtime | Basic | Quick notes, low-end hardware |
-| `base` | 150 MB | ~7x realtime | Good | Daily use (default) |
-| `small` | 500 MB | ~4x realtime | Better | Longer dictation |
-| `medium` | 1.5 GB | ~2x realtime | Great | Accuracy-sensitive work |
-| `large-v3` | 3 GB | ~1x realtime | Best | Maximum quality, GPU recommended |
-
-Models download automatically on first use. Switch anytime: `voiceio --model small`.
 
 ## Commands
 
-```
-voiceio                  Start the daemon
-voiceio setup            Interactive setup wizard
-voiceio doctor           Health check (--fix to auto-repair)
-voiceio test             Test microphone + live transcription
-voiceio demo             Interactive guided tour of all features
-voiceio toggle           Toggle recording on a running daemon
-voiceio correct          Review and fix recurring transcription errors
-voiceio history          View transcription history
-voiceio update           Update to latest version
-voiceio service install  Autostart on login (systemd / Windows Startup)
-voiceio logs             View recent logs
-voiceio uninstall        Remove all system integrations
-```
+> **Note:** the CLI is being restructured for v1.0. This list is the target layout. Check it against `voiceio --help` before release.
 
-## Configuration
+| Command | What it does |
+|---|---|
+| `voiceio run` | Start the dictation daemon in the foreground (the systemd unit runs this) |
+| `voiceio toggle` | Start/stop recording on the running daemon. Bind it to a key if you don't use evdev |
+| `voiceio setup` | Guided setup (`--defaults` / `--answers '{json}'` for scripts) |
+| `voiceio doctor [--fix]` | Check every backend; `--fix` repairs what it can, asking before anything that needs sudo |
+| `voiceio service install\|uninstall\|status` | systemd user unit: start on login, restart on crash |
+| `voiceio models list\|bench\|use` | See, compare and pick speech models ([Choose a model](#choose-a-model)) |
+| `voiceio vocab` | Manage the vocabulary that steers the decoder |
+| `voiceio corrections` | Manage find/replace rules for words it still gets wrong |
+| `voiceio learn …` | Personalize: label → review → augment → build → eval → train → promote |
+| `voiceio history` | Search what you have dictated |
+| `voiceio config` | Show or set config values |
+| `voiceio uninstall` | Remove the service, IBus component, shortcuts and symlinks (asks before deleting your data) |
 
-`voiceio setup` handles everything interactively. To tweak later, edit the config file or override at runtime:
+## Your data
 
-- Linux/macOS: `~/.config/voiceio/config.toml`
-- Windows: `%LOCALAPPDATA%\voiceio\config\config.toml` (see [Experimental platforms](#experimental-platforms))
+Everything voiceio keeps is in three directories (they follow `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_DATA_HOME`). Files are created `0600`, directories `0700`. Nothing is uploaded.
+
+| Path | Holds | Retention |
+|---|---|---|
+| **`~/.config/voiceio/`** | *Settings and what it has learned about your words* | |
+| `config.toml` | All settings | — |
+| `vocabulary.txt` | Your terms, one per line, used as decoder hotwords | Never pruned; the weekly audit moves stale terms to the bottom |
+| `vocab_stats.json` | Per-term usage counts used to rank the vocabulary | Rebuilt as you dictate |
+| `corrections.json` | Find/replace rules (`post grass` → `PostgreSQL`) | Rules the audit finds harmful are retired automatically |
+| `flagged.txt` | Words flagged with the "correct that" voice command, for review | — |
+| `snapshots/` | Copies of corrections + vocabulary taken before each weekly mining run | Last 8 kept |
+| `audit_state.json`, `autocorrect_state.json` | Mining cursor, retired rules, dismissed terms | — |
+| `consent.json` | Whether you allowed cloud LLM calls (text only) | — |
+| `hints.json` | Which CLI tips you have already seen | — |
+| **`~/.local/state/voiceio/`** | *What you said* | |
+| `history.jsonl` | Every committed transcript: time, raw and final text, focused-window title | `[history] enabled`, `max_entries`, `max_age_days` (0 = keep forever) |
+| `recordings/*.wav` | The audio of each utterance, for mining, audit and `voiceio learn` | `[data] retain_audio`, `max_audio_mb` (default 4096), `min_free_gb` (default 5) |
+| `streaming_trace.jsonl`, `postcorrect_pairs.jsonl` | Per-pass decode traces and LLM before/after pairs | `[data] capture_intermediates`; each capped at 64 MB |
+| `corrections_audit.jsonl`, `metrics.jsonl` | When rules fired; teacher-audit quality metrics | — |
+| `voiceio.log`, `worker.log`, `ibus-engine-stderr.log` | Logs | `voiceio.log` rotates at 2 MB × 3 |
+| **`~/.local/share/voiceio/learn/`** | *Personalization corpus* (only exists once you run `voiceio learn`) | Never pruned; delete freely |
+| `labels.jsonl` | Reference transcripts from the teacher model or your review | — |
+| `augment/` | Synthetic TTS clips of your hard words | — |
+| `datasets/vNNNN/` | Frozen train/dev/test splits | — |
+| `exports/` | Datasets packed for training on another machine | — |
+| `models/<run>/` | Your fine-tuned models, plus `promotions.jsonl` | — |
+| `runs/` | Evaluation results | — |
+
+Set `[data] capture_context = false` to stop recording window titles. `voiceio uninstall` offers to delete the config and state directories; delete `~/.local/share/voiceio` yourself.
+
+## Make it yours
+
+Most dictation errors are proper nouns and jargon: `PostgreSQL` heard as `post grass`, a colleague's name spelled three ways. There are three tools for that, from cheapest to most powerful.
+
+**1. Vocabulary.** Put your names and terms in `~/.config/voiceio/vocabulary.txt` (or use `voiceio vocab`). They are passed to Whisper as *hotwords* on every decode, ranked by how often you use them. One honest limit: Whisper's hotword channel is capped at 223 tokens, and a proper noun costs 5 to 7 tokens, so only about **35 terms** steer each decode. The rest are kept and ranked, but they do nothing until they rank high enough. This ceiling comes from the model, not from voiceio. [CONTRIBUTING.md](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it) explains why we still use Whisper.
+
+**2. Corrections.** Find/replace rules for what still comes out wrong (`voiceio corrections`, or say "correct that" right after a mistake). A weekly background job mines your history for recurring errors and proposes rules. A larger teacher model replays your retained audio to check them: rules that hurt are retired, and a week that made things worse is rolled back.
+
+**3. Fine-tuning with `voiceio learn`.** This is how you get past the 35-term ceiling: teach the model your vocabulary directly, from your own retained audio.
 
 ```bash
-voiceio --model large-v3 --language auto -v
+voiceio learn label      # a stronger teacher model (large-v3-turbo) transcribes your retained clips
+voiceio learn review     # fix the teacher where it matters: your names and terms
+voiceio learn augment    # synthesize extra examples of rare terms with local TTS
+voiceio learn build      # freeze a versioned train/dev/test dataset (the test split never trains)
+voiceio learn eval       # score the current model on your held-out clips: WER and term recall
+voiceio learn train      # LoRA fine-tune (needs the `train` extra; a GPU helps, --remote for a rented one)
+voiceio learn promote <run>   # dictate with the fine-tune; `voiceio learn rollback` undoes it
 ```
 
-See [config.example.toml](config.example.toml) for all options.
+`voiceio learn status` shows where you are. Re-run `eval` (or `voiceio models bench`) after promoting; only promote a model that beats the current one on your own test split.
+
+## Choose a model
+
+```bash
+voiceio models list           # known models, your fine-tunes, and which is active
+voiceio models bench          # score candidates on your held-out clips (after `voiceio learn build`)
+voiceio models use medium     # switch
+```
+
+| Model | Runtime | License | Notes |
+|---|---|---|---|
+| `small` | faster-whisper | MIT | Default. About 5× realtime on a laptop CPU |
+| `medium` | faster-whisper | MIT | Better on names, about 2.5× slower |
+| `large-v3-turbo` | faster-whisper | MIT | Best Whisper for dictation; wants a GPU. Also the default `learn` teacher |
+| `distil-large-v3` | faster-whisper | MIT | English only |
+| `sherpa:parakeet-tdt-0.6b-v3` | sherpa-onnx | CC-BY-4.0 | Experimental. Fast, but no vocabulary biasing yet |
+| `whispercpp:http://…` | whisper.cpp server | depends on the model | Experimental. E.g. a Vulkan build on an AMD iGPU |
+
+Pick on your own audio, not leaderboards: for dictation full of names, how well a model can be *biased* matters more than its benchmark WER.
+
+**Licenses.** voiceio ships no model weights. Each model is downloaded from its own source on first use, under its own license. The defaults are permissive (MIT). A fine-tune you make with `voiceio learn` inherits the license of the base model it was trained from.
+
+## Linux support
+
+| | Text injection | Streaming preview | Hotkey | Status |
+|---|---|---|---|---|
+| GNOME (Wayland) | IBus, ydotool fallback | Yes (IBus preedit) | evdev, or a GNOME shortcut set up by `setup` | Tested daily |
+| GNOME (X11) | IBus, xdotool fallback | Yes | evdev, pynput | Supported |
+| KDE Plasma (Wayland) | IBus, ydotool fallback | Yes with IBus | evdev | Should work |
+| Hyprland, incl. Omarchy | IBus, else wtype → ydotool | Yes with IBus; with fcitx5 (Omarchy's default), words are typed as you speak, without the in-place preview | evdev, or `bind = CTRL ALT, V, exec, voiceio toggle` | Should work |
+| sway | IBus, else wtype → ydotool | As Hyprland | evdev, or `bindsym` + `voiceio toggle` | Should work |
+| i3 / other X11 | IBus, xdotool | Yes with IBus | pynput, evdev | Should work |
+| NixOS | as above | as above | evdev via the flake's udev rule | Flake provided, unbuilt ([NixOS](#nixos)) |
+
+**Input methods.** IBus is the only way to get a live, underlined preview that is corrected in place on Wayland. voiceio installs its own IBus engine and only activates it while you dictate. If fcitx5 is your input method, voiceio leaves it alone and types the final text with wtype or ydotool. Terminals that ignore input methods get the clipboard.
+
+**Hotkeys without the `input` group.** The evdev backend reads keyboards from `/dev/input`. `voiceio doctor --fix` installs a udev rule, `/etc/udev/rules.d/60-voiceio-uaccess.rules`, that grants the logged-in user access to keyboard devices. It works immediately, without logging out. The old route still works as a fallback: `sudo usermod -aG input $USER`, then log out and back in. You can also skip evdev and bind `voiceio toggle` in your compositor.
+
+**ydotool** needs write access to `/dev/uinput`; `voiceio doctor --fix` installs a uaccess rule for that too.
+
+### NixOS
+
+The repository is a flake. **It has not been built yet**; please report fixes.
+
+```nix
+# flake inputs: voiceio.url = "github:Hugo0/voiceio";
+# NixOS: package, uinput, and the keyboard uaccess rule
+imports = [ voiceio.nixosModules.default ];
+programs.voiceio.enable = true;
+
+# Home Manager: config.toml from Nix + a systemd user service
+imports = [ voiceio.homeManagerModules.default ];
+services.voiceio = {
+  enable = true;
+  settings.model.name = "small";
+};
+```
+
+For the streaming preview, enable IBus as your input method: `i18n.inputMethod = { enable = true; type = "ibus"; };`.
+
+### Windows and macOS
+
+There is a best-effort pynput path for both (hotkeys and typing, no live preview). It is untested and unmaintained, with no installers or CI. Patches are welcome; bug reports will likely sit.
 
 ## Troubleshooting
 
-```bash
-voiceio doctor           # see what's working
-voiceio doctor --fix     # auto-fix issues
-voiceio logs             # check debug output
-```
-
 | Problem | Fix |
-|---------|-----|
-| No text appears | `voiceio doctor --fix` - usually a missing IBus component or GNOME input source |
-| Hotkey doesn't work on Wayland | `sudo usermod -aG input $USER` then log out and back in |
-| Transcription too slow | Use a smaller model: `voiceio --model tiny` |
-| Want to start fresh | `voiceio uninstall` then `voiceio setup` |
-| Windows / macOS issues | These platforms are experimental and untested — see [Experimental platforms](#experimental-platforms) |
+|---|---|
+| Nothing is typed | `voiceio doctor --fix`; usually the IBus component or the GNOME input source |
+| Hotkey does nothing on Wayland | `voiceio doctor --fix` installs the keyboard udev rule, or bind `voiceio toggle` in your compositor |
+| `sounddevice is not installed` | You installed without the desktop extra: `pipx install --force 'python-voiceio[desktop]'` |
+| evdev fails to build | Install a C toolchain and Python headers (see Quickstart), then reinstall |
+| Too slow | `voiceio models use small` (or a GPU with `large-v3-turbo`) |
+| Start over | `voiceio uninstall`, then `voiceio setup` |
 
-## Platform support
+Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
 
-voiceio targets **Linux**. That's what it's developed and tested against.
+## Contributing
 
-| Platform | Status | Text injection | Hotkeys | Streaming preview |
-|----------|--------|---------------|---------|-------------------|
-| Ubuntu / Debian (GNOME, Wayland) | **Tested daily** | IBus | evdev / GNOME shortcut | Yes |
-| Ubuntu / Debian (GNOME, X11) | Supported | IBus | evdev / pynput | Yes |
-| Fedora (GNOME) | Supported | IBus | evdev / GNOME shortcut | Yes |
-| Arch Linux | Supported | IBus | evdev | Yes |
-| KDE / Sway / Hyprland | Should work | IBus / ydotool / wtype | evdev | Yes |
-
-voiceio auto-detects your platform and picks the best available backends. Run `voiceio doctor` to see what's working on your system.
-
-## Experimental platforms
-
-Windows and macOS code paths exist, but they are **experimental, untested, and unmaintained** — the maintainer only develops on Linux, so they may be broken at any given time. No parity with Linux is promised. Contributions are welcome, but please don't file bugs expecting a fix.
-
-| Platform | Status | Text injection | Hotkeys | Streaming preview |
-|----------|--------|---------------|---------|-------------------|
-| Windows 10/11 | Experimental / untested | pynput / clipboard | pynput | Type-and-correct (no preedit) |
-| macOS | Experimental / untested | pynput / clipboard | pynput | Type-and-correct (no preedit) |
-
-- **Windows:** `pip install python-voiceio` then `voiceio setup` (pynput handles hotkeys + text injection; no system deps). Prebuilt installers may appear on [GitHub Releases](https://github.com/Hugo0/voiceio/releases).
-- **macOS:** `pipx install python-voiceio` then `voiceio setup`. If it doesn't work for you, consider [aquavoice.com](https://aquavoice.com/) or contribute a PR.
-- Config lives at `%LOCALAPPDATA%\voiceio\config\config.toml` (Windows) or `~/.config/voiceio/config.toml` (macOS).
-
-## Uninstall
-
-```bash
-voiceio uninstall        # removes service, IBus, shortcuts, symlinks
-pipx uninstall python-voiceio   # removes the package
-```
-
-## Roadmap
-
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) and [open issues](https://github.com/Hugo0/voiceio/issues).
-
-**Now**
-- [ ] macOS polish (IMKit for native preedit, Accessibility API for text injection)
-
-**Soon**
-- [ ] Per-app context awareness (detect focused app, adapt formatting/behavior)
-- [ ] File/audio transcription mode (`voiceio transcribe recording.mp3`)
-
-**Backlog**
-- [ ] Multiple engine backends (whisper.cpp for Vulkan/AMD, VOSK for low-end hardware)
-- [ ] Echo cancellation (filter system audio for meeting use)
-- [ ] Wake word activation ("Hey voiceio")
-**Done**
-- [x] Text-to-speech output (Piper/eSpeak/Edge TTS — completes the "io")
-- [x] LLM auto-audit dictionary (`voiceio correct --auto` — scan history with LLM, interactive correction)
-- [x] LLM post-processing via Ollama (grammar cleanup, spelling fixes on final pass)
-- [x] Corrections dictionary — auto-replace misheard words, "correct that" voice command
-- [x] Transcription history — searchable log of everything you've dictated
-- [x] Number-to-digit conversion ("three hundred forty two" → "342")
-- [x] VAD-based silence filtering (Silero VAD, prevents Whisper hallucinations)
-- [x] Voice commands — "new line", "new paragraph", "scratch that", punctuation by name
-- [x] Custom vocabulary / personal dictionary (bias Whisper via `initial_prompt`)
-- [x] Smart punctuation & capitalization post-processing
-- [x] Windows support (experimental, untested)
-- [x] System tray icon with animated states
-- [x] Auto-stop on silence
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture, conventions and the reasoning behind the model choice. Please open an issue before a large PR.
 
 ## License
 
-MIT
+MIT. Model weights are not part of voiceio and carry their own licenses (see [Choose a model](#choose-a-model)).
