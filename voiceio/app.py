@@ -26,6 +26,7 @@ from voiceio.watchdog import Watchdog
 
 log = logging.getLogger("voiceio")
 _DEBOUNCE_SECS = 0.8
+_HOTKEY_MODES = ("toggle", "hold", "auto")
 
 
 class _State(enum.Enum):
@@ -167,6 +168,13 @@ class VoiceIO:
         # Hotkey deduplication
         self._hotkey_lock = threading.Lock()
         self._last_hotkey: float = 0
+        self._hotkey_mode = cfg.hotkey.mode
+        if self._hotkey_mode not in _HOTKEY_MODES:
+            log.warning("hotkey.mode %r unknown (%s), using toggle",
+                        cfg.hotkey.mode, " | ".join(_HOTKEY_MODES))
+            self._hotkey_mode = "toggle"
+        # (press time, recording id) while the key that started it is down
+        self._held: tuple[float, int] | None = None
 
         # TTS (text-to-speech)
         self._tts_engine = None
@@ -255,6 +263,46 @@ class VoiceIO:
                 return
             self._last_hotkey = now
             self._toggle()
+
+    def on_hotkey_press(self) -> None:
+        """Key down, from a backend that also reports the release (evdev,
+        pynput, `voiceio toggle --press`). Toggles like on_hotkey, and arms
+        push-to-talk when this press started the recording."""
+        pressed_at = time.monotonic()
+        with self._hotkey_lock:
+            if pressed_at - self._last_hotkey >= _DEBOUNCE_SECS:
+                self._last_hotkey = pressed_at
+                self._toggle()
+            # A debounced press can be the same keypress that the DE shortcut
+            # (socket) just used to start recording: arm for that one too.
+            started = (self._state == _State.RECORDING
+                       and pressed_at - self._record_start < _DEBOUNCE_SECS)
+            self._held = (pressed_at, self._recording) \
+                if started and self._hotkey_mode != "toggle" else None
+
+    def on_hotkey_release(self) -> None:
+        """Key up: ends a push-to-talk recording ("hold", or "auto" held past
+        hold_ms) after a short tail, so the last word isn't clipped."""
+        released_at = time.monotonic()   # before the lock: a slow start must not stretch a tap
+        with self._hotkey_lock:
+            held, self._held = self._held, None
+            if held is None:
+                return
+            pressed_at, rid = held
+            if self._state != _State.RECORDING or self._recording != rid:
+                return
+            if (self._hotkey_mode == "auto"
+                    and released_at - pressed_at < self.cfg.hotkey.hold_ms / 1000):
+                return   # a tap: recording stays on until the next press
+        tail = threading.Timer(max(0, self.cfg.hotkey.release_tail_ms) / 1000,
+                               self._stop_held, args=(rid,))
+        tail.daemon = True
+        tail.start()
+
+    def _stop_held(self, rid: int) -> None:
+        with self._hotkey_lock:
+            if self._state == _State.RECORDING and self._recording == rid:
+                self._do_stop()
 
     def _on_auto_stop(self, reason: str = "silence") -> None:
         """Called from the audio thread when the recorder auto-stops.
@@ -672,6 +720,20 @@ class VoiceIO:
 
     # ── Main loop ───────────────────────────────────────────────────────
 
+    def _start_hotkeys(self) -> None:
+        """The key itself (with releases, unless toggling) and the control
+        socket that `voiceio toggle` and DE shortcuts talk to."""
+        key = self.cfg.hotkey.key
+        control = self._socket if self._socket is not None else self._hotkey
+        if self._socket is not None:
+            if self._hotkey_mode == "toggle":
+                self._hotkey.start(key, self.on_hotkey)
+            else:
+                self._hotkey.start(key, self.on_hotkey_press, self.on_hotkey_release)
+        control.start(key, self.on_hotkey)
+        control.handle("press", self.on_hotkey_press)
+        control.handle("release", self.on_hotkey_release)
+
     def run(self) -> None:
         from voiceio.config import PID_PATH, LOG_DIR
 
@@ -705,9 +767,7 @@ class VoiceIO:
         if self.cfg.tray.enabled:
             tray.start(self.request_shutdown, self.on_hotkey)
 
-        self._hotkey.start(self.cfg.hotkey.key, self.on_hotkey)
-        if self._socket is not None:
-            self._socket.start(self.cfg.hotkey.key, self.on_hotkey)
+        self._start_hotkeys()
 
         if self._tts_hotkey:
             self._tts_hotkey.start(self.cfg.tts.hotkey, self.on_tts_hotkey)

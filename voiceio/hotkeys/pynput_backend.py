@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Callable
 
@@ -10,6 +11,7 @@ from voiceio.backends import ProbeResult
 log = logging.getLogger(__name__)
 
 DEBOUNCE_SECS = 0.8
+_AUTOREPEAT_SECS = 0.05
 
 
 def _check_macos_accessibility() -> bool:
@@ -56,7 +58,8 @@ class PynputHotkey:
 
         return ProbeResult(ok=True)
 
-    def start(self, combo: str, on_trigger: Callable[[], None]) -> None:
+    def start(self, combo: str, on_trigger: Callable[[], None],
+              on_release: Callable[[], None] | None = None) -> None:
         from pynput import keyboard
 
         MOD_MAP = {
@@ -76,26 +79,64 @@ class PynputHotkey:
 
         pressed_mods: set = set()
         last_trigger = [0.0]
+        # X11 autorepeat may report a held key as release+press pairs: a
+        # release counts only once no press follows within _AUTOREPEAT_SECS.
+        down = [False]
+        fired = [False]
+        pending: list[threading.Timer | None] = [None]
+        lock = threading.RLock()
+
+        def released() -> None:
+            with lock:
+                if pending[0] is None:   # cancelled by a press meanwhile
+                    return
+                pending[0] = None
+                down[0] = False
+                if fired[0]:
+                    fired[0] = False
+                    if on_release is not None:
+                        on_release()
 
         def on_press(key):
+            with lock:
+                _on_press(key)
+
+        def _on_press(key):
             for mod_keys in MOD_MAP.values():
                 if key in mod_keys:
                     pressed_mods.add(key)
-            if key == target_key:
-                for mod_name in required_mods:
-                    if not (MOD_MAP[mod_name] & pressed_mods):
-                        return
-                now = time.monotonic()
-                if now - last_trigger[0] >= DEBOUNCE_SECS:
-                    last_trigger[0] = now
-                    on_trigger()
+            if key != target_key:
+                return
+            if pending[0] is not None:
+                pending[0].cancel()
+                pending[0] = None
+                return
+            if down[0]:
+                return
+            down[0] = True
+            for mod_name in required_mods:
+                if not (MOD_MAP[mod_name] & pressed_mods):
+                    return
+            now = time.monotonic()
+            if now - last_trigger[0] >= DEBOUNCE_SECS:
+                last_trigger[0] = now
+                fired[0] = True
+                on_trigger()
 
-        def on_release(key):
+        def on_release_key(key):
+            with lock:
+                _on_release_key(key)
+
+        def _on_release_key(key):
             for mod_keys in MOD_MAP.values():
                 if key in mod_keys:
                     pressed_mods.discard(key)
+            if key == target_key and down[0] and pending[0] is None:
+                pending[0] = threading.Timer(_AUTOREPEAT_SECS, released)
+                pending[0].daemon = True
+                pending[0].start()
 
-        self._listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+        self._listener = keyboard.Listener(on_press=on_press, on_release=on_release_key)
         self._listener.start()
         log.info("Pynput hotkey listener started")
 

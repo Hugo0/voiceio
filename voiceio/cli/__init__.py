@@ -34,8 +34,14 @@ def main() -> None:
     p_run.add_argument("--no-streaming", action="store_true", help="Type all text at the end")
     p_run.set_defaults(func=_cmd_run)
 
-    sub.add_parser("toggle", help="Start/stop recording on the running daemon").set_defaults(
-        func=lambda a: _cmd_toggle())
+    p_toggle = sub.add_parser("toggle", help="Start/stop recording on the running daemon")
+    edge = p_toggle.add_mutually_exclusive_group()
+    edge.add_argument("--press", dest="edge", action="store_const", const="press",
+                      help="key down, for compositors that also bind the release "
+                           "(push-to-talk; see [hotkey] mode)")
+    edge.add_argument("--release", dest="edge", action="store_const", const="release",
+                      help="key up: ends a held push-to-talk recording")
+    p_toggle.set_defaults(func=lambda a: _send(a.edge or "toggle"))
 
     p_setup = sub.add_parser("setup", help="Configure voiceio (interactive wizard)")
     p_setup.add_argument("--defaults", action="store_true",
@@ -154,10 +160,10 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     hint("test", "Run 'voiceio doctor --live' to try a quick recording")
 
 
-def _cmd_toggle() -> None:
-    """Send toggle command to running daemon."""
-    from voiceio.hotkeys.socket_backend import send_toggle
-    if not send_toggle():
+def _send(command: str) -> None:
+    """Send a command to the running daemon."""
+    from voiceio.hotkeys.socket_backend import send_command
+    if not send_command(command):
         print("voiceio daemon is not running. Start it with: voiceio service start "
               "(or `voiceio run` in a terminal)", file=sys.stderr)
         sys.exit(1)

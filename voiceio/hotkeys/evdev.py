@@ -61,6 +61,39 @@ def access_hint() -> str:
     )
 
 
+class _Combo:
+    """Key events → hotkey edges, shared by every keyboard's reader thread.
+
+    A press fires when the key goes down with its modifiers held (debounced);
+    the release fires when that same key comes up — only after a press that
+    fired, whatever happened to the modifiers meanwhile.
+    """
+
+    _UP, _DOWN = 0, 1   # evdev key values; 2 is autorepeat, ignored
+
+    def __init__(self, key_code: int, required: list[set[int]]):
+        self._key = key_code
+        self._required = required
+        self._pressed: set[int] = set()
+        self._last_press = float("-inf")
+        self._fired = False
+
+    def feed(self, code: int, value: int, now: float) -> str | None:
+        if value == self._DOWN:
+            self._pressed.add(code)
+            if (code == self._key and all(group & self._pressed for group in self._required)
+                    and now - self._last_press >= DEBOUNCE_SECS):
+                self._last_press = now
+                self._fired = True
+                return "press"
+        elif value == self._UP:
+            self._pressed.discard(code)
+            if code == self._key and self._fired:
+                self._fired = False
+                return "release"
+        return None
+
+
 class EvdevHotkey:
     """Hotkey detection via Linux evdev (needs read access to /dev/input)."""
 
@@ -105,7 +138,8 @@ class EvdevHotkey:
             )
         return ProbeResult(ok=False, reason="No input devices found")
 
-    def start(self, combo: str, on_trigger: Callable[[], None]) -> None:
+    def start(self, combo: str, on_trigger: Callable[[], None],
+              on_release: Callable[[], None] | None = None) -> None:
         import evdev
         from evdev import ecodes
 
@@ -152,15 +186,9 @@ class EvdevHotkey:
 
         self._running = threading.Event()
         self._running.set()
-        pressed: set[int] = set()
-        pressed_lock = threading.Lock()
-        last_trigger = [0.0]
-
-        def check_mods() -> bool:
-            for codes in MODIFIER_MAP.values():
-                if codes & required_mods and not (codes & pressed):
-                    return False
-            return True
+        combo_state = _Combo(key_code, [codes for codes in MODIFIER_MAP.values()
+                                        if codes & required_mods])
+        lock = threading.Lock()
 
         def read_device(dev: evdev.InputDevice) -> None:
             try:
@@ -169,21 +197,12 @@ class EvdevHotkey:
                         break
                     if event.type != ecodes.EV_KEY:
                         continue
-                    key_event = evdev.categorize(event)
-                    should_trigger = False
-                    with pressed_lock:
-                        if key_event.keystate == evdev.KeyEvent.key_down:
-                            pressed.add(event.code)
-                            if event.code == key_code and check_mods():
-                                now = time.monotonic()
-                                since = now - last_trigger[0]
-                                if since >= DEBOUNCE_SECS:
-                                    last_trigger[0] = now
-                                    should_trigger = True
-                        elif key_event.keystate == evdev.KeyEvent.key_up:
-                            pressed.discard(event.code)
-                    if should_trigger:
+                    with lock:
+                        edge = combo_state.feed(event.code, event.value, time.monotonic())
+                    if edge == "press":
                         on_trigger()
+                    elif edge == "release" and on_release is not None:
+                        on_release()
             except OSError:
                 pass
 

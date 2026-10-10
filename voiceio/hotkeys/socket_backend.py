@@ -25,9 +25,23 @@ DEBOUNCE_SECS = 0.8
 
 
 class SocketHotkey:
-    """Listens on a Unix DGRAM socket (or UDP on Windows) for 'toggle' commands."""
+    """Listens on a Unix DGRAM socket (or UDP on Windows) for commands.
+
+    "toggle" fires on_trigger (it is the hotkey: debounced against evdev
+    seeing the same keypress); handle() adds others ("press", "release"...).
+    A DE shortcut runs a command on key down only, so this backend reports
+    no release unless the compositor binds one (`voiceio toggle --release`).
+    """
 
     name = "socket"
+    # Commands that may be the same keypress also seen by evdev/pynput.
+    _DEBOUNCED = frozenset({"toggle", "press"})
+
+    def __init__(self) -> None:
+        self._handlers: dict[str, Callable[[], None]] = {}
+
+    def handle(self, command: str, fn: Callable[[], None]) -> None:
+        self._handlers[command] = fn
 
     def probe(self) -> ProbeResult:
         if _IS_WINDOWS:
@@ -39,8 +53,9 @@ class SocketHotkey:
                                fix_hint="Running under a normal user session should set this.")
         return ProbeResult(ok=True)
 
-    def start(self, combo: str, on_trigger: Callable[[], None]) -> None:
-        self._on_trigger = on_trigger
+    def start(self, combo: str, on_trigger: Callable[[], None],
+              on_release: Callable[[], None] | None = None) -> None:
+        self._handlers["toggle"] = on_trigger
         self._running = True
         self._last_trigger: float = 0
 
@@ -62,14 +77,16 @@ class SocketHotkey:
     def _loop(self) -> None:
         while self._running:
             try:
-                data = self._sock.recv(64)
-                if data != b"toggle":
+                command = self._sock.recv(64).decode(errors="replace")
+                fn = self._handlers.get(command)
+                if fn is None:
                     continue
-                now = time.monotonic()
-                if now - self._last_trigger < DEBOUNCE_SECS:
-                    continue
-                self._last_trigger = now
-                self._on_trigger()
+                if command in self._DEBOUNCED:
+                    now = time.monotonic()
+                    if now - self._last_trigger < DEBOUNCE_SECS:
+                        continue
+                    self._last_trigger = now
+                fn()
             except socket.timeout:
                 continue
             except OSError:
@@ -83,16 +100,16 @@ class SocketHotkey:
             SOCKET_PATH.unlink(missing_ok=True)
 
 
-def send_toggle() -> bool:
-    """Send a toggle command to the running daemon."""
+def send_command(command: str = "toggle") -> bool:
+    """Send a command to the running daemon."""
     try:
         if _IS_WINDOWS:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.sendto(b"toggle", ("127.0.0.1", _UDP_PORT))
+            sock.sendto(command.encode(), ("127.0.0.1", _UDP_PORT))
             sock.close()
         else:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-            sock.sendto(b"toggle", str(SOCKET_PATH))
+            sock.sendto(command.encode(), str(SOCKET_PATH))
             sock.close()
         return True
     except (ConnectionRefusedError, FileNotFoundError, OSError) as e:

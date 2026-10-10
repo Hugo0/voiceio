@@ -18,8 +18,13 @@ class HotkeyBackend(Protocol):
         """Check if this backend can work on the current system."""
         ...
 
-    def start(self, combo: str, on_trigger: Callable[[], None]) -> None:
-        """Start listening for the hotkey combo. Non-blocking."""
+    def start(self, combo: str, on_trigger: Callable[[], None],
+              on_release: Callable[[], None] | None = None) -> None:
+        """Start listening for the hotkey combo. Non-blocking.
+
+        ``on_release`` fires when the key whose press fired ``on_trigger``
+        comes back up; backends that cannot see key releases ignore it.
+        """
         ...
 
     def stop(self) -> None:

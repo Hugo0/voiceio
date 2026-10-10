@@ -58,6 +58,14 @@ CONSENT_PATH = CONFIG_DIR / "consent.json"
 class HotkeyConfig:
     key: str = "ctrl+alt+v"
     backend: str = "auto"
+    # "toggle": press to start, press again to stop. "hold": push-to-talk,
+    # recording stops when the key comes up. "auto": a tap shorter than
+    # hold_ms toggles, holding longer is push-to-talk. Releases need evdev or
+    # pynput (a DE shortcut only fires on key down, so it always toggles).
+    mode: str = "auto"
+    hold_ms: int = 350
+    # Keep recording this long after the release, so the last word isn't cut.
+    release_tail_ms: int = 250
 
 
 @dataclass
