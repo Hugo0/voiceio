@@ -2,7 +2,10 @@
 # "credentialless" keeps cross-origin fonts and the CDN working without CORP headers.
 # No referrer: nothing about visits leaks to third parties, and Hugging Face
 # refuses model downloads whose Referer is a *.workers.dev address.
+# no-transform: Cloudflare must not inject anything (e.g. its analytics
+# beacon) into these pages; the site promises no telemetry.
 /*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
   Referrer-Policy: no-referrer
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
