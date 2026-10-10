@@ -129,6 +129,7 @@ def export(dataset: Path, out: Path, *, extra_train_rows: list[dict] = (),
 # ── targets ──────────────────────────────────────────────────────────────
 
 HOTWORDS_FILE = "hotwords.txt"
+_MAX_DECODER_TOKENS = 448   # Whisper's decoder positions; HF raises past it
 _TS_STEP = 0.02     # Whisper timestamp resolution
 _TS_MAX = 1500      # <|30.00|>
 
@@ -157,6 +158,13 @@ def target_ids(tokenizer, row: dict, *, timestamps: bool) -> list[int]:
         out += [ts(start), *tokenizer(" " + part.strip(), add_special_tokens=False).input_ids,
                 ts(end)]
     return out + [tokenizer.eos_token_id]
+
+
+def _row_draws(key: str) -> tuple[float, float]:
+    """Two stable uniform draws per row (dev targets must not vary by epoch)."""
+    import hashlib
+    h = hashlib.sha256(key.encode()).digest()
+    return int.from_bytes(h[:4], "big") / 2**32, int.from_bytes(h[4:8], "big") / 2**32
 
 
 def prompt_ids(tokenizer, hotwords: str, max_length: int = 448) -> list[int]:
@@ -227,12 +235,17 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
     mix_rng = np.random.default_rng(cfg.seed + 1)
     prompt = prompt_ids(processor.tokenizer, cfg.hotwords) if cfg.hotwords.strip() else []
 
-    def targets_for(chunk: list[dict]):
+    def targets_for(chunk: list[dict], *, fixed: bool = False):
+        """Training rows draw their timestamp/prompt mix at random each epoch;
+        dev rows (`fixed`) get the same mix every epoch, so epochs compare."""
         seqs = []
         for r in chunk:
-            ids = target_ids(processor.tokenizer, r,
-                             timestamps=mix_rng.random() < cfg.timestamp_share)
-            p = prompt if prompt and mix_rng.random() < cfg.prompt_share else []
+            u, v = _row_draws(r["audio"]) if fixed else (mix_rng.random(), mix_rng.random())
+            ids = target_ids(processor.tokenizer, r, timestamps=u < cfg.timestamp_share)
+            p = prompt if prompt and v < cfg.prompt_share else []
+            if len(p) + len(ids) > _MAX_DECODER_TOKENS:
+                p = []                                   # context first
+                ids = ids[:_MAX_DECODER_TOKENS - 1] + ids[-1:]   # keep EOT
             seqs.append((p + ids, len(p)))
         dec_in, labels = decoder_batch(seqs, processor.tokenizer.eos_token_id)
         return (torch.tensor(dec_in, device=device), torch.tensor(labels, device=device))
@@ -253,8 +266,8 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
             cache.update({r["audio"]: h for r, h in zip(missing, out)})
         return torch.stack([cache[r["audio"]] for r in chunk]).float()
 
-    def forward(chunk: list[dict]):
-        dec_in, labels = targets_for(chunk)
+    def forward(chunk: list[dict], *, fixed: bool = False):
+        dec_in, labels = targets_for(chunk, fixed=fixed)
         if decoder_only:
             from transformers.modeling_outputs import BaseModelOutput
             return model(encoder_outputs=BaseModelOutput(last_hidden_state=encoded(chunk)),
@@ -288,7 +301,7 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
                       f"loss {loss.item():.3f}  ~{eta / 60:.0f} min left in epoch", flush=True)
         model.eval()
         with torch.no_grad():
-            losses = [forward(dev_rows[i:i + cfg.batch_size]).item()
+            losses = [forward(dev_rows[i:i + cfg.batch_size], fixed=True).item()
                       for i in range(0, len(dev_rows), cfg.batch_size)]
         # No dev split (tiny dataset): keep the latest epoch.
         dev = float(np.mean(losses)) if losses else float("-inf")
