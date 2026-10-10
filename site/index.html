@@ -146,7 +146,7 @@ button.pill { cursor: pointer; font-family: var(--mono); }
        transition: border-color .35s var(--ease-quart), box-shadow .35s var(--ease-quart); }
 .try.live { border-color: color-mix(in oklch, var(--miss) 45%, transparent);
             box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.7), 0 0 0 5px color-mix(in oklch, var(--miss) 9%, transparent), 0 28px 60px -34px color-mix(in oklch, var(--ink) 60%, transparent); }
-.try-head { display: flex; gap: 10px; align-items: center; }
+.try-head { display: flex; gap: 10px; align-items: center; min-height: 30px; }
 .try-head .label { color: var(--ink); margin-right: auto; }
 .try-tools { display: inline-flex; gap: 4px; }
 .try-tools[hidden] { display: none; }
@@ -339,6 +339,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
   .hero .scrim { background: linear-gradient(0deg, var(--bg), transparent 30%), color-mix(in oklch, var(--bg) 62%, transparent); }
   .transcript { font-size: 15px; }
   .scroll-hint { display: none; }
+  .try:not(.docked) .try-out { min-height: 5em; height: 5em; }
   .try.docked { left: 12px; right: 12px; bottom: 12px; width: auto; }
   .try.docked .talk kbd { display: none; }
   .try-pill { right: 16px; bottom: 12px; }
@@ -606,14 +607,32 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
     if (still) return;
     tablist.style.setProperty("--cycle", CYCLE_MS + "ms");
     cycle = setTimeout(() => {
+      if (document.getElementById("try")?.classList.contains("live")) return autoplay();  // never move the page mid-take
       const i = tabs.findIndex((b) => b.dataset.k === current);
       say(tabs[(i + 1) % tabs.length].dataset.k);
       autoplay();
     }, CYCLE_MS);
   }
   function hold(key) { clearTimeout(cycle); tablist.classList.add("held"); say(key); }
+  // Reserve the tallest headline and paragraph across all promises, so the
+  // cycling copy never shifts the page (on phones it wraps to different
+  // heights and moved the demo button under your finger).
+  function reserveHeights() {
+    for (const [el, idx] of [[h1.parentElement, 0], [lede.parentElement, 1]]) {
+      const probe = el.cloneNode(false);
+      Object.assign(probe.style, { position: "absolute", visibility: "hidden", minHeight: "0", width: el.getBoundingClientRect().width + "px", left: "-9999px", animation: "none" });
+      el.parentElement.appendChild(probe);
+      let tallest = 0;
+      for (const variant of Object.values(COPY)) { probe.textContent = variant[idx]; tallest = Math.max(tallest, probe.getBoundingClientRect().height); }
+      probe.remove();
+      el.style.minHeight = Math.ceil(tallest) + "px";
+    }
+  }
   h1.textContent = "";
   say("default");
+  reserveHeights();
+  document.fonts?.ready.then(reserveHeights);
+  addEventListener("resize", reserveHeights);
   autoplay();
   tabs.forEach((b) => {
     b.addEventListener("mouseenter", () => hold(b.dataset.k));
@@ -757,7 +776,8 @@ void main(){
   function label() {
     tryEl.classList.toggle("loading", T.model === "loading");
     if (T.model === "loading") return;
-    talkLabel.innerHTML = touch || editing() ? "hold to talk" : "hold <kbd>space</kbd> to talk";
+    talkLabel.innerHTML = touch ? (T.live || T.want ? "tap to stop" : "tap to talk")
+      : editing() ? "hold to talk" : "hold <kbd>space</kbd> to talk";
   }
   function progress(frac, text, pct = "") {
     talk.style.setProperty("--lvl", frac.toFixed(3));
@@ -953,8 +973,9 @@ void main(){
     Object.assign(T, { stream, ctx, rate: ctx.sampleRate, chunks: [], n: 0, sent: 0, live: true });
     openSpan(session);
     tryEl.classList.add("live");
+    label();
     mic.wake();
-    setStatus("listening… release to finish");
+    setStatus(touch ? "listening… tap to stop" : "listening… release to finish");
   }
   function stop() {
     T.want = false;
@@ -963,6 +984,7 @@ void main(){
     setLevel(0);
     T.live = false;
     tryEl.classList.remove("live");
+    label();
     T.stream.getTracks().forEach((t) => t.stop());
     T.ctx.close();
     T.stream = T.ctx = null;
@@ -1013,8 +1035,15 @@ void main(){
   document.addEventListener("visibilitychange", () => document.hidden && stop());
   // The button must not steal focus or the caret from the box.
   talk.addEventListener("mousedown", (e) => e.preventDefault());
-  talk.addEventListener("pointerdown", (e) => { e.preventDefault(); talk.setPointerCapture(e.pointerId); start(); });
-  ["pointerup", "pointercancel"].forEach((ev) => talk.addEventListener(ev, stop));
+  // Mouse: hold to talk. Touch: tap to start, tap to stop, since a finger
+  // held on a button that shifts or scrolls would end the take by accident.
+  talk.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (e.pointerType === "touch") return (T.live || T.want) ? stop() : start();
+    talk.setPointerCapture(e.pointerId);
+    start();
+  });
+  ["pointerup", "pointercancel"].forEach((ev) => talk.addEventListener(ev, (e) => e.pointerType !== "touch" && stop()));
   talk.addEventListener("keydown", (e) => e.code === "Enter" && e.preventDefault());
   box.addEventListener("focus", label);
   box.addEventListener("blur", label);
@@ -1041,7 +1070,7 @@ void main(){
   // Fetch the model as soon as someone shows interest, not on every visit.
   tryEl.addEventListener("pointerenter", ensureModel, { once: true });
   talk.addEventListener("focus", ensureModel, { once: true });
-  if (touch) box.dataset.ph = "Hold the button and talk. Words appear where your cursor is.";
+  if (touch) box.dataset.ph = "Tap the button and talk. Words appear where your cursor is.";
   label();
 
   // ----------------------------------------------------- 2D halftone dither art
