@@ -205,3 +205,21 @@ def test_pipeline_audit_attributes_changes_to_stages():
     c = audit.committed  # vs. the local result: "used" is worse; "one" (not "1") better
     assert (c.changed, c.better, c.worse) == (2, 1, 1)
     assert "decoder output" in audit.summary()
+
+
+def test_maintain_waits_for_enough_new_clips(monkeypatch, capsys):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    for i in range(6):
+        _clip(f"{i}.wav", 3, "x")
+        store.add_label(f"{i}.wav", [Segment(0, 3, "hello there")], "teacher:fake")
+    ds = store.build_dataset()
+    assert store.dataset_clips(ds) == {f"{i}.wav" for i in range(6)}
+    _clip("new.wav", 3, "x")
+    store.add_label("new.wav", [Segment(0, 3, "a new one")], "teacher:fake")
+
+    monkeypatch.setattr(cli, "cmd_label", lambda args: None)
+    monkeypatch.setattr(cli, "_train", lambda *a, **k: pytest.fail("must not retrain"))
+    cli.cmd_maintain(argparse.Namespace(min_new=5, base="small", epochs=1))
+    assert "1 new labeled clips since v0001" in capsys.readouterr().out

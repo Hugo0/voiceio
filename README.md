@@ -135,6 +135,7 @@ voiceio learn eval       # score the current model on your held-out clips: WER a
                          #   --streaming replays them through live dictation and times stop→text
 voiceio learn train      # LoRA fine-tune (needs the `train` extra; decoder-only on CPU, --full on a GPU)
 voiceio learn promote <run>   # dictate with the fine-tune; `voiceio learn rollback` undoes it
+voiceio learn maintain   # later: label what's new, and once 50+ clips piled up, retrain and compare
 ```
 
 Labeling, training and offline eval run in an idle-priority cgroup, so they never slow dictation down. Everything stays on your machine unless you choose `train --remote`.

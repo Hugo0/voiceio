@@ -77,6 +77,13 @@ def register(sub: argparse._SubParsersAction) -> None:
                    help="only export, and print the commands for a rented GPU")
     t.set_defaults(func=cmd_train)
 
+    mt = lsub.add_parser("maintain", help="Label new clips; retrain and compare once enough piled up")
+    mt.add_argument("--min-new", type=int, default=50,
+                    help="new labeled clips needed before retraining (default 50)")
+    mt.add_argument("--base", default="small")
+    mt.add_argument("--epochs", type=int, default=4)
+    mt.set_defaults(func=cmd_maintain)
+
     pr = lsub.add_parser("promote", help="Use a trained model for dictation")
     pr.add_argument("run", help="run name under learn/models (see `learn status`)")
     pr.add_argument("--force", action="store_true",
@@ -283,30 +290,39 @@ def cmd_eval(args: argparse.Namespace) -> None:
         return _eval_pipeline()
     if not args.streaming:  # streaming measures latency: run at dictation priority
         _yield_cpu()
+    ds = store.learn_dir() / "datasets" / args.dataset if args.dataset else store.latest_dataset()
+    if ds is None or not ds.exists():
+        raise SystemExit("no dataset — run `voiceio learn build` first")
+    _run_eval(args.model, ds, limit=args.limit, streaming=args.streaming, lanes=args.lanes,
+              freeze=args.freeze, speed=args.speed)
+
+
+def _run_eval(model: str | None, ds: Path, *, limit: int | None = None,
+              streaming: bool = False, lanes: int | None = None,
+              freeze: float | None = None, speed: float = 1.0):
+    """Score `model` (default: the configured one) on `ds`; print and save."""
     from voiceio.core.bias import BiasProvider
     from voiceio.core.decoders import build_decoder
     from voiceio.learn import evaluate
     from voiceio.vocabulary import VocabularyLoader
     cfg = _cfg()
-    ds = store.learn_dir() / "datasets" / args.dataset if args.dataset else store.latest_dataset()
-    if ds is None or not ds.exists():
-        raise SystemExit("no dataset — run `voiceio learn build` first")
-    if args.model:
-        cfg.model.name = args.model
+    if model:
+        cfg.model.name = model
     print(f"Loading {cfg.model.name}…", flush=True)
     # Offline scoring needs one lane; streaming mirrors the live setup.
-    lanes = args.lanes if args.lanes is not None else (None if args.streaming else 1)
-    decoder = build_decoder(cfg.model, lanes=lanes)
-    freeze = cfg.output.streaming_freeze_secs if args.freeze is None else args.freeze
+    decoder = build_decoder(cfg.model, lanes=lanes if lanes is not None else
+                            (None if streaming else 1))
     try:
         bias = BiasProvider(VocabularyLoader(cfg.model)).bias_for(decoder.capabilities)
-        result = evaluate.evaluate(decoder, ds, bias=bias, terms=_vocabulary(), limit=args.limit,
-                                   streaming=args.streaming, freeze_secs=freeze,
-                                   speed=args.speed)
+        result = evaluate.evaluate(
+            decoder, ds, bias=bias, terms=_vocabulary(), limit=limit, streaming=streaming,
+            freeze_secs=cfg.output.streaming_freeze_secs if freeze is None else freeze,
+            speed=speed)
     finally:
         decoder.close()
     print(result.summary())
     print(f"saved {evaluate.save(result)}")
+    return result
 
 
 def _live_hotwords() -> str:
@@ -335,27 +351,64 @@ def _eval_pipeline() -> None:
 
 def cmd_train(args: argparse.Namespace) -> None:
     _yield_cpu()
-    from voiceio.learn import augment, train
     ds = store.latest_dataset()
     if ds is None:
         raise SystemExit("no dataset — run `voiceio learn build` first")
+    run = _train(ds, base=args.base, epochs=args.epochs, synthetic_share=args.synthetic_share,
+                 full=args.full, remote=args.remote)
+    if run is not None:
+        print(f"\ntrained {run.name}\nnext: voiceio learn eval --model {run / 'ct2'}"
+              f"  (compare with the current model, then `voiceio learn promote {run.name}`)")
+
+
+def _train(ds: Path, *, base: str = "small", epochs: int = 4, synthetic_share: float = 0.3,
+           full: bool = False, remote: bool = False) -> Path | None:
+    """Export `ds` and fine-tune on it; returns the run dir (None for --remote)."""
+    from voiceio.learn import augment, train
     real = len(store.read_split(ds, "train"))
-    synth = augment.rows(max_share=args.synthetic_share, real_rows=real)
+    synth = augment.rows(max_share=synthetic_share, real_rows=real)
     folder = store.learn_dir() / "exports" / ds.name
     counts = train.export(ds, folder, extra_train_rows=synth, hotwords=_live_hotwords())
     print(f"exported {counts} windows ({len(synth)} synthetic) to {folder}")
-    run = _models_dir() / f"{ds.name}-{args.base}-{time.strftime('%Y%m%d-%H%M')}"
-    if args.remote:
-        print("\n" + train.remote_recipe(folder, run, args.base))
-        return
+    run = _models_dir() / f"{ds.name}-{base}-{time.strftime('%Y%m%d-%H%M')}"
+    if remote:
+        print("\n" + train.remote_recipe(folder, run, base))
+        return None
     train.require_train_deps()
     hotwords = (folder / train.HOTWORDS_FILE).read_text(encoding="utf-8")
     hf = train.train(folder, run, train.TrainConfig(
-        base=args.base, epochs=args.epochs, decoder_only=False if args.full else None,
-        hotwords=hotwords))
+        base=base, epochs=epochs, decoder_only=False if full else None, hotwords=hotwords))
     train.convert(hf, run / "ct2")
-    print(f"\ntrained {run.name}\nnext: voiceio learn eval --model {run / 'ct2'}"
-          f"  (compare with the current model, then `voiceio learn promote {run.name}`)")
+    return run
+
+
+def cmd_maintain(args: argparse.Namespace) -> None:
+    """Label what's new; once enough has piled up, rebuild, retrain and say
+    whether the result beats the current model. Never promotes by itself."""
+    _yield_cpu()
+    from voiceio.learn import evaluate
+    cmd_label(argparse.Namespace(teacher=None, limit=None, relabel=False))
+    labels = store.load_labels()
+    labeled = {c.audio for c in store.clips() if c.audio in labels}
+    ds = store.latest_dataset()
+    new = len(labeled - store.dataset_clips(ds)) if ds else len(labeled)
+    if ds is not None and new < args.min_new:
+        print(f"{new} new labeled clips since {ds.name}; retraining waits for {args.min_new}.")
+        return
+    ds = store.build_dataset()
+    print(f"built {ds.name} ({new} new clips)")
+    current = _run_eval(None, ds)
+    run = _train(ds, base=args.base, epochs=args.epochs)
+    candidate = _run_eval(str(run / "ct2"), ds)
+    ok, table = evaluate.promotion_verdict(_scores(candidate), _scores(current))
+    print(f"\n{_cfg().model.name} → {run.name} on {ds.name}:\n{table}")
+    print(f"better or equal on everything — `voiceio learn promote {run.name}`" if ok
+          else "not better on everything — keeping the current model")
+
+
+def _scores(result) -> dict:
+    return {"wer": result.wer, "term_recall": result.term_recall,
+            "repetitions": result.repetitions}
 
 
 def cmd_promote(args: argparse.Namespace) -> None:

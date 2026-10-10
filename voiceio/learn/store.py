@@ -312,6 +312,19 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
     return out
 
 
+def dataset_clips(dataset: Path) -> set[str]:
+    """Audio names (as in labels) that `dataset` was built from."""
+    out = set()
+    for split in SPLITS:
+        for row in read_split(dataset, split):
+            path = Path(row["file_name"])
+            try:
+                out.add(str(path.relative_to(learn_dir())))
+            except ValueError:
+                out.add(path.name)
+    return out
+
+
 def latest_dataset() -> Path | None:
     root = learn_dir() / "datasets"
     versions = sorted(root.glob("v[0-9]*")) if root.exists() else []
