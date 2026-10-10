@@ -60,6 +60,9 @@ def _quiet_desktop(monkeypatch):
     ("microphone unavailable"), which popped up on the developer's desktop."""
     from voiceio import feedback
     monkeypatch.setattr(feedback, "_send_notification", lambda *a, **k: None)
+    # Notifications with buttons go straight to notify-send: degrade them to
+    # the plain path above (tests of notify_actions itself fake subprocess).
+    monkeypatch.setattr(feedback, "_notify_send_has_actions", lambda: False)
     monkeypatch.setattr(feedback, "_play", lambda *a, **k: None)
 
 

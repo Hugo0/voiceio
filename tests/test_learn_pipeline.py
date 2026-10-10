@@ -343,6 +343,7 @@ def test_maintain_auto_promote_switches_restarts_and_says_how_to_undo(monkeypatc
     run = store.learn_dir() / "models" / "v0001-small-x"
     calls = []
     monkeypatch.setattr(cli, "cmd_label", lambda a: None)
+    monkeypatch.setattr(cli, "_announce_learning", lambda min_new: None)
     monkeypatch.setattr(train, "missing_train_deps", lambda: [])
     monkeypatch.setattr(cli, "_run_eval", lambda *a, **k: SimpleNamespace(
         wer=0.1, term_recall=0.5, repetitions=0, per_clip=[]))
