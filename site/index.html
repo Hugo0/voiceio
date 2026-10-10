@@ -756,7 +756,7 @@ void main(){
   const talk = document.getElementById("talk");
   const talkLabel = document.getElementById("talk-label");
   const statusEl = document.getElementById("try-status");
-  const RATE = 16000, MAX_SECS = 20, STEP_SECS = 0.35;
+  const RATE = 16000, MAX_SECS = 20, STEP_SECS = 0.35, TAP_MS = 600;
   const DEBUG = new URLSearchParams(location.search).has("debug");
   const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
   const TAP_URL = URL.createObjectURL(new Blob([
@@ -764,7 +764,7 @@ void main(){
   ], { type: "text/javascript" }));
   // model: idle | loading | ready | failed. `attempt` invalidates mic opens
   // that resolve after the key was released (e.g. across a permission prompt).
-  const T = { worker: null, model: "idle", busy: false, want: false, live: false, attempt: 0, session: 0,
+  const T = { worker: null, model: "idle", busy: false, want: false, live: false, latched: false, pressedAt: 0, peak: 0, attempt: 0, session: 0,
               chunks: [], n: 0, sent: 0, rate: RATE, pending: null, stream: null, ctx: null, files: {}, spans: new Map() };
   const ready = () => T.model === "ready";
   const secs = () => T.n / T.rate;
@@ -778,7 +778,7 @@ void main(){
   function label() {
     tryEl.classList.toggle("loading", T.model === "loading");
     if (T.model === "loading") return;
-    talkLabel.innerHTML = touch ? (T.live || T.want ? "tap to stop" : "tap to talk")
+    talkLabel.innerHTML = touch || T.latched ? (T.live || T.want ? (touch ? "tap to stop" : "press to stop") : "tap to talk")
       : editing() ? "hold to talk" : "hold <kbd>space</kbd> to talk";
   }
   function progress(frac, text, pct = "") {
@@ -924,7 +924,7 @@ void main(){
       if (DEBUG) console.log("asr", data.final ? "final" : "partial", Math.round(data.ms) + "ms", JSON.stringify(data.text));
       if (data.final) {
         commit(data.id, data.text);
-        if (!T.live) setStatus(STATUS_READY);
+        if (!T.live) setStatus(T.peak < 0.002 ? "heard nothing · the microphone sent silence; pick another input in your system sound settings" : STATUS_READY);
       } else if (data.id === T.session && T.live) {
         showPreview(data.id, data.text);
       }
@@ -950,9 +950,9 @@ void main(){
     setStatus("waiting for the microphone…");
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-    } catch {
+    } catch (err) {
       ctx.close();
-      if (attempt === T.attempt) { T.want = false; setStatus("microphone blocked · allow it in the address bar"); }
+      if (attempt === T.attempt) { T.want = T.latched = false; label(); setStatus(micError(err)); }
       return;
     }
     if (stale()) {
@@ -971,21 +971,48 @@ void main(){
       T.chunks.push(data);
       T.n += data.length;
       let e = 0;
-      for (let i = 0; i < data.length; i++) e += data[i] * data[i];
+      for (let i = 0; i < data.length; i++) { e += data[i] * data[i]; T.peak = Math.max(T.peak, Math.abs(data[i])); }
+      if (T.peak < 0.002 && secs() >= 2 && secs() - data.length / T.rate < 2)
+        setStatus("no sound from the microphone · pick another input in your system sound settings");
       setLevel(Math.min(1, Math.sqrt(e / data.length) * 9));
       if (secs() >= MAX_SECS) stop();
       else tick();
     };
     ctx.createMediaStreamSource(stream).connect(node);
-    Object.assign(T, { stream, ctx, rate: ctx.sampleRate, chunks: [], n: 0, sent: 0, live: true });
+    Object.assign(T, { stream, ctx, rate: ctx.sampleRate, chunks: [], n: 0, sent: 0, peak: 0, live: true });
     openSpan(session);
     tryEl.classList.add("live");
     label();
     mic.wake();
-    setStatus(touch ? "listening… tap to stop" : "listening… release to finish");
+    setStatus(touch ? "listening… tap to stop" : T.latched ? LATCHED : "listening… release to finish");
+  }
+  function micError(err) {
+    const name = err && err.name;
+    if (name === "NotAllowedError" || name === "SecurityError") return "microphone blocked · allow it in the address bar";
+    if (name === "NotFoundError" || name === "OverconstrainedError") return "no microphone found · plug one in or pick an input in your system settings";
+    if (name === "NotReadableError" || name === "AbortError") return "the microphone is busy or unavailable · close other apps using it, or pick another input";
+    return "couldn't open the microphone" + (name ? " (" + name + ")" : "");
+  }
+  // Mouse and space: hold to talk, or a quick tap to start and another to
+  // stop. A tap that was meant as a toggle must not end the take on release.
+  const LATCHED = "listening… press again to stop";
+  function press() {
+    if (T.latched) return stop();
+    T.pressedAt = performance.now();
+    start();
+  }
+  function release() {
+    if (!T.want && !T.live) return;
+    if (!T.latched && ready() && performance.now() - T.pressedAt < TAP_MS) {
+      T.latched = true;
+      label();
+      if (T.live) setStatus(LATCHED);
+      return;
+    }
+    if (!T.latched) stop();
   }
   function stop() {
-    T.want = false;
+    T.want = T.latched = false;
     T.attempt++;
     if (!T.live) return;
     setLevel(0);
@@ -1035,9 +1062,9 @@ void main(){
     if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey || !pttActive()) return;
     if (e.target.closest && e.target.closest("input, textarea, select, button:not(#talk), [contenteditable]")) return;
     e.preventDefault();
-    if (!e.repeat) start();
+    if (!e.repeat) press();
   });
-  addEventListener("keyup", (e) => { if (e.code === "Space" && (T.want || T.live)) { e.preventDefault(); stop(); } });
+  addEventListener("keyup", (e) => { if (e.code === "Space" && (T.want || T.live)) { e.preventDefault(); release(); } });
   addEventListener("blur", stop);
   document.addEventListener("visibilitychange", () => document.hidden && stop());
   // The button must not steal focus or the caret from the box.
@@ -1048,9 +1075,10 @@ void main(){
     e.preventDefault();
     if (e.pointerType === "touch") return (T.live || T.want) ? stop() : start();
     talk.setPointerCapture(e.pointerId);
-    start();
+    press();
   });
-  ["pointerup", "pointercancel"].forEach((ev) => talk.addEventListener(ev, (e) => e.pointerType !== "touch" && stop()));
+  talk.addEventListener("pointerup", (e) => e.pointerType !== "touch" && release());
+  talk.addEventListener("pointercancel", (e) => e.pointerType !== "touch" && stop());
   talk.addEventListener("keydown", (e) => e.code === "Enter" && e.preventDefault());
   box.addEventListener("focus", label);
   box.addEventListener("blur", label);
