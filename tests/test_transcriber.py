@@ -83,8 +83,8 @@ class TestTimeoutScaling:
     def test_scales_above_floor_for_long_audio(self):
         from voiceio.transcriber import transcribe_timeout
         # 200s dictation -> 200 * 1.5 = 300s, well above the 30s floor.
-        assert transcribe_timeout(200.0) == 300.0
-        assert transcribe_timeout(60.0) == 90.0
+        assert transcribe_timeout(200.0) == 600.0
+        assert transcribe_timeout(60.0) == 180.0
 
 
 class TestRestartBudgetReset:

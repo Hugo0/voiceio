@@ -32,7 +32,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-TRANSCRIBE_TIMEOUT = 30  # seconds (floor; scaled up for long audio)
+# Floor of the decode timeout. A timeout kills the worker, reloads the model
+# and retries — always slower than waiting — so it is only for genuine hangs.
+# Runaway loops, the old reason for a tight floor, are now bounded by the
+# worker's max_new_tokens; a saturated CPU took 25s for 8s of audio.
+TRANSCRIBE_TIMEOUT = 60
 
 
 def describe_transcript(text: str) -> str:
@@ -43,10 +47,10 @@ def describe_transcript(text: str) -> str:
 # Historical name, kept for callers and tests.
 TranscriptionError = DecodeError
 
-# Realtime-factor headroom for the read timeout. Whisper decodes well faster
-# than realtime, so 1.5x the audio duration is a generous ceiling that still
-# never kills a long dictation mid-decode.
-TIMEOUT_PER_SECOND = 1.5
+# Realtime-factor headroom for the read timeout: on an idle CPU whisper decodes
+# ~5x faster than realtime, but under load it was measured at 0.3x — 3s per
+# second of audio still never kills a slow-but-progressing decode.
+TIMEOUT_PER_SECOND = 3.0
 MAX_RESTARTS = 3
 # Ceiling on the worker's model-load handshake. A cached load is ~4s (worst
 # observed: 53s), so this only trips on a genuinely stuck start — but it must
