@@ -85,23 +85,35 @@ def _cmd_service(args: argparse.Namespace) -> None:
             pass
 
 
-def wait_until_idle(timeout: float = 300.0, poll: float = 0.25) -> bool:
+def wait_until_idle(timeout: float = 300.0, poll: float = 0.25,
+                    finalizing_timeout: float = 60.0) -> bool:
     """Wait for the daemon to finish any dictation in progress (stopping it
-    mid-recording loses what was said). True once idle or not running."""
+    mid-recording loses what was said). True once idle or not running; False
+    when it stayed busy. A decode stuck finalizing gets a shorter wait: a
+    restart is how that is recovered."""
     import time
 
-    from voiceio.config import STATE_PATH
-    deadline, told = time.monotonic() + timeout, False
-    while time.monotonic() < deadline:
-        try:
-            state = STATE_PATH.read_text().strip()
-        except OSError:
-            return True          # not running (or pre-1.1): nothing to wait for
-        if state in ("idle", "error"):
-            return True
-        if not told:
-            print(f"Waiting for the dictation in progress to finish ({state})…", flush=True)
-            told = True
-        time.sleep(poll)
-    print("Still busy; going ahead. (--now skips the wait.)", file=sys.stderr)
-    return False
+    from voiceio.config import PID_PATH, STATE_PATH
+    from voiceio.pidlock import daemon_alive
+    start, told = time.monotonic(), False
+    try:
+        while True:
+            if not daemon_alive(PID_PATH):
+                return True      # crashed or stopped: its state file is stale
+            try:
+                state = STATE_PATH.read_text().strip()
+            except OSError:
+                return True      # pre-1.1 daemon: nothing to wait for
+            if state in ("idle", "error"):
+                return True
+            waited = time.monotonic() - start
+            if waited > (finalizing_timeout if state == "finalizing" else timeout):
+                print(f"Still {state}; going ahead. (--now skips the wait.)", file=sys.stderr)
+                return False
+            if not told:
+                print(f"Waiting for the dictation in progress to finish ({state})…", flush=True)
+                told = True
+            time.sleep(poll)
+    except KeyboardInterrupt:
+        print("\nNot waiting.", file=sys.stderr)
+        sys.exit(130)

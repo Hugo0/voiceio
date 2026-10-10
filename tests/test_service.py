@@ -48,18 +48,36 @@ def test_learn_timer_runs_maintain_at_idle_priority(monkeypatch, tmp_path):
 def test_daemon_publishes_state_and_restart_waits_for_idle(monkeypatch):
     import threading
 
-    from voiceio import config
+    from voiceio import config, pidlock
     from voiceio.app import VoiceIO, _State
     from voiceio.cli.servicecmd import wait_until_idle
 
-    assert wait_until_idle(timeout=1)                 # not running: no wait
     vio = VoiceIO.__new__(VoiceIO)
+    vio._state = _State.RECORDING                      # not the lock holder:
+    assert not config.STATE_PATH.exists()              # says nothing
+    vio._publishes_state = True
     vio._state = _State.RECORDING
     assert config.STATE_PATH.read_text() == "recording"
+
+    monkeypatch.setattr(pidlock, "daemon_alive", lambda path: False)
+    assert wait_until_idle(timeout=5)                  # dead daemon: stale file, no wait
+    monkeypatch.setattr(pidlock, "daemon_alive", lambda path: True)
     threading.Timer(0.3, lambda: setattr(vio, "_state", _State.IDLE)).start()
-    assert wait_until_idle(timeout=5, poll=0.05)      # waited for the dictation
-    vio._state = _State.FINALIZING
-    assert not wait_until_idle(timeout=0.2, poll=0.05)   # gives up, says so
+    assert wait_until_idle(timeout=5, poll=0.05)       # waited for the dictation
+    vio._state = _State.FINALIZING                     # a hung finalize: short budget
+    assert not wait_until_idle(timeout=60, poll=0.05, finalizing_timeout=0.2)
+
+
+def test_daemon_alive_probes_the_pid_lock(tmp_path):
+    import fcntl
+
+    from voiceio.pidlock import daemon_alive
+    path = tmp_path / "voiceio.pid"
+    assert not daemon_alive(path)
+    with open(path, "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        assert daemon_alive(path)
+    assert not daemon_alive(path)
 
 
 def test_learn_timer_auto_promote_is_opt_in(monkeypatch, tmp_path):

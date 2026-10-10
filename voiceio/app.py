@@ -43,6 +43,10 @@ class VoiceIO:
     @_state.setter
     def _state(self, value: _State) -> None:
         self.__state = value
+        # Only the instance holding the PID lock speaks for the daemon: a
+        # second launch must not overwrite the running one's state.
+        if not getattr(self, "_publishes_state", False):
+            return
         try:   # best-effort: only `service restart` reads it
             tmp = config.STATE_PATH.with_suffix(".tmp")
             tmp.write_text(value.value)
@@ -660,7 +664,7 @@ class VoiceIO:
         self._typers.redetect_at_start()
 
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        self._pid_fd = open(PID_PATH, "w")
+        self._pid_fd = open(PID_PATH, "a")   # not "w": the running daemon's PID stays
         try:
             from voiceio.pidlock import lock_pid_file
             lock_pid_file(self._pid_fd)
@@ -669,8 +673,11 @@ class VoiceIO:
             log.error("Another voiceio instance is already running")
             print("voiceio is already running. Stop it first: voiceio service stop")
             return
+        self._pid_fd.truncate(0)
         self._pid_fd.write(str(os.getpid()))
         self._pid_fd.flush()
+        self._publishes_state = True
+        self._state = self._state
 
         self._typers.prepare()
 
