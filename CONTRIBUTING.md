@@ -85,7 +85,7 @@ NixOS module, Home Manager module).
 
 ## Key patterns
 
-**State machine** — `app.py` uses `_State` enum protected by `_hotkey_lock`. Generation counter prevents stale finalizers from stomping newer recordings.
+**State machine** — `app.py` uses `_State` enum protected by `_hotkey_lock`. Two counters: the generation (bumped on stop) decides who may still write output, so a slow finalizer never stomps a newer recording; the recording id (bumped on start) pairs each IBus claim with its release.
 
 **One engine, many front ends** — the desktop daemon, the server, `voiceio eval` and `voiceio learn` all compose `core.engine.Engine` (decoder + bias + pipeline) instead of wiring those pieces themselves, so they cannot drift apart.
 
