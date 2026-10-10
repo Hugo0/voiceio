@@ -105,3 +105,21 @@ def test_usage_decoder_counts_incidents_on_the_current_release(tmp_path, monkeyp
     assert ok
     assert finding.startswith(f"decoder: 0 hangs, 1 crashes in the last 7 days on {__version__}")
     assert f"(1 more before {__version__})" in finding
+
+
+def test_learning_status_and_tips(monkeypatch):
+    from voiceio import config, service
+    from voiceio.health import _accuracy_tips, _learning_status
+    from voiceio.learn.store import learn_dir
+    monkeypatch.setattr(service, "learn_timer_enabled", lambda: False)
+    cfg = config.Config()
+    st = _learning_status(cfg)
+    assert st["Voice model"] == "stock (small)" and st["Recordings"].startswith("off")
+    assert any("retain_audio true" in t for t in _accuracy_tips(st))
+
+    cfg.data.retain_audio = True
+    cfg.model.name = str(learn_dir() / "models" / "v0001-small-x" / "ct2")
+    st = _learning_status(cfg)
+    assert st["Voice model"] == "fine-tuned on you (v0001-small-x)"
+    assert st["Recordings"].startswith("on (") and st["Nightly learning"] == "off"
+    assert any("learn schedule on" in t for t in _accuracy_tips(st))

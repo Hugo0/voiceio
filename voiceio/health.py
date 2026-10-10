@@ -217,12 +217,38 @@ def _check_features() -> FeatureGroups:
             else:
                 groups.accuracy["Vocabulary"] = "none"
 
+        groups.accuracy.update(_learning_status(cfg))
+
         if cfg.postcorrect.enabled:
             model = cfg.postcorrect.model or cfg.cloud.model
             groups.accuracy["Cloud postcorrect"] = f"on ({model}), adds up to {cfg.postcorrect.timeout_secs:g}s"
     except Exception:
         pass
     return groups
+
+
+def _learning_status(cfg) -> dict[str, str]:
+    """Whether voiceio is learning your voice: the model in use, whether
+    recordings are kept to learn from, and whether it retrains nightly."""
+    from pathlib import Path
+
+    from voiceio import config, service
+    from voiceio.learn.store import learn_dir
+    out: dict[str, str] = {}
+    models = learn_dir() / "models"
+    name = cfg.model.name
+    if models in Path(name).expanduser().parents:
+        out["Voice model"] = f"fine-tuned on you ({Path(name).parent.name})"
+    else:
+        out["Voice model"] = f"stock ({name})"
+    if cfg.data.retain_audio:
+        n = sum(1 for _ in config.RECORDINGS_DIR.glob("*.wav")) \
+            if config.RECORDINGS_DIR.exists() else 0
+        out["Recordings"] = f"on ({n} kept to learn from)"
+    else:
+        out["Recordings"] = "off (nothing to learn from)"
+    out["Nightly learning"] = "on" if service.learn_timer_enabled() else "off"
+    return out
 
 
 def _check_ibus() -> IBusStatus:
@@ -325,6 +351,10 @@ def _accuracy_tips(accuracy: dict[str, str]) -> list[str]:
         tips.append("voiceio corrections add WRONG RIGHT  — fix a word that keeps being misheard")
     if vocab == "none":
         tips.append("Add names/jargon to ~/.config/voiceio/vocabulary.txt")
+    if accuracy.get("Recordings", "").startswith("off"):
+        tips.append("voiceio config set data.retain_audio true  — keep recordings so voiceio can learn your voice")
+    elif accuracy.get("Nightly learning") == "off":
+        tips.append("voiceio learn schedule on  — retrain on your voice every night")
     return tips
 
 
@@ -391,7 +421,7 @@ def format_report(report: HealthReport) -> str:
     # Accuracy / learning stack
     if report.features.accuracy:
         lines.append(_section("Accuracy"))
-        lines.append(f"  {DIM}Learns from your dictation history to fix recurring mistakes.{RESET}")
+        lines.append(f"  {DIM}What voiceio knows about your words, and whether it keeps learning.{RESET}")
         for name, status in report.features.accuracy.items():
             lines.append(_feature_line(name, status))
         # Show actionable tips at the bottom
