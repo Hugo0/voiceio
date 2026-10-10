@@ -147,3 +147,36 @@ def save(result: EvalResult) -> Path:
         data["stop_to_text_median"] = statistics.median(result.waits)
     path.write_text(json.dumps(data, indent=2) + "\n")
     return path
+
+
+def latest(model: str, dataset: str, mode: str = "offline") -> dict | None:
+    """The newest saved run of `model` (a faster-whisper name or path) on
+    `dataset`, or None."""
+    runs = learn_dir() / "runs"
+    want = f"faster-whisper:{model}"
+    for path in sorted(runs.glob("eval-*.json"), reverse=True) if runs.exists() else []:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (data.get("decoder", "").removesuffix("+draft") == want
+                and data.get("dataset") == dataset and data.get("mode", "offline") == mode):
+            return data
+    return None
+
+
+# A fine-tune may trade a hair of WER for vocabulary; it may not regress either.
+WER_SLACK = 0.002
+
+
+def promotion_verdict(candidate: dict, current: dict) -> tuple[bool, str]:
+    """Is `candidate` at least as good as `current` on the same clips?"""
+    rows = [("WER", current["wer"], candidate["wer"], "{:.1%}"),
+            ("vocab recall", current["term_recall"], candidate["term_recall"], "{:.1%}"),
+            ("loops", current["repetitions"], candidate["repetitions"], "{}")]
+    table = "\n".join(f"  {name:<13} {fmt.format(a):>8} → {fmt.format(b):<8}"
+                      for name, a, b, fmt in rows)
+    ok = (candidate["wer"] <= current["wer"] + WER_SLACK
+          and candidate["term_recall"] >= current["term_recall"]
+          and candidate["repetitions"] <= current["repetitions"])
+    return ok, table

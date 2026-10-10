@@ -76,6 +76,8 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     pr = lsub.add_parser("promote", help="Use a trained model for dictation")
     pr.add_argument("run", help="run name under learn/models (see `learn status`)")
+    pr.add_argument("--force", action="store_true",
+                    help="promote without a winning eval on the latest dataset")
     pr.set_defaults(func=cmd_promote)
 
     lsub.add_parser("rollback", help="Return to the model used before the last promote"
@@ -330,11 +332,32 @@ def cmd_promote(args: argparse.Namespace) -> None:
     ct2 = _models_dir() / args.run / "ct2"
     if not (ct2 / "model.bin").exists():
         raise SystemExit(f"no converted model at {ct2}")
+    if not args.force:
+        _check_beats_current(ct2)
     history = _models_dir() / "promotions.jsonl"
     with open(history, "a") as f:
         f.write(json.dumps({"ts": time.time(), "from": _cfg().model.name, "to": str(ct2)}) + "\n")
     set_value("model", "name", str(ct2))
     print(f"now dictating with {args.run} — restart the daemon: voiceio service restart")
+
+
+def _check_beats_current(ct2: Path) -> None:
+    """Refuse a promotion the evals don't support (a fine-tune can regress)."""
+    from voiceio.learn import evaluate
+    ds = store.latest_dataset()
+    current = _cfg().model.name
+    if ds is None:
+        raise SystemExit("no dataset to compare on — `voiceio learn build`, or --force")
+    missing = [m for m in (current, str(ct2)) if evaluate.latest(m, ds.name) is None]
+    if missing:
+        raise SystemExit("evaluate both models on the same clips first:\n"
+                         + "".join(f"  voiceio learn eval --model {m}\n" for m in missing)
+                         + "(or promote anyway with --force)")
+    ok, table = evaluate.promotion_verdict(evaluate.latest(str(ct2), ds.name),
+                                           evaluate.latest(current, ds.name))
+    print(f"on {ds.name} test clips, {current} → fine-tune:\n{table}")
+    if not ok:
+        raise SystemExit("the fine-tune is worse on something — not promoting (--force overrides)")
 
 
 def cmd_rollback(args: argparse.Namespace) -> None:

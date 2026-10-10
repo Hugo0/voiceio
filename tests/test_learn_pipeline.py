@@ -129,3 +129,25 @@ def test_learn_jobs_reexec_into_an_idle_scope(monkeypatch):
     assert "CPUWeight=idle" in argv
     assert argv[argv.index("--") + 1:] == [sys.executable, "/venv/bin/voiceio", "learn", "label"]
     assert learn.os.environ["VOICEIO_IDLE_SCOPE"] == "1"  # the child won't loop
+
+
+def test_promotion_requires_a_winning_eval():
+    base = {"wer": 0.10, "term_recall": 0.40, "repetitions": 0}
+    better = {"wer": 0.101, "term_recall": 0.70, "repetitions": 0}   # vocab win, WER within slack
+    worse = {"wer": 0.13, "term_recall": 0.70, "repetitions": 0}
+    assert evaluate.promotion_verdict(better, base)[0]
+    assert not evaluate.promotion_verdict(worse, base)[0]
+    assert not evaluate.promotion_verdict({**better, "repetitions": 2}, base)[0]
+
+
+def test_latest_eval_matches_model_dataset_and_mode():
+    runs = store.learn_dir() / "runs"
+    runs.mkdir(parents=True)
+    for i, (dec, ds, mode) in enumerate([("faster-whisper:small", "v0001", "offline"),
+                                         ("faster-whisper:small+draft", "v0001", "streaming"),
+                                         ("faster-whisper:small", "v0002", "offline")]):
+        (runs / f"eval-2026010{i}.json").write_text(json.dumps(
+            {"decoder": dec, "dataset": ds, "mode": mode, "wer": i}))
+    assert evaluate.latest("small", "v0001")["wer"] == 0
+    assert evaluate.latest("small", "v0001", mode="streaming")["wer"] == 1
+    assert evaluate.latest("medium", "v0001") is None
