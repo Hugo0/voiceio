@@ -34,6 +34,9 @@ HISTORY_PATH = LOG_DIR / "history.jsonl"
 RECORDINGS_DIR = LOG_DIR / "recordings"
 LOG_PATH = LOG_DIR / "voiceio.log"
 PID_PATH = LOG_DIR / "voiceio.pid"
+# The daemon's state (idle/recording/finalizing), so `voiceio service
+# restart` can wait for a dictation to finish instead of killing it.
+STATE_PATH = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "voiceio.state"
 # Intermediate pipeline data kept for debugging/profiling and future training:
 # per-pass streaming decode traces and postcorrect before/after pairs. These
 # live in their own JSONL files (not the rotating log) so they survive.

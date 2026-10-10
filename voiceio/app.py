@@ -36,6 +36,20 @@ class _State(enum.Enum):
 
 
 class VoiceIO:
+    @property
+    def _state(self) -> _State:
+        return self.__state
+
+    @_state.setter
+    def _state(self, value: _State) -> None:
+        self.__state = value
+        try:   # best-effort: only `service restart` reads it
+            tmp = config.STATE_PATH.with_suffix(".tmp")
+            tmp.write_text(value.value)
+            tmp.replace(config.STATE_PATH)
+        except OSError:
+            pass
+
     def __init__(self, cfg: config.Config):
         self.cfg = cfg
 
@@ -713,4 +727,5 @@ class VoiceIO:
             self._ibus.shutdown()
             self._pid_fd.close()
             PID_PATH.unlink(missing_ok=True)
+            config.STATE_PATH.unlink(missing_ok=True)
         log.info("voiceio stopped")

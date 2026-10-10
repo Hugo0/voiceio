@@ -72,6 +72,7 @@ def _isolate_user_state(tmp_path, monkeypatch):
     monkeypatch.setattr("voiceio.config.HISTORY_PATH", tmp_path / "history.jsonl")
     monkeypatch.setattr("voiceio.history.HISTORY_PATH", tmp_path / "history.jsonl")
     # Corrections, vocabulary and config out of the user's real dirs.
+    monkeypatch.setattr("voiceio.config.STATE_PATH", tmp_path / "voiceio.state")
     monkeypatch.setattr("voiceio.config.CONFIG_DIR", tmp_path / "config")
     monkeypatch.setattr("voiceio.config.CONFIG_PATH", tmp_path / "config" / "config.toml")
     monkeypatch.setattr("voiceio.config.CONSENT_PATH", tmp_path / "config" / "consent.json")
