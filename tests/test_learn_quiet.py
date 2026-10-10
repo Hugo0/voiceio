@@ -1,5 +1,6 @@
 import argparse
 
+from voiceio import power
 from voiceio.learn import quiet
 
 
@@ -11,12 +12,12 @@ def _supply(root, name, kind, online):
 
 
 def test_on_battery_needs_a_mains_supply_that_is_offline(tmp_path):
-    assert not quiet.on_battery(tmp_path)                 # desktop: no supplies listed
+    assert not power.on_battery(tmp_path)                 # desktop: no supplies listed
     _supply(tmp_path, "BAT0", "Battery", "0")
     _supply(tmp_path, "AC", "Mains", "0")
-    assert quiet.on_battery(tmp_path)
+    assert power.on_battery(tmp_path)
     (tmp_path / "AC" / "online").write_text("1\n")
-    assert not quiet.on_battery(tmp_path)
+    assert not power.on_battery(tmp_path)
 
 
 def test_busy_reason_is_load_per_cpu_then_battery(monkeypatch):

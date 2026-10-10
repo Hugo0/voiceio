@@ -9,21 +9,8 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable
-from pathlib import Path
 
-POWER_SUPPLY = Path("/sys/class/power_supply")
-
-
-def on_battery(root: Path = POWER_SUPPLY) -> bool:
-    """True when the machine has mains supplies and none is online."""
-    mains = []
-    for supply in root.glob("*"):
-        try:
-            if (supply / "type").read_text().strip() == "Mains":
-                mains.append((supply / "online").read_text().strip() == "1")
-        except OSError:
-            continue
-    return bool(mains) and not any(mains)
+from voiceio.power import on_battery
 
 
 def busy_reason(max_load: float) -> str | None:
