@@ -5,15 +5,17 @@
 [![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Voice dictation for Linux. It runs on your machine, keeps what it learns in files you can read, and gets better at your words the longer you use it.
+**Voice dictation that learns you.** Local, open source, private — and it fine-tunes itself on your own voice, on your own machine.
+
+Off-the-shelf speech models stumble on exactly the words you say most: your colleagues' names, your project, your jargon. voiceio keeps (with your permission) the audio of what you dictate, has a bigger model transcribe it overnight, and trains a personal model from it — nothing uploaded, no GPU required. On the author's dictation, one overnight run on a laptop CPU cut word errors from **12.1% to 5.0%** on held-out clips and recognized more of the author's vocabulary, at the same speed. Every model is scored on clips it never trained on, and it only replaces the current one when it wins.
 
 https://github.com/user-attachments/assets/9cf5d1ac-b4bb-4cf8-b775-7a66dc16b376
 
 Press a hotkey, speak, and the text streams into whatever app has focus. Press again to commit.
 
+- **Learns you.** `voiceio learn` fine-tunes a model on your own voice; a vocabulary steers it toward new names right away; corrections fix the rest. See [Make it yours](#make-it-yours).
 - **Local.** Speech is decoded on-device ([faster-whisper](https://github.com/SYSTRAN/faster-whisper) by default). Audio never leaves the machine and there is no telemetry. Two optional, off-by-default features send *text* (never audio) to an LLM endpoint you configure: final-transcript polish (`[postcorrect]`) and an optional local Ollama cleanup (`[llm]`).
 - **Yours.** History, retained audio, corrections, vocabulary and fine-tuned models are plain local files. See [Your data](#your-data).
-- **Personal.** A vocabulary steers the decoder toward your names and jargon, corrections fix what it still mishears, and `voiceio learn` fine-tunes a model on your own voice. See [Make it yours](#make-it-yours).
 - **Linux-first.** Wayland and X11, GNOME, KDE, Hyprland, sway and i3. Backends are picked by probing what works. See [Linux support](#linux-support).
 
 
@@ -242,6 +244,13 @@ There is a best-effort pynput path for both (hotkeys and typing, no live preview
 | Start over | `voiceio uninstall`, then `voiceio setup` |
 
 Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
+
+## Roadmap
+
+- **A landing page** — voiceio as local, open-source, private dictation that learns from you.
+- **Continuous learning** — `learn maintain` on a timer: label new dictation while idle, retrain when enough piles up, and promote only what wins on your held-out clips.
+- **Unbounded vocabulary** — move to a decoder whose biasing has no token cap (see [model choice](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it)).
+- **One model everywhere** — sync your fine-tune to your phone server and laptops, peer to peer.
 
 ## Contributing
 
