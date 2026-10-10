@@ -2,4 +2,16 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://voiceio.dev/</loc></url>
   <url><loc>https://voiceio.dev/llms.txt</loc></url>
+  <url><loc>https://voiceio.dev/vs/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/vs/voxtype/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/vs/aqua-voice/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/vs/wispr-flow/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/vs/superwhisper/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/vs/dragon/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/vs/nerd-dictation/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/vs/talon/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/vs/whisper/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/linux-voice-dictation/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/offline-speech-to-text/</loc><lastmod>2026-10-10</lastmod></url>
+  <url><loc>https://voiceio.dev/whisper-dictation-wayland/</loc><lastmod>2026-10-10</lastmod></url>
 </urlset>

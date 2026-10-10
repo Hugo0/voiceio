@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio vs Dragon: a Dragon alternative for Linux</title>
+<meta name="description" content="Dragon vs voiceio: Nuance&#x27;s speech recognition for Windows (no Linux, Mac discontinued) vs free, local, open-source Linux dictation. Checked 2026-10-10.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/vs/dragon/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/vs/dragon/">
+<meta property="og:title" content="voiceio vs Dragon: a Dragon alternative for Linux">
+<meta property="og:description" content="Dragon vs voiceio: Nuance&#x27;s speech recognition for Windows (no Linux, Mac discontinued) vs free, local, open-source Linux dictation. Checked 2026-10-10.">
+<meta property="og:image" content="https://voiceio.dev/og/dragon.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio vs Dragon: a Dragon alternative for Linux">
+<meta name="twitter:description" content="Dragon vs voiceio: Nuance&#x27;s speech recognition for Windows (no Linux, Mac discontinued) vs free, local, open-source Linux dictation. Checked 2026-10-10.">
+<meta name="twitter:image" content="https://voiceio.dev/og/dragon.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://voiceio.dev/vs/"}, {"@type": "ListItem", "position": 3, "name": "voiceio vs Dragon", "item": "https://voiceio.dev/vs/dragon/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is there a Dragon NaturallySpeaking for Linux?", "acceptedAnswer": {"@type": "Answer", "text": "No. Dragon's current desktop editions require Windows 10 or 11, and no Linux client is listed (checked 2026-10-10). On Linux, voiceio, Voxtype and nerd-dictation provide dictation; Talon provides voice control on X11."}}, {"@type": "Question", "name": "Does voiceio replace Dragon's voice commands?", "acceptedAnswer": {"@type": "Answer", "text": "No. voiceio handles dictation and a few editing commands (\"new line\", \"scratch that\", \"correct that\"). For hands-free control of the whole computer, look at Talon."}}, {"@type": "Question", "name": "Does voiceio learn my voice like Dragon?", "acceptedAnswer": {"@type": "Answer", "text": "In a different way. Dragon adapts its profile as you dictate. voiceio keeps your recordings (only if you opt in), trains a LoRA fine-tune of Whisper on them on your CPU, and switches to it only when it beats the current model on held-out clips."}}, {"@type": "Question", "name": "Is Dragon still available for Mac?", "acceptedAnswer": {"@type": "Answer", "text": "No. Nuance's support site says Dragon Professional Individual for Mac was discontinued effective 22 October 2018."}}]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/" aria-current="page">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li><a href="/vs/">Compare</a></li><li aria-current="page">voiceio vs Dragon</li></ol></nav>
+<header class="head">
+  <span class="label">// compare</span>
+  <h1>voiceio vs Dragon</h1>
+  <p class="lede">Dragon, from Nuance (part of Microsoft), is long-established speech recognition for Windows, with locally installed editions (Professional, Legal, Law Enforcement v16), cloud editions (Professional Anywhere, Dragon Medical One) and a mobile app. It adapts to a single speaker's voice and offers full hands-free control of the computer. Dragon for Mac was discontinued in 2018 and there is no Linux version. voiceio is free, open-source dictation for Linux that also learns your voice, by fine-tuning a Whisper model on your recordings, but it is a dictation tool, not a hands-free control system.</p>
+  <div class="meta"><span class="chip">Dragon: Windows</span><span class="chip">voiceio: Linux</span><span class="chip">both adapt to your voice</span><span class="chip on">checked 2026-10-10</span></div>
+</header>
+
+<section class="part" aria-labelledby="choose">
+  <span class="label">// which one</span>
+  <h2 id="choose">Which should you use?</h2>
+  <div class="choose">
+    <div>
+      <span class="label">Dragon</span>
+      <h3>Choose Dragon if…</h3>
+      <ul>
+      <li>You are on Windows and need hands-free control: open apps, navigate menus, mouse grid, macros and scripting.</li>
+      <li>You need an accessibility-certified tool (Section 508) that works with screen readers such as JAWS.</li>
+      <li>You work in legal, law enforcement or medicine and want a domain edition and vocabulary.</li>
+      <li>Your organization needs managed deployment, shared vocabularies and enterprise support.</li>
+      </ul>
+    </div>
+    <div class="us">
+      <span class="label">voiceio</span>
+      <h3>Choose voiceio if…</h3>
+      <ul>
+      <li>You are on Linux, where Dragon has no version.</li>
+      <li>You want something free and open source, with no license to buy.</li>
+      <li>You want voice adaptation that runs on your own hardware and that you can measure: <code>voiceio learn eval</code> scores every model on clips it never trained on.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="features">
+  <span class="label">// side by side</span>
+  <h2 id="features">Feature comparison</h2>
+  <div class="table-scroll"><table class="cmp">
+    <caption class="label" style="text-align:left;padding:12px 14px 0">voiceio vs Dragon · checked 2026-10-10</caption>
+    <thead><tr><th scope="col">&nbsp;</th><th scope="col">voiceio 1.5</th><th scope="col">Dragon</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Platforms</th><td class="us">Linux: Wayland and X11 (GNOME, KDE, Hyprland, sway, i3). Untested best-effort path on Windows/macOS</td><td>Windows 10/11 (desktop and cloud editions); iOS and Android (Dragon Anywhere Mobile, US and Canada). No Linux; Mac discontinued 2018</td></tr>
+      <tr><th scope="row">Price</th><td class="us">Free, MIT</td><td>No public price on the official pages (contact sales; subscriptions for cloud editions)</td></tr>
+      <tr><th scope="row">Where speech is decoded</th><td class="us">On your computer. Optional text-only cloud cleanup, off by default</td><td>Local for v16 desktop editions; cloud (Azure) for Anywhere and Medical One</td></tr>
+      <tr><th scope="row">Speech models</th><td class="us">faster-whisper small (default), medium, large-v3-turbo, distil-large-v3; experimental Parakeet and whisper.cpp server</td><td>Proprietary Nuance deep-learning engine</td></tr>
+      <tr><th scope="row">Open source</th><td class="us">Yes (MIT)</td><td>No</td></tr>
+      <tr><th scope="row">Live typing into apps</th><td class="us">Yes: underlined preview in the focused app through IBus, corrected in place, committed when you stop</td><td>Yes: &quot;words appear on the computer screen, instantly&quot;</td></tr>
+      <tr><th scope="row">Custom vocabulary</th><td class="us">Hotwords ranked by use (about 35 per decode) plus find-and-replace corrections</td><td>Custom words, import/export, shared word lists, domain vocabularies</td></tr>
+      <tr><th scope="row">Learns from you</th><td class="us">Yes: optional LoRA fine-tune on your own recordings, on CPU, kept only if it wins on held-out clips</td><td>Yes: adapts to the user&#x27;s voice and most-used words</td></tr>
+      <tr><th scope="row">Voice commands</th><td class="us">Dictation commands only (&quot;new line&quot;, &quot;scratch that&quot;, &quot;correct that&quot;)</td><td>Full hands-free operation, mouse grid, macros, scripting</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Dragon facts are from its official site, docs or repository, read on 2026-10-10 (sources below). Prices are as listed on that date and can change. voiceio facts are from its <a href="https://github.com/Hugo0/voiceio#readme">README</a>. Spotted something out of date? <a href="https://github.com/Hugo0/voiceio/issues/new">Open an issue</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Is there a Dragon NaturallySpeaking for Linux?</summary>
+  <p>No. Dragon's current desktop editions require Windows 10 or 11, and no Linux client is listed (checked 2026-10-10). On Linux, voiceio, <a href="/vs/voxtype/">Voxtype</a> and <a href="/vs/nerd-dictation/">nerd-dictation</a> provide dictation; <a href="/vs/talon/">Talon</a> provides voice control on X11.</p>
+</details>
+<details>
+  <summary>Does voiceio replace Dragon&#x27;s voice commands?</summary>
+  <p>No. voiceio handles dictation and a few editing commands ("new line", "scratch that", "correct that"). For hands-free control of the whole computer, look at <a href="/vs/talon/">Talon</a>.</p>
+</details>
+<details>
+  <summary>Does voiceio learn my voice like Dragon?</summary>
+  <p>In a different way. Dragon adapts its profile as you dictate. voiceio keeps your recordings (only if you opt in), trains a LoRA fine-tune of Whisper on them on your CPU, and switches to it only when it beats the current model on held-out clips.</p>
+</details>
+<details>
+  <summary>Is Dragon still available for Mac?</summary>
+  <p>No. Nuance's support site says Dragon Professional Individual for Mac was discontinued effective 22 October 2018.</p>
+</details>
+</div>
+</section>
+
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+
+<section class="part sources" aria-labelledby="src">
+  <span class="label">// sources · last checked 2026-10-10</span>
+  <h2 id="src" style="font-size:20px">Sources</h2>
+  <ul>
+    <li><a href="https://dragon.nuance.com/en-us/dragon.html" rel="nofollow">Dragon product lineup</a></li>
+    <li><a href="https://dragon.nuance.com/en-us/dragon-professional" rel="nofollow">Dragon Professional</a></li>
+    <li><a href="https://dragon.nuance.com/shared/data-sheets/ds-dragon-professional-v16-en-us.pdf" rel="nofollow">Dragon Professional v16 data sheet</a></li>
+    <li><a href="https://dragon.nuance.com/shared/data-sheets/fm-dragon-professional-v16-and-dragon-professional-anywhere-comparison-en-us.pdf" rel="nofollow">Professional v16 vs Anywhere comparison</a></li>
+    <li><a href="https://dragon.nuance.com/en-us/dragon-professional-anywhere" rel="nofollow">Dragon Professional Anywhere</a></li>
+    <li><a href="https://dragon.nuance.com/en-us/accessibility-solutions-for-business" rel="nofollow">Dragon accessibility</a></li>
+    <li><a href="https://nuance.custhelp.com/app/answers/detail/a_id/27843" rel="nofollow">Dragon for Mac discontinued</a></li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="more">
+  <span class="label">// more comparisons</span>
+  <h2 id="more" style="font-size:24px">Other comparisons</h2>
+  <div class="cards">
+    <a href="/vs/voxtype/"><span class="label">compare</span><b>voiceio vs Voxtype</b></a>
+    <a href="/vs/aqua-voice/"><span class="label">compare</span><b>voiceio vs Aqua Voice</b></a>
+    <a href="/vs/wispr-flow/"><span class="label">compare</span><b>voiceio vs Wispr Flow</b></a>
+    <a href="/vs/superwhisper/"><span class="label">compare</span><b>voiceio vs Superwhisper</b></a>
+    <a href="/vs/nerd-dictation/"><span class="label">compare</span><b>voiceio vs nerd-dictation</b></a>
+    <a href="/vs/talon/"><span class="label">compare</span><b>voiceio vs Talon</b></a>
+    <a href="/vs/whisper/"><span class="label">compare</span><b>voiceio and Whisper</b></a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Offline speech to text on Linux, no cloud | voiceio</title>
+<meta name="description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry. Setup steps and model choices.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/offline-speech-to-text/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/offline-speech-to-text/">
+<meta property="og:title" content="Offline speech to text on Linux, no cloud | voiceio">
+<meta property="og:description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry. Setup steps and model choices.">
+<meta property="og:image" content="https://voiceio.dev/og/offline-speech-to-text.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Offline speech to text on Linux, no cloud | voiceio">
+<meta name="twitter:description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry. Setup steps and model choices.">
+<meta name="twitter:image" content="https://voiceio.dev/og/offline-speech-to-text.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Offline speech to text", "item": "https://voiceio.dev/offline-speech-to-text/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Can speech to text work without internet?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Models such as Whisper run on an ordinary CPU. voiceio downloads the model once, from its own source, and then decodes everything on your computer."}}, {"@type": "Question", "name": "Is offline dictation as accurate as cloud dictation?", "acceptedAnswer": {"@type": "Answer", "text": "It depends on the model and your speech. Larger local models (medium, large-v3-turbo) are more accurate but slower without a GPU. voiceio's answer for names and jargon is to fine-tune the local model on your own voice; voiceio learn eval measures the result on your clips."}}, {"@type": "Question", "name": "What does voiceio send over the network?", "acceptedAnswer": {"@type": "Answer", "text": "Nothing by default: no account, no telemetry, and audio never leaves the machine. Two optional, off-by-default features send text (never audio) to an LLM endpoint you configure."}}, {"@type": "Question", "name": "Do I need a GPU?", "acceptedAnswer": {"@type": "Answer", "text": "No. The default small model runs at about 5x realtime on a laptop CPU, per the README, and fine-tuning runs on CPU too. A GPU makes large-v3-turbo practical."}}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "voiceio", "description": "Local, open-source voice dictation for Linux that fine-tunes itself on your voice.", "url": "https://voiceio.dev/", "applicationCategory": "UtilitiesApplication", "operatingSystem": "Linux", "license": "https://opensource.org/licenses/MIT", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "downloadUrl": "https://pypi.org/project/python-voiceio/", "sameAs": ["https://github.com/Hugo0/voiceio", "https://pypi.org/project/python-voiceio/"]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li aria-current="page">Offline speech to text</li></ol></nav>
+<header class="head">
+  <span class="label">// guide · offline</span>
+  <h1>Offline speech to text</h1>
+  <p class="lede">Offline speech to text means the speech model runs on your own computer, so audio never goes to a server and dictation works without a connection. On Linux, voiceio does this with Whisper: after a one-time model download it decodes your speech locally, types the text into the focused app, and has no account and no telemetry.</p>
+  <div class="meta"><span class="chip on">no upload</span><span class="chip on">no account</span><span class="chip on">no telemetry</span><span class="chip">CPU is enough</span></div>
+</header>
+
+<div class="prose">
+<section class="part" aria-labelledby="how">
+  <span class="label">// how to</span>
+  <h2 id="how">Set up offline dictation</h2>
+  <ol class="steps">
+  <li><b>Install the system packages</b> (a C toolchain, PortAudio, IBus). On Debian or Ubuntu:
+<pre><code><span class="p">$</span> sudo apt install pipx build-essential python3-dev \
+    portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi</code></pre>
+  Fedora, Arch and NixOS commands are in the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>.</li>
+  <li><b>Install voiceio</b> with the desktop extra (microphone, hotkeys, tray):
+<pre><code><span class="p">$</span> pipx install 'python-voiceio[desktop]'</code></pre></li>
+  <li><b>Run the guided setup.</b> It downloads the speech model, sets your hotkey and installs a systemd user service so voiceio starts on login:
+<pre><code><span class="p">$</span> voiceio setup</code></pre></li>
+  <li><b>Dictate.</b> Press the hotkey you picked during setup in any app, speak, and press it again. <code>voiceio doctor</code> shows what works; <code>voiceio doctor --fix</code> repairs what it can.</li>
+</ol>
+  <p>Once the model is downloaded, unplug the network and dictate: nothing changes. To pick a different local model:</p>
+<pre><code><span class="p">$</span> voiceio models list          <span class="c"># known models and which is active</span>
+<span class="p">$</span> voiceio models use medium    <span class="c"># better on names, about 2.5x slower</span></code></pre>
+</section>
+
+<section class="part" aria-labelledby="models">
+  <span class="label">// models</span>
+  <h2 id="models">Local models voiceio can use</h2>
+  <div class="table-scroll"><table class="cmp">
+    <thead><tr><th scope="col">Model</th><th scope="col">Runtime</th><th scope="col">Notes (README)</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">small</th><td>faster-whisper</td><td>Default. About 5x realtime on a laptop CPU</td></tr>
+      <tr><th scope="row">medium</th><td>faster-whisper</td><td>Better on names, about 2.5x slower</td></tr>
+      <tr><th scope="row">large-v3-turbo</th><td>faster-whisper</td><td>Most accurate Whisper option for dictation; wants a GPU</td></tr>
+      <tr><th scope="row">distil-large-v3</th><td>faster-whisper</td><td>English only</td></tr>
+      <tr><th scope="row">Parakeet TDT 0.6b v3</th><td>sherpa-onnx</td><td>Experimental. Fast, no vocabulary biasing yet</td></tr>
+      <tr><th scope="row">whisper.cpp server</th><td>whisper.cpp</td><td>Experimental. E.g. a Vulkan build on an AMD iGPU</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">voiceio ships no model weights; each model downloads from its own source under its own license.</p>
+</section>
+
+<section class="part" aria-labelledby="data">
+  <span class="label">// your data</span>
+  <h2 id="data">What stays on your disk</h2>
+  <p>Everything voiceio keeps is plain files in <code>~/.config/voiceio</code>, <code>~/.local/state/voiceio</code> and <code>~/.local/share/voiceio</code>, created readable only by you. Recordings are off unless you turn them on; you need them only for fine-tuning. Logs record sizes and timings, never your words.</p>
+  <p>For a phone or another device, <code>python -m voiceio.server</code> serves the same engine over HTTP and WebSocket on a machine you control. It binds to localhost by default.</p>
+</section>
+
+<section class="part" aria-labelledby="others">
+  <span class="label">// alternatives</span>
+  <h2 id="others">Other offline options</h2>
+  <ul class="ticks">
+  <li><a href="/vs/voxtype/">Voxtype</a>: a local, MIT-licensed Rust dictation tool for Linux with many speech engines and GPU builds.</li>
+  <li><a href="/vs/nerd-dictation/">nerd-dictation</a>: a single-file Python script using the offline VOSK engine.</li>
+  <li><a href="/vs/talon/">Talon</a>: hands-free computer control by voice; on Linux it runs on X11 only.</li>
+  <li><a href="/vs/whisper/">Whisper, whisper.cpp, faster-whisper</a>: speech models and libraries that transcribe audio but do not type into apps by themselves.</li>
+</ul>
+<p class="muted">Aqua Voice, Wispr Flow and Dragon do not offer Linux apps, and Superwhisper has a prerelease Linux build for Omarchy only (all checked 2026-10-10). See the <a href="/vs/">comparison hub</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Can speech to text work without internet?</summary>
+  <p>Yes. Models such as Whisper run on an ordinary CPU. voiceio downloads the model once, from its own source, and then decodes everything on your computer.</p>
+</details>
+<details>
+  <summary>Is offline dictation as accurate as cloud dictation?</summary>
+  <p>It depends on the model and your speech. Larger local models (medium, large-v3-turbo) are more accurate but slower without a GPU. voiceio's answer for names and jargon is to fine-tune the local model on your own voice; <code>voiceio learn eval</code> measures the result on your clips.</p>
+</details>
+<details>
+  <summary>What does voiceio send over the network?</summary>
+  <p>Nothing by default: no account, no telemetry, and audio never leaves the machine. Two optional, off-by-default features send text (never audio) to an LLM endpoint you configure.</p>
+</details>
+<details>
+  <summary>Do I need a GPU?</summary>
+  <p>No. The default <code>small</code> model runs at about 5x realtime on a laptop CPU, per the README, and fine-tuning runs on CPU too. A GPU makes <code>large-v3-turbo</code> practical.</p>
+</details>
+</div>
+</section>
+</div>
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

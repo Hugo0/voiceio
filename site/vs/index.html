@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio vs other dictation tools: comparisons</title>
+<meta name="description" content="How voiceio compares with Voxtype, Wispr Flow, Aqua Voice, Superwhisper, Dragon, nerd-dictation, Talon and Whisper. Sourced, checked 2026-10-10.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/vs/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/vs/">
+<meta property="og:title" content="voiceio vs other dictation tools: comparisons">
+<meta property="og:description" content="How voiceio compares with Voxtype, Wispr Flow, Aqua Voice, Superwhisper, Dragon, nerd-dictation, Talon and Whisper. Sourced, checked 2026-10-10.">
+<meta property="og:image" content="https://voiceio.dev/og/vs.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio vs other dictation tools: comparisons">
+<meta name="twitter:description" content="How voiceio compares with Voxtype, Wispr Flow, Aqua Voice, Superwhisper, Dragon, nerd-dictation, Talon and Whisper. Sourced, checked 2026-10-10.">
+<meta name="twitter:image" content="https://voiceio.dev/og/vs.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://voiceio.dev/vs/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "What is the best voice dictation for Linux?", "acceptedAnswer": {"@type": "Answer", "text": "It depends on what you need. For local dictation into any app on Wayland or X11, voiceio and Voxtype are the most complete open-source options; nerd-dictation is the smallest; Talon is for hands-free control on X11. Wispr Flow, Aqua Voice and Dragon do not run on Linux."}}, {"@type": "Question", "name": "Which dictation tools work offline?", "acceptedAnswer": {"@type": "Answer", "text": "voiceio, Voxtype, nerd-dictation, Superwhisper with local models, and Dragon's locally installed Windows editions. Wispr Flow and Aqua Voice transcribe in the cloud."}}, {"@type": "Question", "name": "How were these comparisons made?", "acceptedAnswer": {"@type": "Answer", "text": "From each product's official website, documentation, pricing page or repository, read on 2026-10-10, with links on every page. Where a fact was not stated, we say so rather than guess."}}]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/" aria-current="page">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li aria-current="page">Compare</li></ol></nav>
+<header class="head">
+  <span class="label">// compare</span>
+  <h1>voiceio vs other dictation tools</h1>
+  <p class="lede">voiceio is free, open-source voice dictation for Linux. It decodes speech on your own computer, streams a live preview into the focused app, and can fine-tune its model on your own voice. Here is how it compares with other dictation tools, with sources for every claim. Several are excellent on platforms voiceio does not support; we say so.</p>
+  <div class="meta"><span class="chip on">checked 2026-10-10</span><span class="chip">sources on every page</span></div>
+</header>
+
+<section class="part hub" aria-labelledby="table">
+  <span class="label">// at a glance</span>
+  <h2 id="table">At a glance</h2>
+  <div class="table-scroll"><table class="cmp">
+    <thead><tr><th scope="col">Tool</th><th scope="col">Platforms</th><th scope="col">Price</th><th scope="col">Where speech is decoded</th><th scope="col">Open source</th><th scope="col">Live typing into apps</th><th scope="col">Learns from you</th></tr></thead>
+    <tbody>
+      <tr><th scope="row"><b>voiceio</b></th><td class="us">Linux (Wayland, X11)</td><td class="us">Free</td><td class="us">Local</td><td class="us">Yes, MIT</td><td class="us">Yes, in-app preview</td><td class="us">Yes, fine-tunes on your voice</td></tr>
+      <tr><th scope="row"><a href="/vs/voxtype/">Voxtype</a></th><td>Linux; macOS beta</td><td>Free</td><td>Local by default</td><td>Yes, MIT</td><td>Optional streaming mode</td><td>Not stated</td></tr>
+      <tr><th scope="row"><a href="/vs/aqua-voice/">Aqua Voice</a></th><td>Mac, Windows, iOS, Android</td><td>Free tier; Pro $8/mo billed yearly</td><td>Cloud</td><td>No</td><td>Max plan, in Aqua&#x27;s toolbar</td><td>Not stated</td></tr>
+      <tr><th scope="row"><a href="/vs/wispr-flow/">Wispr Flow</a></th><td>Mac, Windows, iOS, Android</td><td>Free tier; Pro $12/mo billed yearly</td><td>Cloud</td><td>No</td><td>No, inserts after you stop</td><td>Auto-adds corrected words</td></tr>
+      <tr><th scope="row"><a href="/vs/superwhisper/">Superwhisper</a></th><td>Mac, Windows, iOS, Android; Linux preview (Omarchy)</td><td>Free tier; Pro $8.49/mo</td><td>Local or cloud</td><td>No</td><td>Preview in its window (Pro)</td><td>Not stated</td></tr>
+      <tr><th scope="row"><a href="/vs/dragon/">Dragon</a></th><td>Windows; mobile apps</td><td>No public price</td><td>Local or cloud, by edition</td><td>No</td><td>Yes</td><td>Yes, adapts to your voice</td></tr>
+      <tr><th scope="row"><a href="/vs/nerd-dictation/">nerd-dictation</a></th><td>Linux</td><td>Free</td><td>Local (VOSK)</td><td>Yes, GPL-3.0</td><td>Yes, types as you speak</td><td>Not stated</td></tr>
+      <tr><th scope="row"><a href="/vs/talon/">Talon</a></th><td>macOS, Windows, Linux X11</td><td>Free; Patreon tier</td><td>Engine ships with app</td><td>No</td><td>Dictation mode</td><td>Not stated</td></tr>
+      <tr><th scope="row"><a href="/vs/whisper/">Whisper</a></th><td>Libraries, many platforms</td><td>Free</td><td>Wherever you run it</td><td>Yes, MIT</td><td>Does not type into apps</td><td>Not built in</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Summaries of each product's official pages as read on 2026-10-10. Prices are the lowest paid tier on the official pricing page that day. Full details and links are on each comparison page.</p>
+</section>
+
+<section class="part" aria-labelledby="pages">
+  <span class="label">// one by one</span>
+  <h2 id="pages">Detailed comparisons</h2>
+  <div class="cards">
+    <a href="/vs/voxtype/"><span class="label">compare</span><b>voiceio vs Voxtype</b><span>Local, MIT-licensed Linux dictation with nine engines and GPU builds.</span></a>
+    <a href="/vs/aqua-voice/"><span class="label">compare</span><b>voiceio vs Aqua Voice</b><span>Cloud dictation app for Mac, Windows and phones.</span></a>
+    <a href="/vs/wispr-flow/"><span class="label">compare</span><b>voiceio vs Wispr Flow</b><span>Cloud dictation app with AI cleanup; no Linux app.</span></a>
+    <a href="/vs/superwhisper/"><span class="label">compare</span><b>voiceio vs Superwhisper</b><span>Local and cloud models on Apple platforms and Windows; Linux preview.</span></a>
+    <a href="/vs/dragon/"><span class="label">compare</span><b>voiceio vs Dragon</b><span>Speech recognition and voice control for Windows.</span></a>
+    <a href="/vs/nerd-dictation/"><span class="label">compare</span><b>voiceio vs nerd-dictation</b><span>A single-file, offline VOSK dictation script for Linux.</span></a>
+    <a href="/vs/talon/"><span class="label">compare</span><b>voiceio vs Talon</b><span>Hands-free computer control by voice; X11 only on Linux.</span></a>
+    <a href="/vs/whisper/"><span class="label">compare</span><b>voiceio and Whisper</b><span>The model voiceio is built on, and the libraries that run it.</span></a>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="guides">
+  <span class="label">// guides</span>
+  <h2 id="guides">Guides</h2>
+  <div class="cards">
+    <a href="/linux-voice-dictation/"><span class="label">guide</span><b>Voice dictation on Linux</b><span>Set up dictation on Wayland or X11 in four steps.</span></a>
+    <a href="/offline-speech-to-text/"><span class="label">guide</span><b>Offline speech to text</b><span>Dictation that never sends audio anywhere.</span></a>
+    <a href="/whisper-dictation-wayland/"><span class="label">guide</span><b>Whisper dictation on Wayland</b><span>How Whisper gets text into Wayland apps.</span></a>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>What is the best voice dictation for Linux?</summary>
+  <p>It depends on what you need. For local dictation into any app on Wayland or X11, voiceio and <a href="/vs/voxtype/">Voxtype</a> are the most complete open-source options; <a href="/vs/nerd-dictation/">nerd-dictation</a> is the smallest; <a href="/vs/talon/">Talon</a> is for hands-free control on X11. Wispr Flow, Aqua Voice and Dragon do not run on Linux.</p>
+</details>
+<details>
+  <summary>Which dictation tools work offline?</summary>
+  <p>voiceio, Voxtype, nerd-dictation, Superwhisper with local models, and Dragon's locally installed Windows editions. Wispr Flow and Aqua Voice transcribe in the cloud.</p>
+</details>
+<details>
+  <summary>How were these comparisons made?</summary>
+  <p>From each product's official website, documentation, pricing page or repository, read on 2026-10-10, with links on every page. Where a fact was not stated, we say so rather than guess.</p>
+</details>
+</div>
+</section>
+
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

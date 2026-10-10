@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio vs Aqua Voice: offline Linux alternative</title>
+<meta name="description" content="Aqua Voice vs voiceio: a cloud dictation app for Mac, Windows and phones vs local, open-source dictation for Linux. Checked 2026-10-10.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/vs/aqua-voice/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/vs/aqua-voice/">
+<meta property="og:title" content="voiceio vs Aqua Voice: offline Linux alternative">
+<meta property="og:description" content="Aqua Voice vs voiceio: a cloud dictation app for Mac, Windows and phones vs local, open-source dictation for Linux. Checked 2026-10-10.">
+<meta property="og:image" content="https://voiceio.dev/og/aqua-voice.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio vs Aqua Voice: offline Linux alternative">
+<meta name="twitter:description" content="Aqua Voice vs voiceio: a cloud dictation app for Mac, Windows and phones vs local, open-source dictation for Linux. Checked 2026-10-10.">
+<meta name="twitter:image" content="https://voiceio.dev/og/aqua-voice.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://voiceio.dev/vs/"}, {"@type": "ListItem", "position": 3, "name": "voiceio vs Aqua Voice", "item": "https://voiceio.dev/vs/aqua-voice/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Does Aqua Voice work on Linux?", "acceptedAnswer": {"@type": "Answer", "text": "No. Aqua's own comparison page says it runs on Mac, Windows, iPhone and Android (checked 2026-10-10). A separate Aqua CLI installs on Linux, but it manages settings and transcribes files rather than providing live dictation."}}, {"@type": "Question", "name": "Is there an offline Aqua Voice alternative?", "acceptedAnswer": {"@type": "Answer", "text": "voiceio runs its speech model on your computer and works offline after a one-time model download. On Linux, Voxtype and nerd-dictation are also local."}}, {"@type": "Question", "name": "Is Aqua Voice more accurate than Whisper?", "acceptedAnswer": {"@type": "Answer", "text": "Aqua publishes benchmarks for its Avalon model, including Open ASR Leaderboard results. voiceio's approach is different: fine-tune a local Whisper model on your own recordings and measure it on your held-out clips with voiceio learn eval."}}, {"@type": "Question", "name": "How much does Aqua Voice cost?", "acceptedAnswer": {"@type": "Answer", "text": "As listed on aquavoice.com/pricing on 2026-10-10: a free tier with 1,000 words, Pro at $8/month billed yearly ($10 monthly), Max at $24/month billed yearly ($30 monthly), and Business from $19 per seat per month billed yearly. voiceio is free."}}]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/" aria-current="page">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li><a href="/vs/">Compare</a></li><li aria-current="page">voiceio vs Aqua Voice</li></ol></nav>
+<header class="head">
+  <span class="label">// compare</span>
+  <h1>voiceio vs Aqua Voice</h1>
+  <p class="lede">Aqua Voice is a polished commercial dictation app for Mac, Windows, iPhone and Android. It runs its own speech model, Avalon, in the cloud, adds language-model formatting, and can read on-screen context to get names and code right. voiceio is free, open-source dictation for Linux that decodes speech on your own computer and fine-tunes itself on your voice. Aqua does not run on Linux and needs a connection for dictation; voiceio runs only on Linux, and does not try to match Aqua's AI editing features.</p>
+  <div class="meta"><span class="chip">Aqua: cloud</span><span class="chip">voiceio: local</span><span class="chip">different platforms</span><span class="chip on">checked 2026-10-10</span></div>
+</header>
+
+<section class="part" aria-labelledby="choose">
+  <span class="label">// which one</span>
+  <h2 id="choose">Which should you use?</h2>
+  <div class="choose">
+    <div>
+      <span class="label">Aqua Voice</span>
+      <h3>Choose Aqua Voice if…</h3>
+      <ul>
+      <li>You use macOS, Windows, iPhone or Android, and want one subscription across them.</li>
+      <li>You want AI formatting and editing: custom instructions, Edit Mode (rewrite selected text by voice), Deep Context from what is on screen.</li>
+      <li>You want a managed product with team billing, SSO, SOC 2 Type II and ISO 27001.</li>
+      <li>You dictate in many languages (Aqua lists 49).</li>
+      </ul>
+    </div>
+    <div class="us">
+      <span class="label">voiceio</span>
+      <h3>Choose voiceio if…</h3>
+      <ul>
+      <li>You are on Linux. Aqua's own comparison page says it does not run there.</li>
+      <li>You want audio to stay on your machine and dictation to work offline.</li>
+      <li>You want software you can read and change (MIT), with no account and no word limits.</li>
+      <li>You want the model itself to learn your names from your own voice, not only a word list.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="features">
+  <span class="label">// side by side</span>
+  <h2 id="features">Feature comparison</h2>
+  <div class="table-scroll"><table class="cmp">
+    <caption class="label" style="text-align:left;padding:12px 14px 0">voiceio vs Aqua Voice · checked 2026-10-10</caption>
+    <thead><tr><th scope="col">&nbsp;</th><th scope="col">voiceio 1.5</th><th scope="col">Aqua Voice</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Platforms</th><td class="us">Linux: Wayland and X11 (GNOME, KDE, Hyprland, sway, i3). Untested best-effort path on Windows/macOS</td><td>Mac, Windows 10/11, iOS 17+, Android 10+. Not Linux (a CLI for settings and file transcription installs on Linux)</td></tr>
+      <tr><th scope="row">Price</th><td class="us">Free, MIT</td><td>Free (1,000 words); Pro $8/mo yearly or $10 monthly; Max $24/mo yearly or $30 monthly; Business from $19/seat/mo (pricing page, 2026-10-10)</td></tr>
+      <tr><th scope="row">Where speech is decoded</th><td class="us">On your computer. Optional text-only cloud cleanup, off by default</td><td>Cloud; internet needed for cloud dictation</td></tr>
+      <tr><th scope="row">Speech models</th><td class="us">faster-whisper small (default), medium, large-v3-turbo, distil-large-v3; experimental Parakeet and whisper.cpp server</td><td>Own model, Avalon, plus language-model post-processing; Realtime mode uses a third-party provider</td></tr>
+      <tr><th scope="row">Open source</th><td class="us">Yes (MIT)</td><td>No</td></tr>
+      <tr><th scope="row">Live typing into apps</th><td class="us">Yes: underlined preview in the focused app through IBus, corrected in place, committed when you stop</td><td>Default inserts after you stop. Realtime Mode (Max plan) shows words live in Aqua&#x27;s toolbar; text lands in the app when you finish</td></tr>
+      <tr><th scope="row">Custom vocabulary</th><td class="us">Hotwords ranked by use (about 35 per decode) plus find-and-replace corrections</td><td>Dictionary, replacements, custom instructions, synced across devices</td></tr>
+      <tr><th scope="row">Learns from you</th><td class="us">Yes: optional LoRA fine-tune on your own recordings, on CPU, kept only if it wins on held-out clips</td><td>Not stated (manual dictionary; optional screen context)</td></tr>
+      <tr><th scope="row">Voice commands</th><td class="us">Dictation commands only (&quot;new line&quot;, &quot;scratch that&quot;, &quot;correct that&quot;)</td><td>Edit Mode, &quot;Send it&quot; (Max), Computer Control beta on macOS</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Aqua Voice facts are from its official site, docs or repository, read on 2026-10-10 (sources below). Prices are as listed on that date and can change. voiceio facts are from its <a href="https://github.com/Hugo0/voiceio#readme">README</a>. Spotted something out of date? <a href="https://github.com/Hugo0/voiceio/issues/new">Open an issue</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Does Aqua Voice work on Linux?</summary>
+  <p>No. Aqua's own comparison page says it runs on Mac, Windows, iPhone and Android (checked 2026-10-10). A separate Aqua CLI installs on Linux, but it manages settings and transcribes files rather than providing live dictation.</p>
+</details>
+<details>
+  <summary>Is there an offline Aqua Voice alternative?</summary>
+  <p>voiceio runs its speech model on your computer and works offline after a one-time model download. On Linux, <a href="/vs/voxtype/">Voxtype</a> and <a href="/vs/nerd-dictation/">nerd-dictation</a> are also local.</p>
+</details>
+<details>
+  <summary>Is Aqua Voice more accurate than Whisper?</summary>
+  <p>Aqua publishes benchmarks for its Avalon model, including Open ASR Leaderboard results. voiceio's approach is different: fine-tune a local Whisper model on your own recordings and measure it on your held-out clips with <code>voiceio learn eval</code>.</p>
+</details>
+<details>
+  <summary>How much does Aqua Voice cost?</summary>
+  <p>As listed on aquavoice.com/pricing on 2026-10-10: a free tier with 1,000 words, Pro at $8/month billed yearly ($10 monthly), Max at $24/month billed yearly ($30 monthly), and Business from $19 per seat per month billed yearly. voiceio is free.</p>
+</details>
+</div>
+</section>
+
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+
+<section class="part sources" aria-labelledby="src">
+  <span class="label">// sources · last checked 2026-10-10</span>
+  <h2 id="src" style="font-size:20px">Sources</h2>
+  <ul>
+    <li><a href="https://aquavoice.com/pricing" rel="nofollow">Aqua Voice pricing</a></li>
+    <li><a href="https://aquavoice.com/llms.txt" rel="nofollow">Aqua Voice llms.txt</a></li>
+    <li><a href="https://aquavoice.com/vs/openwhispr" rel="nofollow">Aqua vs OpenWhispr (Linux answer)</a></li>
+    <li><a href="https://aquavoice.com/realtime" rel="nofollow">Aqua Realtime</a></li>
+    <li><a href="https://aquavoice.com/info/faq" rel="nofollow">Aqua FAQ</a></li>
+    <li><a href="https://aquavoice.com/info/privacy" rel="nofollow">Aqua privacy policy</a></li>
+    <li><a href="https://aquavoice.com/docs/cli" rel="nofollow">Aqua CLI docs</a></li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="more">
+  <span class="label">// more comparisons</span>
+  <h2 id="more" style="font-size:24px">Other comparisons</h2>
+  <div class="cards">
+    <a href="/vs/voxtype/"><span class="label">compare</span><b>voiceio vs Voxtype</b></a>
+    <a href="/vs/wispr-flow/"><span class="label">compare</span><b>voiceio vs Wispr Flow</b></a>
+    <a href="/vs/superwhisper/"><span class="label">compare</span><b>voiceio vs Superwhisper</b></a>
+    <a href="/vs/dragon/"><span class="label">compare</span><b>voiceio vs Dragon</b></a>
+    <a href="/vs/nerd-dictation/"><span class="label">compare</span><b>voiceio vs nerd-dictation</b></a>
+    <a href="/vs/talon/"><span class="label">compare</span><b>voiceio vs Talon</b></a>
+    <a href="/vs/whisper/"><span class="label">compare</span><b>voiceio and Whisper</b></a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

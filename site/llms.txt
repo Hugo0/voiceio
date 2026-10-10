@@ -32,6 +32,21 @@ The full runbook, with every `--answers` key and a troubleshooting tree keyed on
 - [config.example.toml](https://github.com/Hugo0/voiceio/blob/main/config.example.toml): every config option, commented
 - [UPGRADING.md](https://github.com/Hugo0/voiceio/blob/main/UPGRADING.md): renamed options and behavior changes between releases
 
+## Comparisons
+
+- [voiceio vs other dictation tools](https://voiceio.dev/vs/): comparison table with sources, checked 2026-10-10
+- [voiceio vs Voxtype](https://voiceio.dev/vs/voxtype/): two local, MIT-licensed Linux dictation tools
+- [voiceio vs Aqua Voice](https://voiceio.dev/vs/aqua-voice/): cloud app for Mac, Windows and phones vs local Linux dictation
+- [voiceio vs Wispr Flow](https://voiceio.dev/vs/wispr-flow/): Wispr Flow has no Linux app and transcribes in the cloud
+- [voiceio vs Superwhisper](https://voiceio.dev/vs/superwhisper/): local/cloud models on Apple platforms and Windows, Linux preview for Omarchy
+- [voiceio vs Dragon](https://voiceio.dev/vs/dragon/): Windows speech recognition and voice control vs Linux dictation
+- [voiceio vs nerd-dictation](https://voiceio.dev/vs/nerd-dictation/): VOSK single-file script vs Whisper-based tool
+- [voiceio vs Talon](https://voiceio.dev/vs/talon/): hands-free computer control (X11 only on Linux) vs dictation
+- [voiceio and Whisper](https://voiceio.dev/vs/whisper/): voiceio is built on Whisper; what it adds
+- [Voice dictation on Linux](https://voiceio.dev/linux-voice-dictation/): setup guide for Wayland and X11
+- [Offline speech to text](https://voiceio.dev/offline-speech-to-text/): local dictation with no upload
+- [Whisper dictation on Wayland](https://voiceio.dev/whisper-dictation-wayland/): how text reaches Wayland apps through IBus
+
 ## Optional
 
 - [CONTRIBUTING.md](https://github.com/Hugo0/voiceio/blob/main/CONTRIBUTING.md): architecture and code style, for changing voiceio itself

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio and Whisper: Whisper dictation on Linux</title>
+<meta name="description" content="How voiceio relates to OpenAI Whisper, whisper.cpp and faster-whisper: it builds on Whisper and adds typing, live preview, vocabulary and fine-tuning.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/vs/whisper/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/vs/whisper/">
+<meta property="og:title" content="voiceio and Whisper: Whisper dictation on Linux">
+<meta property="og:description" content="How voiceio relates to OpenAI Whisper, whisper.cpp and faster-whisper: it builds on Whisper and adds typing, live preview, vocabulary and fine-tuning.">
+<meta property="og:image" content="https://voiceio.dev/og/whisper.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio and Whisper: Whisper dictation on Linux">
+<meta name="twitter:description" content="How voiceio relates to OpenAI Whisper, whisper.cpp and faster-whisper: it builds on Whisper and adds typing, live preview, vocabulary and fine-tuning.">
+<meta name="twitter:image" content="https://voiceio.dev/og/whisper.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://voiceio.dev/vs/"}, {"@type": "ListItem", "position": 3, "name": "voiceio and Whisper", "item": "https://voiceio.dev/vs/whisper/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is voiceio just Whisper?", "acceptedAnswer": {"@type": "Answer", "text": "voiceio uses Whisper models for recognition. What it adds is the dictation app: audio capture, hotkeys, streaming decode, typing into the focused app through IBus, text cleanup, vocabulary ranking, corrections and a fine-tuning pipeline."}}, {"@type": "Question", "name": "Which Whisper model does voiceio use?", "acceptedAnswer": {"@type": "Answer", "text": "Whisper small through faster-whisper by default. You can switch to medium, large-v3-turbo or distil-large-v3 with voiceio models use, or point it at a whisper.cpp server."}}, {"@type": "Question", "name": "Why does voiceio still use Whisper rather than a faster model?", "acceptedAnswer": {"@type": "Answer", "text": "Most dictation errors are names and jargon, so the ability to bias the model matters more than raw speed. voiceio's contributors measured Parakeet as faster, but its biasing mode lost speech on real clips; the reasoning is in CONTRIBUTING.md."}}, {"@type": "Question", "name": "Can I use Whisper for dictation on Wayland?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. See Whisper dictation on Wayland."}}]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/" aria-current="page">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li><a href="/vs/">Compare</a></li><li aria-current="page">voiceio and Whisper</li></ol></nav>
+<header class="head">
+  <span class="label">// compare</span>
+  <h1>voiceio and Whisper</h1>
+  <p class="lede">voiceio does not compete with Whisper; it is built on it. OpenAI's Whisper is a speech recognition model (MIT licensed), and whisper.cpp and faster-whisper are fast ways to run it. None of them types into other apps: they turn audio into text. voiceio is the dictation layer on top: a hotkey, a microphone, streaming decode with a live preview in the focused app, vocabulary and corrections, and fine-tuning Whisper on your own voice. It runs faster-whisper by default and can use a whisper.cpp server.</p>
+  <div class="meta"><span class="chip">built on Whisper</span><span class="chip">faster-whisper default</span><span class="chip">whisper.cpp optional</span><span class="chip on">checked 2026-10-10</span></div>
+</header>
+
+<section class="part" aria-labelledby="choose">
+  <span class="label">// which one</span>
+  <h2 id="choose">Which should you use?</h2>
+  <div class="choose">
+    <div>
+      <span class="label">Whisper / libraries</span>
+      <h3>Choose Whisper / libraries if…</h3>
+      <ul>
+      <li>You want to transcribe audio files or build your own pipeline: use Whisper, faster-whisper or whisper.cpp directly.</li>
+      <li>You need a specific runtime or platform: whisper.cpp runs on macOS, iOS, Android, Windows, WebAssembly and more, with Metal, CUDA and Vulkan backends.</li>
+      <li>You want a quick microphone test: whisper.cpp's stream example transcribes the mic continuously.</li>
+      </ul>
+    </div>
+    <div class="us">
+      <span class="label">voiceio</span>
+      <h3>Choose voiceio if…</h3>
+      <ul>
+      <li>You want to dictate into any app on Linux with a hotkey, without writing glue code.</li>
+      <li>You want a live preview while you speak and fast commits for long dictations.</li>
+      <li>You want vocabulary hotwords, correction rules and spoken numbers handled for you.</li>
+      <li>You want Whisper fine-tuned on your voice, evaluated on your own held-out clips.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="features">
+  <span class="label">// side by side</span>
+  <h2 id="features">Feature comparison</h2>
+  <div class="table-scroll"><table class="cmp">
+    <caption class="label" style="text-align:left;padding:12px 14px 0">voiceio vs Whisper / libraries · checked 2026-10-10</caption>
+    <thead><tr><th scope="col">&nbsp;</th><th scope="col">voiceio 1.5</th><th scope="col">Whisper / libraries</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Platforms</th><td class="us">Linux: Wayland and X11 (GNOME, KDE, Hyprland, sway, i3). Untested best-effort path on Windows/macOS</td><td>Libraries and CLIs: Python (Whisper, faster-whisper); C/C++ for many platforms (whisper.cpp)</td></tr>
+      <tr><th scope="row">Price</th><td class="us">Free, MIT</td><td>Free, MIT (code and weights for Whisper)</td></tr>
+      <tr><th scope="row">Where speech is decoded</th><td class="us">On your computer. Optional text-only cloud cleanup, off by default</td><td>Wherever you run it</td></tr>
+      <tr><th scope="row">Speech models</th><td class="us">faster-whisper small (default), medium, large-v3-turbo, distil-large-v3; experimental Parakeet and whisper.cpp server</td><td>tiny, base, small, medium, large-v3, large-v3-turbo (and .en variants)</td></tr>
+      <tr><th scope="row">Open source</th><td class="us">Yes (MIT)</td><td>Yes (MIT)</td></tr>
+      <tr><th scope="row">Live typing into apps</th><td class="us">Yes: underlined preview in the focused app through IBus, corrected in place, committed when you stop</td><td>No typing into apps; whisper.cpp has a mic stream example</td></tr>
+      <tr><th scope="row">Custom vocabulary</th><td class="us">Hotwords ranked by use (about 35 per decode) plus find-and-replace corrections</td><td>initial_prompt (all); hotwords (faster-whisper)</td></tr>
+      <tr><th scope="row">Learns from you</th><td class="us">Yes: optional LoRA fine-tune on your own recordings, on CPU, kept only if it wins on held-out clips</td><td>Not built in; fine-tuning is up to you</td></tr>
+      <tr><th scope="row">Voice commands</th><td class="us">Dictation commands only (&quot;new line&quot;, &quot;scratch that&quot;, &quot;correct that&quot;)</td><td>None</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Whisper facts are from its official site, docs or repository, read on 2026-10-10 (sources below). Prices are as listed on that date and can change. voiceio facts are from its <a href="https://github.com/Hugo0/voiceio#readme">README</a>. Spotted something out of date? <a href="https://github.com/Hugo0/voiceio/issues/new">Open an issue</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Is voiceio just Whisper?</summary>
+  <p>voiceio uses Whisper models for recognition. What it adds is the dictation app: audio capture, hotkeys, streaming decode, typing into the focused app through IBus, text cleanup, vocabulary ranking, corrections and a fine-tuning pipeline.</p>
+</details>
+<details>
+  <summary>Which Whisper model does voiceio use?</summary>
+  <p>Whisper small through faster-whisper by default. You can switch to medium, large-v3-turbo or distil-large-v3 with <code>voiceio models use</code>, or point it at a whisper.cpp server.</p>
+</details>
+<details>
+  <summary>Why does voiceio still use Whisper rather than a faster model?</summary>
+  <p>Most dictation errors are names and jargon, so the ability to bias the model matters more than raw speed. voiceio's contributors measured Parakeet as faster, but its biasing mode lost speech on real clips; the reasoning is in <a href="https://github.com/Hugo0/voiceio/blob/main/CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it">CONTRIBUTING.md</a>.</p>
+</details>
+<details>
+  <summary>Can I use Whisper for dictation on Wayland?</summary>
+  <p>Yes. See <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>.</p>
+</details>
+</div>
+</section>
+
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+
+<section class="part sources" aria-labelledby="src">
+  <span class="label">// sources · last checked 2026-10-10</span>
+  <h2 id="src" style="font-size:20px">Sources</h2>
+  <ul>
+    <li><a href="https://github.com/openai/whisper" rel="nofollow">openai/whisper</a></li>
+    <li><a href="https://github.com/ggml-org/whisper.cpp" rel="nofollow">ggml-org/whisper.cpp</a></li>
+    <li><a href="https://github.com/ggml-org/whisper.cpp/tree/master/examples/server" rel="nofollow">whisper.cpp server</a></li>
+    <li><a href="https://github.com/SYSTRAN/faster-whisper" rel="nofollow">SYSTRAN/faster-whisper</a></li>
+    <li><a href="https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py" rel="nofollow">faster-whisper transcribe.py (hotwords)</a></li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="more">
+  <span class="label">// more comparisons</span>
+  <h2 id="more" style="font-size:24px">Other comparisons</h2>
+  <div class="cards">
+    <a href="/vs/voxtype/"><span class="label">compare</span><b>voiceio vs Voxtype</b></a>
+    <a href="/vs/aqua-voice/"><span class="label">compare</span><b>voiceio vs Aqua Voice</b></a>
+    <a href="/vs/wispr-flow/"><span class="label">compare</span><b>voiceio vs Wispr Flow</b></a>
+    <a href="/vs/superwhisper/"><span class="label">compare</span><b>voiceio vs Superwhisper</b></a>
+    <a href="/vs/dragon/"><span class="label">compare</span><b>voiceio vs Dragon</b></a>
+    <a href="/vs/nerd-dictation/"><span class="label">compare</span><b>voiceio vs nerd-dictation</b></a>
+    <a href="/vs/talon/"><span class="label">compare</span><b>voiceio vs Talon</b></a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

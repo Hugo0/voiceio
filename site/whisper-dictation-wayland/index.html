@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Whisper dictation on Wayland with live preview | voiceio</title>
+<meta name="description" content="Dictate with Whisper on Wayland: voiceio types into any app through IBus with a live preview, on GNOME, KDE, Hyprland and sway. Local and open source.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/whisper-dictation-wayland/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/whisper-dictation-wayland/">
+<meta property="og:title" content="Whisper dictation on Wayland with live preview | voiceio">
+<meta property="og:description" content="Dictate with Whisper on Wayland: voiceio types into any app through IBus with a live preview, on GNOME, KDE, Hyprland and sway. Local and open source.">
+<meta property="og:image" content="https://voiceio.dev/og/whisper-dictation-wayland.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Whisper dictation on Wayland with live preview | voiceio">
+<meta name="twitter:description" content="Dictate with Whisper on Wayland: voiceio types into any app through IBus with a live preview, on GNOME, KDE, Hyprland and sway. Local and open source.">
+<meta name="twitter:image" content="https://voiceio.dev/og/whisper-dictation-wayland.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Whisper dictation on Wayland", "item": "https://voiceio.dev/whisper-dictation-wayland/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Why is dictation hard on Wayland?", "acceptedAnswer": {"@type": "Answer", "text": "Wayland does not let one app type into another or read global hotkeys the way X11 did. Tools work around it with input methods (IBus, fcitx5), virtual keyboards (wtype, ydotool, dotool) or the compositor's own key bindings."}}, {"@type": "Question", "name": "Why IBus instead of ydotool or wtype?", "acceptedAnswer": {"@type": "Answer", "text": "An input method can show an underlined preview that is corrected in place and then committed. Keystroke tools can only type and backspace, which is slower and can drop characters on rapid corrections. voiceio uses IBus first and falls back to wtype or ydotool."}}, {"@type": "Question", "name": "Does it work with fcitx5 (Omarchy)?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. If fcitx5 is your input method, voiceio leaves it alone and types the words with wtype or ydotool as you speak, without the in-place preview."}}, {"@type": "Question", "name": "How do I bind the hotkey on Hyprland or sway?", "acceptedAnswer": {"@type": "Answer", "text": "Use the built-in evdev hotkey, or bind voiceio toggle in your compositor, e.g. bind = CTRL ALT, V, exec, voiceio toggle on Hyprland."}}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "voiceio", "description": "Local, open-source voice dictation for Linux that fine-tunes itself on your voice.", "url": "https://voiceio.dev/", "applicationCategory": "UtilitiesApplication", "operatingSystem": "Linux", "license": "https://opensource.org/licenses/MIT", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "downloadUrl": "https://pypi.org/project/python-voiceio/", "sameAs": ["https://github.com/Hugo0/voiceio", "https://pypi.org/project/python-voiceio/"]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li aria-current="page">Whisper dictation on Wayland</li></ol></nav>
+<header class="head">
+  <span class="label">// guide · wayland</span>
+  <h1>Whisper dictation on Wayland</h1>
+  <p class="lede">To dictate with Whisper on Wayland, you need two pieces: a local Whisper decoder, and a way to put text into other apps that Wayland allows. voiceio uses faster-whisper for the first and an IBus input method for the second, so words appear in the focused app as an underlined live preview while you speak and are committed when you stop. It works on GNOME, KDE Plasma, Hyprland and sway, and on X11.</p>
+  <div class="meta"><span class="chip on">IBus preedit</span><span class="chip on">faster-whisper</span><span class="chip">wtype · ydotool fallback</span></div>
+</header>
+
+<div class="prose">
+<section class="part" aria-labelledby="how">
+  <span class="label">// how to</span>
+  <h2 id="how">Set it up</h2>
+  <ol class="steps">
+  <li><b>Install the system packages</b> (a C toolchain, PortAudio, IBus). On Debian or Ubuntu:
+<pre><code><span class="p">$</span> sudo apt install pipx build-essential python3-dev \
+    portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi</code></pre>
+  Fedora, Arch and NixOS commands are in the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>.</li>
+  <li><b>Install voiceio</b> with the desktop extra (microphone, hotkeys, tray):
+<pre><code><span class="p">$</span> pipx install 'python-voiceio[desktop]'</code></pre></li>
+  <li><b>Run the guided setup.</b> It downloads the speech model, sets your hotkey and installs a systemd user service so voiceio starts on login:
+<pre><code><span class="p">$</span> voiceio setup</code></pre></li>
+  <li><b>Dictate.</b> Press the hotkey you picked during setup in any app, speak, and press it again. <code>voiceio doctor</code> shows what works; <code>voiceio doctor --fix</code> repairs what it can.</li>
+</ol>
+  <h3>Hotkeys on Wayland</h3>
+  <p>The evdev backend reads the keyboard directly. <code>voiceio doctor --fix</code> installs a udev rule that gives the logged-in user access, with no logout needed. On GNOME, setup can add a shortcut instead. On Hyprland or sway, bind <code>voiceio toggle</code>:</p>
+<pre><code><span class="c"># ~/.config/hypr/hyprland.conf</span>
+bind = CTRL ALT, V, exec, voiceio toggle
+<span class="c"># ~/.config/sway/config</span>
+bindsym Ctrl+Alt+v exec voiceio toggle</code></pre>
+</section>
+
+<section class="part" aria-labelledby="inject">
+  <span class="label">// typing</span>
+  <h2 id="inject">How the text gets in</h2>
+  <ul class="ticks">
+    <li><b>IBus (preferred).</b> voiceio installs its own IBus engine and activates it only while you dictate. The preview is shown as preedit text and committed at the end.</li>
+    <li><b>fcitx5.</b> Left alone; final text is typed with wtype or ydotool.</li>
+    <li><b>wtype, ydotool, xdotool.</b> Keystroke fallbacks, picked by probing what works. <code>doctor --fix</code> installs a uaccess rule for <code>/dev/uinput</code> so ydotool works.</li>
+    <li><b>Clipboard.</b> For terminals that ignore input methods.</li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="whisper">
+  <span class="label">// the model</span>
+  <h2 id="whisper">Which Whisper</h2>
+  <p>The default is Whisper <code>small</code> through faster-whisper, about 5x realtime on a laptop CPU. <code>medium</code> is better on names and slower; <code>large-v3-turbo</code> wants a GPU. Long dictations are finalized in pieces while you talk, so stopping a multi-minute note does not mean waiting for the whole recording to decode again. Read how voiceio relates to the model itself in <a href="/vs/whisper/">voiceio and Whisper</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="others">
+  <span class="label">// alternatives</span>
+  <h2 id="others">Other Whisper tools on Wayland</h2>
+  <p><a href="/vs/voxtype/">Voxtype</a> also runs Whisper (via whisper.cpp) and other engines on Wayland, typing with wtype, dotool or ydotool. <a href="/vs/nerd-dictation/">nerd-dictation</a> uses VOSK rather than Whisper. <a href="/vs/talon/">Talon</a> does not support Wayland.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Why is dictation hard on Wayland?</summary>
+  <p>Wayland does not let one app type into another or read global hotkeys the way X11 did. Tools work around it with input methods (IBus, fcitx5), virtual keyboards (wtype, ydotool, dotool) or the compositor's own key bindings.</p>
+</details>
+<details>
+  <summary>Why IBus instead of ydotool or wtype?</summary>
+  <p>An input method can show an underlined preview that is corrected in place and then committed. Keystroke tools can only type and backspace, which is slower and can drop characters on rapid corrections. voiceio uses IBus first and falls back to wtype or ydotool.</p>
+</details>
+<details>
+  <summary>Does it work with fcitx5 (Omarchy)?</summary>
+  <p>Yes. If fcitx5 is your input method, voiceio leaves it alone and types the words with wtype or ydotool as you speak, without the in-place preview.</p>
+</details>
+<details>
+  <summary>How do I bind the hotkey on Hyprland or sway?</summary>
+  <p>Use the built-in evdev hotkey, or bind <code>voiceio toggle</code> in your compositor, e.g. <code>bind = CTRL ALT, V, exec, voiceio toggle</code> on Hyprland.</p>
+</details>
+</div>
+</section>
+</div>
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio vs Talon: voice control vs dictation on Linux</title>
+<meta name="description" content="Talon vs voiceio: hands-free computer control (macOS, Windows, Linux X11) vs local dictation for Linux that learns your voice. Checked 2026-10-10.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/vs/talon/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/vs/talon/">
+<meta property="og:title" content="voiceio vs Talon: voice control vs dictation on Linux">
+<meta property="og:description" content="Talon vs voiceio: hands-free computer control (macOS, Windows, Linux X11) vs local dictation for Linux that learns your voice. Checked 2026-10-10.">
+<meta property="og:image" content="https://voiceio.dev/og/talon.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio vs Talon: voice control vs dictation on Linux">
+<meta name="twitter:description" content="Talon vs voiceio: hands-free computer control (macOS, Windows, Linux X11) vs local dictation for Linux that learns your voice. Checked 2026-10-10.">
+<meta name="twitter:image" content="https://voiceio.dev/og/talon.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://voiceio.dev/vs/"}, {"@type": "ListItem", "position": 3, "name": "voiceio vs Talon", "item": "https://voiceio.dev/vs/talon/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Does Talon work on Wayland?", "acceptedAnswer": {"@type": "Answer", "text": "No. The Talon wiki says Talon does not support Wayland, so Linux users need an X11 session. Talon 1.0's changelog (September 2026) also says it is planned to be the last public release for Linux/X11, with ongoing Linux support listed as a Talon+ feature."}}, {"@type": "Question", "name": "Can I use Talon and voiceio together?", "acceptedAnswer": {"@type": "Answer", "text": "On X11, likely yes, on different hotkeys: Talon for commands, voiceio for long-form dictation. We have not tested the combination."}}, {"@type": "Question", "name": "Is Talon open source?", "acceptedAnswer": {"@type": "Answer", "text": "No. The Talon wiki says Talon is closed source. The community command set it relies on is MIT licensed."}}, {"@type": "Question", "name": "Is voiceio good for coding by voice?", "acceptedAnswer": {"@type": "Answer", "text": "For prose, comments and commit messages, yes. For navigating and editing code by voice, Talon's command system is far more capable."}}]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/" aria-current="page">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li><a href="/vs/">Compare</a></li><li aria-current="page">voiceio vs Talon</li></ol></nav>
+<header class="head">
+  <span class="label">// compare</span>
+  <h1>voiceio vs Talon</h1>
+  <p class="lede">Talon is a hands-free input system: you drive the whole computer by voice, with eye tracking and noise input, and many people use it to code without a keyboard. It runs on macOS, Windows and Linux under X11, is free to use with a paid Patreon tier, and is closed source. voiceio does one narrower job: dictation into any app on Linux, on Wayland as well as X11, with a model that fine-tunes on your voice. If you need to control your computer by voice, Talon is the tool; if you want to write by voice on a modern Linux desktop, voiceio is.</p>
+  <div class="meta"><span class="chip">Talon: voice control</span><span class="chip">voiceio: dictation</span><span class="chip">Talon: X11 only</span><span class="chip on">checked 2026-10-10</span></div>
+</header>
+
+<section class="part" aria-labelledby="choose">
+  <span class="label">// which one</span>
+  <h2 id="choose">Which should you use?</h2>
+  <div class="choose">
+    <div>
+      <span class="label">Talon</span>
+      <h3>Choose Talon if…</h3>
+      <ul>
+      <li>You need to operate the computer without your hands: commands, mouse by eye tracking, noise input such as a pop or hiss.</li>
+      <li>You want to write code by voice with a large, scriptable command set (the community set is MIT).</li>
+      <li>You use macOS or Windows, or Linux under X11.</li>
+      <li>You have RSI or another reason to avoid the keyboard and mouse entirely.</li>
+      </ul>
+    </div>
+    <div class="us">
+      <span class="label">voiceio</span>
+      <h3>Choose voiceio if…</h3>
+      <ul>
+      <li>You are on Wayland, which Talon does not support.</li>
+      <li>You mostly write prose, messages and notes and want a live preview of long sentences.</li>
+      <li>You want open source and a model that learns your names from your own voice.</li>
+      <li>You want to keep using your keyboard and add dictation on a hotkey.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="features">
+  <span class="label">// side by side</span>
+  <h2 id="features">Feature comparison</h2>
+  <div class="table-scroll"><table class="cmp">
+    <caption class="label" style="text-align:left;padding:12px 14px 0">voiceio vs Talon · checked 2026-10-10</caption>
+    <thead><tr><th scope="col">&nbsp;</th><th scope="col">voiceio 1.5</th><th scope="col">Talon</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Platforms</th><td class="us">Linux: Wayland and X11 (GNOME, KDE, Hyprland, sway, i3). Untested best-effort path on Windows/macOS</td><td>macOS, Windows, Linux (X11 only; no Wayland). Talon 1.0 is planned as the last public Linux release</td></tr>
+      <tr><th scope="row">Price</th><td class="us">Free, MIT</td><td>Free to use; Talon+ via Patreon (tier price not stated on official pages)</td></tr>
+      <tr><th scope="row">Where speech is decoded</th><td class="us">On your computer. Optional text-only cloud cleanup, off by default</td><td>Built-in Conformer engine ships with Talon; offline operation not stated explicitly in the docs we read</td></tr>
+      <tr><th scope="row">Speech models</th><td class="us">faster-whisper small (default), medium, large-v3-turbo, distil-large-v3; experimental Parakeet and whisper.cpp server</td><td>Conformer (wav2letter); Dragon optional; Talon+ adds a Conformer + Whisper hybrid</td></tr>
+      <tr><th scope="row">Open source</th><td class="us">Yes (MIT)</td><td>No (community command set is MIT)</td></tr>
+      <tr><th scope="row">Live typing into apps</th><td class="us">Yes: underlined preview in the focused app through IBus, corrected in place, committed when you stop</td><td>Has a dictation mode; Talon 1.0 adds a streaming dictation model (Hum)</td></tr>
+      <tr><th scope="row">Custom vocabulary</th><td class="us">Hotwords ranked by use (about 35 per decode) plus find-and-replace corrections</td><td>Community set: custom vocabulary and replacements</td></tr>
+      <tr><th scope="row">Learns from you</th><td class="us">Yes: optional LoRA fine-tune on your own recordings, on CPU, kept only if it wins on held-out clips</td><td>Not stated</td></tr>
+      <tr><th scope="row">Voice commands</th><td class="us">Dictation commands only (&quot;new line&quot;, &quot;scratch that&quot;, &quot;correct that&quot;)</td><td>Full computer control, eye tracking, noise input, scripting</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Talon facts are from its official site, docs or repository, read on 2026-10-10 (sources below). Prices are as listed on that date and can change. voiceio facts are from its <a href="https://github.com/Hugo0/voiceio#readme">README</a>. Spotted something out of date? <a href="https://github.com/Hugo0/voiceio/issues/new">Open an issue</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Does Talon work on Wayland?</summary>
+  <p>No. The Talon wiki says Talon does not support Wayland, so Linux users need an X11 session. Talon 1.0's changelog (September 2026) also says it is planned to be the last public release for Linux/X11, with ongoing Linux support listed as a Talon+ feature.</p>
+</details>
+<details>
+  <summary>Can I use Talon and voiceio together?</summary>
+  <p>On X11, likely yes, on different hotkeys: Talon for commands, voiceio for long-form dictation. We have not tested the combination.</p>
+</details>
+<details>
+  <summary>Is Talon open source?</summary>
+  <p>No. The Talon wiki says Talon is closed source. The community command set it relies on is MIT licensed.</p>
+</details>
+<details>
+  <summary>Is voiceio good for coding by voice?</summary>
+  <p>For prose, comments and commit messages, yes. For navigating and editing code by voice, Talon's command system is far more capable.</p>
+</details>
+</div>
+</section>
+
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+
+<section class="part sources" aria-labelledby="src">
+  <span class="label">// sources · last checked 2026-10-10</span>
+  <h2 id="src" style="font-size:20px">Sources</h2>
+  <ul>
+    <li><a href="https://talonvoice.com/" rel="nofollow">talonvoice.com</a></li>
+    <li><a href="https://talonvoice.com/dl/latest/changelog.html" rel="nofollow">Talon 1.0 changelog</a></li>
+    <li><a href="https://talon.wiki/Resource%20Hub/Talon%20Installation/installation_guide/" rel="nofollow">Talon wiki: installation (Wayland)</a></li>
+    <li><a href="https://talon.wiki/Resource%20Hub/Speech%20Recognition/speech%20engines/" rel="nofollow">Talon wiki: speech engines</a></li>
+    <li><a href="https://talon.wiki/Help/FAQ" rel="nofollow">Talon wiki: FAQ</a></li>
+    <li><a href="https://github.com/talonhub/community" rel="nofollow">talonhub/community</a></li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="more">
+  <span class="label">// more comparisons</span>
+  <h2 id="more" style="font-size:24px">Other comparisons</h2>
+  <div class="cards">
+    <a href="/vs/voxtype/"><span class="label">compare</span><b>voiceio vs Voxtype</b></a>
+    <a href="/vs/aqua-voice/"><span class="label">compare</span><b>voiceio vs Aqua Voice</b></a>
+    <a href="/vs/wispr-flow/"><span class="label">compare</span><b>voiceio vs Wispr Flow</b></a>
+    <a href="/vs/superwhisper/"><span class="label">compare</span><b>voiceio vs Superwhisper</b></a>
+    <a href="/vs/dragon/"><span class="label">compare</span><b>voiceio vs Dragon</b></a>
+    <a href="/vs/nerd-dictation/"><span class="label">compare</span><b>voiceio vs nerd-dictation</b></a>
+    <a href="/vs/whisper/"><span class="label">compare</span><b>voiceio and Whisper</b></a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

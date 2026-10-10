@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio vs nerd-dictation: offline Linux dictation</title>
+<meta name="description" content="nerd-dictation vs voiceio: two offline, open-source Linux dictation tools. VOSK vs Whisper, typing, customization and learning compared (2026-10-10).">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/vs/nerd-dictation/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/vs/nerd-dictation/">
+<meta property="og:title" content="voiceio vs nerd-dictation: offline Linux dictation">
+<meta property="og:description" content="nerd-dictation vs voiceio: two offline, open-source Linux dictation tools. VOSK vs Whisper, typing, customization and learning compared (2026-10-10).">
+<meta property="og:image" content="https://voiceio.dev/og/nerd-dictation.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio vs nerd-dictation: offline Linux dictation">
+<meta name="twitter:description" content="nerd-dictation vs voiceio: two offline, open-source Linux dictation tools. VOSK vs Whisper, typing, customization and learning compared (2026-10-10).">
+<meta name="twitter:image" content="https://voiceio.dev/og/nerd-dictation.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://voiceio.dev/vs/"}, {"@type": "ListItem", "position": 3, "name": "voiceio vs nerd-dictation", "item": "https://voiceio.dev/vs/nerd-dictation/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is voiceio a good nerd-dictation alternative?", "acceptedAnswer": {"@type": "Answer", "text": "If you want Whisper accuracy, punctuation and casing, a live preview and fine-tuning, yes. If you want the smallest possible tool with no background process, nerd-dictation remains a good fit."}}, {"@type": "Question", "name": "Does nerd-dictation work on Wayland?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, using ydotool, dotool or wtype; its default, xdotool, is X11 only (per its README, checked 2026-10-10)."}}, {"@type": "Question", "name": "Does nerd-dictation use Whisper?", "acceptedAnswer": {"@type": "Answer", "text": "No. It uses the VOSK API and VOSK models. voiceio uses Whisper through faster-whisper."}}, {"@type": "Question", "name": "Which uses fewer resources?", "acceptedAnswer": {"@type": "Answer", "text": "nerd-dictation, very likely: it runs only while you dictate and VOSK's small models are light. voiceio keeps a Whisper worker loaded so it can respond immediately."}}]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/" aria-current="page">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li><a href="/vs/">Compare</a></li><li aria-current="page">voiceio vs nerd-dictation</li></ol></nav>
+<header class="head">
+  <span class="label">// compare</span>
+  <h1>voiceio vs nerd-dictation</h1>
+  <p class="lede">nerd-dictation is a single-file Python script that does offline speech to text on Linux with the VOSK engine. It has no background process, types as you speak with xdotool, ydotool, dotool or wtype, and can be customized with a Python config script. voiceio is a larger tool: a background service built on Whisper, with punctuation and casing from the model, a live IBus preview, vocabulary hotwords and fine-tuning on your voice. nerd-dictation is the smaller, more hackable choice; voiceio does more out of the box and costs more to install.</p>
+  <div class="meta"><span class="chip">both offline</span><span class="chip">both open source</span><span class="chip">VOSK vs Whisper</span><span class="chip on">checked 2026-10-10</span></div>
+</header>
+
+<section class="part" aria-labelledby="choose">
+  <span class="label">// which one</span>
+  <h2 id="choose">Which should you use?</h2>
+  <div class="choose">
+    <div>
+      <span class="label">nerd-dictation</span>
+      <h3>Choose nerd-dictation if…</h3>
+      <ul>
+      <li>You want something tiny: one Python file, minimal dependencies, nothing running in the background.</li>
+      <li>You like to script it yourself: a Python hook lets you rewrite text any way you want.</li>
+      <li>You want a restricted grammar: VOSK can be limited to a fixed set of phrases for higher accuracy on commands.</li>
+      <li>Your hardware is modest; VOSK's small models are light.</li>
+      </ul>
+    </div>
+    <div class="us">
+      <span class="label">voiceio</span>
+      <h3>Choose voiceio if…</h3>
+      <ul>
+      <li>You want punctuation and capitalization; nerd-dictation's README notes that VOSK text is all lower-case.</li>
+      <li>You want Whisper-level accuracy on long, natural sentences.</li>
+      <li>You want proper nouns right, through vocabulary hotwords, corrections and fine-tuning on your voice.</li>
+      <li>You want an in-place, corrected live preview rather than raw keystrokes.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="features">
+  <span class="label">// side by side</span>
+  <h2 id="features">Feature comparison</h2>
+  <div class="table-scroll"><table class="cmp">
+    <caption class="label" style="text-align:left;padding:12px 14px 0">voiceio vs nerd-dictation · checked 2026-10-10</caption>
+    <thead><tr><th scope="col">&nbsp;</th><th scope="col">voiceio 1.5</th><th scope="col">nerd-dictation</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Platforms</th><td class="us">Linux: Wayland and X11 (GNOME, KDE, Hyprland, sway, i3). Untested best-effort path on Windows/macOS</td><td>Desktop Linux (X11 and Wayland)</td></tr>
+      <tr><th scope="row">Price</th><td class="us">Free, MIT</td><td>Free, GPL-3.0</td></tr>
+      <tr><th scope="row">Where speech is decoded</th><td class="us">On your computer. Optional text-only cloud cleanup, off by default</td><td>On your computer (VOSK)</td></tr>
+      <tr><th scope="row">Speech models</th><td class="us">faster-whisper small (default), medium, large-v3-turbo, distil-large-v3; experimental Parakeet and whisper.cpp server</td><td>VOSK models</td></tr>
+      <tr><th scope="row">Open source</th><td class="us">Yes (MIT)</td><td>Yes (GPL-3.0)</td></tr>
+      <tr><th scope="row">Live typing into apps</th><td class="us">Yes: underlined preview in the focused app through IBus, corrected in place, committed when you stop</td><td>Yes: types as you speak by default, via xdotool, ydotool, dotool or wtype</td></tr>
+      <tr><th scope="row">Custom vocabulary</th><td class="us">Hotwords ranked by use (about 35 per decode) plus find-and-replace corrections</td><td>Python config hook; optional VOSK grammar file</td></tr>
+      <tr><th scope="row">Learns from you</th><td class="us">Yes: optional LoRA fine-tune on your own recordings, on CPU, kept only if it wins on held-out clips</td><td>Not stated</td></tr>
+      <tr><th scope="row">Voice commands</th><td class="us">Dictation commands only (&quot;new line&quot;, &quot;scratch that&quot;, &quot;correct that&quot;)</td><td>None built in; scriptable through the config hook</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">nerd-dictation facts are from its official site, docs or repository, read on 2026-10-10 (sources below). Prices are as listed on that date and can change. voiceio facts are from its <a href="https://github.com/Hugo0/voiceio#readme">README</a>. Spotted something out of date? <a href="https://github.com/Hugo0/voiceio/issues/new">Open an issue</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Is voiceio a good nerd-dictation alternative?</summary>
+  <p>If you want Whisper accuracy, punctuation and casing, a live preview and fine-tuning, yes. If you want the smallest possible tool with no background process, nerd-dictation remains a good fit.</p>
+</details>
+<details>
+  <summary>Does nerd-dictation work on Wayland?</summary>
+  <p>Yes, using ydotool, dotool or wtype; its default, xdotool, is X11 only (per its README, checked 2026-10-10).</p>
+</details>
+<details>
+  <summary>Does nerd-dictation use Whisper?</summary>
+  <p>No. It uses the VOSK API and VOSK models. voiceio uses Whisper through faster-whisper.</p>
+</details>
+<details>
+  <summary>Which uses fewer resources?</summary>
+  <p>nerd-dictation, very likely: it runs only while you dictate and VOSK's small models are light. voiceio keeps a Whisper worker loaded so it can respond immediately.</p>
+</details>
+</div>
+</section>
+
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+
+<section class="part sources" aria-labelledby="src">
+  <span class="label">// sources · last checked 2026-10-10</span>
+  <h2 id="src" style="font-size:20px">Sources</h2>
+  <ul>
+    <li><a href="https://github.com/ideasman42/nerd-dictation" rel="nofollow">nerd-dictation README</a></li>
+    <li><a href="https://github.com/ideasman42/nerd-dictation/blob/main/license.rst" rel="nofollow">nerd-dictation license</a></li>
+    <li><a href="https://github.com/ideasman42/nerd-dictation/commits/main" rel="nofollow">nerd-dictation commits</a></li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="more">
+  <span class="label">// more comparisons</span>
+  <h2 id="more" style="font-size:24px">Other comparisons</h2>
+  <div class="cards">
+    <a href="/vs/voxtype/"><span class="label">compare</span><b>voiceio vs Voxtype</b></a>
+    <a href="/vs/aqua-voice/"><span class="label">compare</span><b>voiceio vs Aqua Voice</b></a>
+    <a href="/vs/wispr-flow/"><span class="label">compare</span><b>voiceio vs Wispr Flow</b></a>
+    <a href="/vs/superwhisper/"><span class="label">compare</span><b>voiceio vs Superwhisper</b></a>
+    <a href="/vs/dragon/"><span class="label">compare</span><b>voiceio vs Dragon</b></a>
+    <a href="/vs/talon/"><span class="label">compare</span><b>voiceio vs Talon</b></a>
+    <a href="/vs/whisper/"><span class="label">compare</span><b>voiceio and Whisper</b></a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

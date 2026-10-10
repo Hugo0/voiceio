@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio vs Superwhisper: dictation on Linux compared</title>
+<meta name="description" content="Superwhisper vs voiceio: Whisper dictation for Mac, Windows and phones (Linux preview for Omarchy) vs open-source Linux dictation. Checked 2026-10-10.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/vs/superwhisper/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/vs/superwhisper/">
+<meta property="og:title" content="voiceio vs Superwhisper: dictation on Linux compared">
+<meta property="og:description" content="Superwhisper vs voiceio: Whisper dictation for Mac, Windows and phones (Linux preview for Omarchy) vs open-source Linux dictation. Checked 2026-10-10.">
+<meta property="og:image" content="https://voiceio.dev/og/superwhisper.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio vs Superwhisper: dictation on Linux compared">
+<meta name="twitter:description" content="Superwhisper vs voiceio: Whisper dictation for Mac, Windows and phones (Linux preview for Omarchy) vs open-source Linux dictation. Checked 2026-10-10.">
+<meta name="twitter:image" content="https://voiceio.dev/og/superwhisper.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://voiceio.dev/vs/"}, {"@type": "ListItem", "position": 3, "name": "voiceio vs Superwhisper", "item": "https://voiceio.dev/vs/superwhisper/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Does Superwhisper work on Linux?", "acceptedAnswer": {"@type": "Answer", "text": "Partly. On 2026-10-09 Superwhisper published a prerelease Linux build that, per its README, \"targets x86-64 systems running Omarchy\". Its docs still list Linux as coming soon (checked 2026-10-10). voiceio supports GNOME, KDE, Hyprland, sway and i3 on Wayland and X11."}}, {"@type": "Question", "name": "Is there an open-source Superwhisper alternative?", "acceptedAnswer": {"@type": "Answer", "text": "voiceio is MIT licensed and, like Superwhisper's free tier, runs Whisper locally. Voxtype is another open-source option on Linux."}}, {"@type": "Question", "name": "Do both use Whisper?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Superwhisper's free local models are Whisper via whisper.cpp. voiceio uses Whisper via faster-whisper by default, with experimental Parakeet and whisper.cpp backends."}}, {"@type": "Question", "name": "How much does Superwhisper cost?", "acceptedAnswer": {"@type": "Answer", "text": "Its docs list a free plan with local Whisper models and Pro at $8.49 per month, $84.99 per year or $249.99 once (checked 2026-10-10). voiceio is free."}}]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/" aria-current="page">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li><a href="/vs/">Compare</a></li><li aria-current="page">voiceio vs Superwhisper</li></ol></nav>
+<header class="head">
+  <span class="label">// compare</span>
+  <h1>voiceio vs Superwhisper</h1>
+  <p class="lede">Superwhisper is a commercial dictation app for macOS, Windows, iOS and Android that can run Whisper and other models locally or use cloud models, with AI "modes" that reformat what you say. On 2026-10-09 it published a prerelease Linux build that targets Omarchy on x86-64; its docs still list Linux as coming soon. voiceio is free, open-source dictation built for Linux, with a live in-app preview through IBus and fine-tuning on your own voice. Superwhisper has far more model choice and polish across platforms; voiceio is open source and Linux-first.</p>
+  <div class="meta"><span class="chip">both can run locally</span><span class="chip">Superwhisper: Linux preview</span><span class="chip">voiceio: MIT</span><span class="chip on">checked 2026-10-10</span></div>
+</header>
+
+<section class="part" aria-labelledby="choose">
+  <span class="label">// which one</span>
+  <h2 id="choose">Which should you use?</h2>
+  <div class="choose">
+    <div>
+      <span class="label">Superwhisper</span>
+      <h3>Choose Superwhisper if…</h3>
+      <ul>
+      <li>You use macOS, Windows, iPhone or Android, and want one license across them (a lifetime option exists).</li>
+      <li>You want a choice of local models (Whisper, Parakeet, Cohere) and cloud models (Deepgram, ElevenLabs, its own S1).</li>
+      <li>You want AI modes that turn speech into emails, messages or notes with custom prompts.</li>
+      <li>You need meeting recording, file transcription or 100+ languages.</li>
+      </ul>
+    </div>
+    <div class="us">
+      <span class="label">voiceio</span>
+      <h3>Choose voiceio if…</h3>
+      <ul>
+      <li>You run a Linux desktop other than Omarchy, or want a stable rather than prerelease Linux build.</li>
+      <li>You want open source: code you can read, audit and change.</li>
+      <li>You want words to appear in the app as you speak; Superwhisper's realtime preview shows in its own window and pastes the result at the end.</li>
+      <li>You want a model that learns your voice through fine-tuning.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="features">
+  <span class="label">// side by side</span>
+  <h2 id="features">Feature comparison</h2>
+  <div class="table-scroll"><table class="cmp">
+    <caption class="label" style="text-align:left;padding:12px 14px 0">voiceio vs Superwhisper · checked 2026-10-10</caption>
+    <thead><tr><th scope="col">&nbsp;</th><th scope="col">voiceio 1.5</th><th scope="col">Superwhisper</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Platforms</th><td class="us">Linux: Wayland and X11 (GNOME, KDE, Hyprland, sway, i3). Untested best-effort path on Windows/macOS</td><td>macOS 14+, Windows 10/11, iOS, Android. Linux: prerelease build for Omarchy (x86-64), 2026-10-09</td></tr>
+      <tr><th scope="row">Price</th><td class="us">Free, MIT</td><td>Free (local Whisper models); Pro $8.49/month, $84.99/year or $249.99 lifetime (docs plans page, 2026-10-10)</td></tr>
+      <tr><th scope="row">Where speech is decoded</th><td class="us">On your computer. Optional text-only cloud cleanup, off by default</td><td>Local or cloud, chosen per mode</td></tr>
+      <tr><th scope="row">Speech models</th><td class="us">faster-whisper small (default), medium, large-v3-turbo, distil-large-v3; experimental Parakeet and whisper.cpp server</td><td>Local Whisper (whisper.cpp), Parakeet, Cohere Transcribe; cloud S1-Voice, Deepgram Nova, ElevenLabs Scribe; LLMs for formatting</td></tr>
+      <tr><th scope="row">Open source</th><td class="us">Yes (MIT)</td><td>No</td></tr>
+      <tr><th scope="row">Live typing into apps</th><td class="us">Yes: underlined preview in the focused app through IBus, corrected in place, committed when you stop</td><td>Realtime preview (Pro, streaming models only) in the recording window; text pasted at the cursor after you stop</td></tr>
+      <tr><th scope="row">Custom vocabulary</th><td class="us">Hotwords ranked by use (about 35 per decode) plus find-and-replace corrections</td><td>Vocabulary hints and replacements (free and Pro)</td></tr>
+      <tr><th scope="row">Learns from you</th><td class="us">Yes: optional LoRA fine-tune on your own recordings, on CPU, kept only if it wins on held-out clips</td><td>Not stated (manual vocabulary, modes, context awareness)</td></tr>
+      <tr><th scope="row">Voice commands</th><td class="us">Dictation commands only (&quot;new line&quot;, &quot;scratch that&quot;, &quot;correct that&quot;)</td><td>Not stated beyond shortcuts and modes</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Superwhisper facts are from its official site, docs or repository, read on 2026-10-10 (sources below). Prices are as listed on that date and can change. voiceio facts are from its <a href="https://github.com/Hugo0/voiceio#readme">README</a>. Spotted something out of date? <a href="https://github.com/Hugo0/voiceio/issues/new">Open an issue</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Does Superwhisper work on Linux?</summary>
+  <p>Partly. On 2026-10-09 Superwhisper published a prerelease Linux build that, per its README, "targets x86-64 systems running Omarchy". Its docs still list Linux as coming soon (checked 2026-10-10). voiceio supports GNOME, KDE, Hyprland, sway and i3 on Wayland and X11.</p>
+</details>
+<details>
+  <summary>Is there an open-source Superwhisper alternative?</summary>
+  <p>voiceio is MIT licensed and, like Superwhisper's free tier, runs Whisper locally. <a href="/vs/voxtype/">Voxtype</a> is another open-source option on Linux.</p>
+</details>
+<details>
+  <summary>Do both use Whisper?</summary>
+  <p>Yes. Superwhisper's free local models are Whisper via whisper.cpp. voiceio uses Whisper via faster-whisper by default, with experimental Parakeet and whisper.cpp backends.</p>
+</details>
+<details>
+  <summary>How much does Superwhisper cost?</summary>
+  <p>Its docs list a free plan with local Whisper models and Pro at $8.49 per month, $84.99 per year or $249.99 once (checked 2026-10-10). voiceio is free.</p>
+</details>
+</div>
+</section>
+
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+
+<section class="part sources" aria-labelledby="src">
+  <span class="label">// sources · last checked 2026-10-10</span>
+  <h2 id="src" style="font-size:20px">Sources</h2>
+  <ul>
+    <li><a href="https://superwhisper.com/docs/get-started/introduction.md" rel="nofollow">Superwhisper docs: introduction</a></li>
+    <li><a href="https://superwhisper.com/docs/billing/plans.md" rel="nofollow">Plans</a></li>
+    <li><a href="https://superwhisper.com/docs/models/voice.md" rel="nofollow">Voice models</a></li>
+    <li><a href="https://superwhisper.com/docs/common-issues/realtime.md" rel="nofollow">Realtime</a></li>
+    <li><a href="https://superwhisper.com/docs/get-started/interface-vocabulary.md" rel="nofollow">Vocabulary</a></li>
+    <li><a href="https://github.com/superultrainc/superwhisper-linux-releases" rel="nofollow">Linux releases repo</a></li>
+    <li><a href="https://superwhisper.com" rel="nofollow">superwhisper.com</a></li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="more">
+  <span class="label">// more comparisons</span>
+  <h2 id="more" style="font-size:24px">Other comparisons</h2>
+  <div class="cards">
+    <a href="/vs/voxtype/"><span class="label">compare</span><b>voiceio vs Voxtype</b></a>
+    <a href="/vs/aqua-voice/"><span class="label">compare</span><b>voiceio vs Aqua Voice</b></a>
+    <a href="/vs/wispr-flow/"><span class="label">compare</span><b>voiceio vs Wispr Flow</b></a>
+    <a href="/vs/dragon/"><span class="label">compare</span><b>voiceio vs Dragon</b></a>
+    <a href="/vs/nerd-dictation/"><span class="label">compare</span><b>voiceio vs nerd-dictation</b></a>
+    <a href="/vs/talon/"><span class="label">compare</span><b>voiceio vs Talon</b></a>
+    <a href="/vs/whisper/"><span class="label">compare</span><b>voiceio and Whisper</b></a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

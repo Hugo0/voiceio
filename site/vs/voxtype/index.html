@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio vs Voxtype: local Linux dictation compared</title>
+<meta name="description" content="Voxtype vs voiceio: two free, local, open-source Linux dictation tools. Engines, live typing, vocabulary and fine-tuning compared (checked 2026-10-10).">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/vs/voxtype/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/vs/voxtype/">
+<meta property="og:title" content="voiceio vs Voxtype: local Linux dictation compared">
+<meta property="og:description" content="Voxtype vs voiceio: two free, local, open-source Linux dictation tools. Engines, live typing, vocabulary and fine-tuning compared (checked 2026-10-10).">
+<meta property="og:image" content="https://voiceio.dev/og/voxtype.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio vs Voxtype: local Linux dictation compared">
+<meta name="twitter:description" content="Voxtype vs voiceio: two free, local, open-source Linux dictation tools. Engines, live typing, vocabulary and fine-tuning compared (checked 2026-10-10).">
+<meta name="twitter:image" content="https://voiceio.dev/og/voxtype.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://voiceio.dev/vs/"}, {"@type": "ListItem", "position": 3, "name": "voiceio vs Voxtype", "item": "https://voiceio.dev/vs/voxtype/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is voiceio a Voxtype alternative?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Both are local, open-source dictation tools for Linux under the MIT license. voiceio adds a live IBus preview and per-user fine-tuning; Voxtype offers more engines, GPU builds, meeting mode and a macOS beta."}}, {"@type": "Question", "name": "Which is faster?", "acceptedAnswer": {"@type": "Answer", "text": "It depends on engine and hardware. Voxtype's README reports Cohere Transcribe at 9-11x realtime on a Zen 4 CPU and supports GPU backends. voiceio's default whisper-small runs at about 5x realtime on a laptop CPU. Measure on your own machine."}}, {"@type": "Question", "name": "Do both work on Wayland?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Voxtype types with wtype, dotool or ydotool and uses compositor keybindings. voiceio uses an IBus input method first, with wtype and ydotool as fallbacks."}}, {"@type": "Question", "name": "Does Voxtype learn my voice?", "acceptedAnswer": {"@type": "Answer", "text": "Its README and docs (checked 2026-10-10) do not describe fine-tuning or voice adaptation. It offers an initial prompt and replacement rules for domain terms."}}]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/" aria-current="page">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li><a href="/vs/">Compare</a></li><li aria-current="page">voiceio vs Voxtype</li></ol></nav>
+<header class="head">
+  <span class="label">// compare</span>
+  <h1>voiceio vs Voxtype</h1>
+  <p class="lede">Voxtype and voiceio are both free, MIT-licensed, local dictation tools for Linux with no cloud and no telemetry by default. Voxtype is a Rust binary with nine speech engines, GPU builds for AMD, NVIDIA and Intel, a meeting mode and a macOS beta. voiceio is a Python tool built on faster-whisper that streams a live, corrected-in-place preview through IBus and can fine-tune its model on your own voice. If you want the widest choice of engines and hardware, Voxtype is the stronger pick; if your errors are names and jargon you say every day, voiceio's fine-tuning is the difference.</p>
+  <div class="meta"><span class="chip">both MIT</span><span class="chip">both local</span><span class="chip">both Linux</span><span class="chip on">checked 2026-10-10</span></div>
+</header>
+
+<section class="part" aria-labelledby="choose">
+  <span class="label">// which one</span>
+  <h2 id="choose">Which should you use?</h2>
+  <div class="choose">
+    <div>
+      <span class="label">Voxtype</span>
+      <h3>Choose Voxtype if…</h3>
+      <ul>
+      <li>You want many engines: Whisper, Parakeet, Moonshine, SenseVoice, Cohere Transcribe and more, including CJK and 1600+ languages through its multilingual engines.</li>
+      <li>You have a GPU to use: Vulkan, CUDA 12/13, MIGraphX for Radeon, OpenVINO for Intel NPUs.</li>
+      <li>You want a single native binary from AUR, .deb, .rpm or Homebrew, with no Python.</li>
+      <li>You need meeting transcription with speaker attribution and SRT/VTT export, or a macOS build (beta).</li>
+      <li>You prefer push-to-talk (hold the key, release to type).</li>
+      </ul>
+    </div>
+    <div class="us">
+      <span class="label">voiceio</span>
+      <h3>Choose voiceio if…</h3>
+      <ul>
+      <li>The same names and terms keep coming out wrong: <code>voiceio learn</code> fine-tunes the model on your own recordings and only switches when it measurably wins.</li>
+      <li>You want to see words as you speak, as an underlined preview corrected in place rather than typed and backspaced.</li>
+      <li>You want vocabulary hotwords ranked by how often you use them, plus correction rules and a "correct that" voice command.</li>
+      <li>You want to dictate from your phone through a server you run, with the same vocabulary and model.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="part" aria-labelledby="features">
+  <span class="label">// side by side</span>
+  <h2 id="features">Feature comparison</h2>
+  <div class="table-scroll"><table class="cmp">
+    <caption class="label" style="text-align:left;padding:12px 14px 0">voiceio vs Voxtype · checked 2026-10-10</caption>
+    <thead><tr><th scope="col">&nbsp;</th><th scope="col">voiceio 1.5</th><th scope="col">Voxtype</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Platforms</th><td class="us">Linux: Wayland and X11 (GNOME, KDE, Hyprland, sway, i3). Untested best-effort path on Windows/macOS</td><td>Linux (Hyprland, Niri, sway, River, GNOME, KDE, X11); macOS beta</td></tr>
+      <tr><th scope="row">Price</th><td class="us">Free, MIT</td><td>Free, MIT</td></tr>
+      <tr><th scope="row">Where speech is decoded</th><td class="us">On your computer. Optional text-only cloud cleanup, off by default</td><td>On your computer by default; optional remote Whisper server or Soniox cloud backend</td></tr>
+      <tr><th scope="row">Speech models</th><td class="us">faster-whisper small (default), medium, large-v3-turbo, distil-large-v3; experimental Parakeet and whisper.cpp server</td><td>Nine engines: Whisper (whisper.cpp), Parakeet, Moonshine, SenseVoice, Paraformer, Dolphin, Omnilingual, Cohere Transcribe, OpenVINO Whisper</td></tr>
+      <tr><th scope="row">Open source</th><td class="us">Yes (MIT)</td><td>Yes (MIT)</td></tr>
+      <tr><th scope="row">Live typing into apps</th><td class="us">Yes: underlined preview in the focused app through IBus, corrected in place, committed when you stop</td><td>Optional streaming mode types at the cursor as you speak (toggle activation; experimental revision mode corrects with backspace). Default: type after release</td></tr>
+      <tr><th scope="row">Custom vocabulary</th><td class="us">Hotwords ranked by use (about 35 per decode) plus find-and-replace corrections</td><td>Whisper initial prompt, replacement table, spoken punctuation, post-processing command</td></tr>
+      <tr><th scope="row">Learns from you</th><td class="us">Yes: optional LoRA fine-tune on your own recordings, on CPU, kept only if it wins on held-out clips</td><td>Not stated</td></tr>
+      <tr><th scope="row">Voice commands</th><td class="us">Dictation commands only (&quot;new line&quot;, &quot;scratch that&quot;, &quot;correct that&quot;)</td><td>Spoken punctuation; no computer control stated</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Voxtype facts are from its official site, docs or repository, read on 2026-10-10 (sources below). Prices are as listed on that date and can change. voiceio facts are from its <a href="https://github.com/Hugo0/voiceio#readme">README</a>. Spotted something out of date? <a href="https://github.com/Hugo0/voiceio/issues/new">Open an issue</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Is voiceio a Voxtype alternative?</summary>
+  <p>Yes. Both are local, open-source dictation tools for Linux under the MIT license. voiceio adds a live IBus preview and per-user fine-tuning; Voxtype offers more engines, GPU builds, meeting mode and a macOS beta.</p>
+</details>
+<details>
+  <summary>Which is faster?</summary>
+  <p>It depends on engine and hardware. Voxtype's README reports Cohere Transcribe at 9-11x realtime on a Zen 4 CPU and supports GPU backends. voiceio's default whisper-small runs at about 5x realtime on a laptop CPU. Measure on your own machine.</p>
+</details>
+<details>
+  <summary>Do both work on Wayland?</summary>
+  <p>Yes. Voxtype types with wtype, dotool or ydotool and uses compositor keybindings. voiceio uses an IBus input method first, with wtype and ydotool as fallbacks.</p>
+</details>
+<details>
+  <summary>Does Voxtype learn my voice?</summary>
+  <p>Its README and docs (checked 2026-10-10) do not describe fine-tuning or voice adaptation. It offers an initial prompt and replacement rules for domain terms.</p>
+</details>
+</div>
+</section>
+
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+
+<section class="part sources" aria-labelledby="src">
+  <span class="label">// sources · last checked 2026-10-10</span>
+  <h2 id="src" style="font-size:20px">Sources</h2>
+  <ul>
+    <li><a href="https://github.com/peteonrails/voxtype" rel="nofollow">Voxtype README</a></li>
+    <li><a href="https://github.com/peteonrails/voxtype/blob/main/docs/CONFIGURATION.md" rel="nofollow">Voxtype configuration docs</a></li>
+    <li><a href="https://github.com/peteonrails/voxtype/blob/main/docs/INSTALL_MACOS.md" rel="nofollow">Voxtype macOS install</a></li>
+    <li><a href="https://voxtype.io" rel="nofollow">voxtype.io</a></li>
+    <li><a href="https://github.com/peteonrails/voxtype/releases" rel="nofollow">Voxtype releases (v1.1.0)</a></li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="more">
+  <span class="label">// more comparisons</span>
+  <h2 id="more" style="font-size:24px">Other comparisons</h2>
+  <div class="cards">
+    <a href="/vs/aqua-voice/"><span class="label">compare</span><b>voiceio vs Aqua Voice</b></a>
+    <a href="/vs/wispr-flow/"><span class="label">compare</span><b>voiceio vs Wispr Flow</b></a>
+    <a href="/vs/superwhisper/"><span class="label">compare</span><b>voiceio vs Superwhisper</b></a>
+    <a href="/vs/dragon/"><span class="label">compare</span><b>voiceio vs Dragon</b></a>
+    <a href="/vs/nerd-dictation/"><span class="label">compare</span><b>voiceio vs nerd-dictation</b></a>
+    <a href="/vs/talon/"><span class="label">compare</span><b>voiceio vs Talon</b></a>
+    <a href="/vs/whisper/"><span class="label">compare</span><b>voiceio and Whisper</b></a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

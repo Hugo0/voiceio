@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Voice dictation on Linux (Wayland and X11) | voiceio</title>
+<meta name="description" content="How to dictate into any Linux app on Wayland or X11 with voiceio: local Whisper speech to text, live preview through IBus, free and open source.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio.dev/linux-voice-dictation/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio.dev/linux-voice-dictation/">
+<meta property="og:title" content="Voice dictation on Linux (Wayland and X11) | voiceio">
+<meta property="og:description" content="How to dictate into any Linux app on Wayland or X11 with voiceio: local Whisper speech to text, live preview through IBus, free and open source.">
+<meta property="og:image" content="https://voiceio.dev/og/linux-voice-dictation.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Voice dictation on Linux (Wayland and X11) | voiceio">
+<meta name="twitter:description" content="How to dictate into any Linux app on Wayland or X11 with voiceio: local Whisper speech to text, live preview through IBus, free and open source.">
+<meta name="twitter:image" content="https://voiceio.dev/og/linux-voice-dictation.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Voice dictation on Linux", "item": "https://voiceio.dev/linux-voice-dictation/"}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Does voice dictation work on Wayland?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. voiceio types through IBus, which works on Wayland and X11, including GNOME, KDE Plasma, Hyprland and sway. Where IBus is not available it falls back to wtype, ydotool or xdotool. See Whisper dictation on Wayland."}}, {"@type": "Question", "name": "Is there a free dictation app for Linux?", "acceptedAnswer": {"@type": "Answer", "text": "voiceio is free and MIT licensed. Other free options include Voxtype (MIT) and nerd-dictation (GPL-3.0)."}}, {"@type": "Question", "name": "Does it need an internet connection?", "acceptedAnswer": {"@type": "Answer", "text": "Only to download the speech model the first time. After that, speech is decoded on your own computer and nothing is uploaded. See offline speech to text."}}, {"@type": "Question", "name": "Which Linux distributions are supported?", "acceptedAnswer": {"@type": "Answer", "text": "voiceio is a Python package (3.11+) installed with pipx. The README has package commands for Debian/Ubuntu, Fedora and Arch, and a flake for NixOS (not yet built, per the README)."}}, {"@type": "Question", "name": "Can I dictate in languages other than English?", "acceptedAnswer": {"@type": "Answer", "text": "The default Whisper models are multilingual; set model.language to a language code or auto. Fine-tuning and the vocabulary tools have been tested mostly on English."}}]}
+</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "voiceio", "description": "Local, open-source voice dictation for Linux that fine-tunes itself on your voice.", "url": "https://voiceio.dev/", "applicationCategory": "UtilitiesApplication", "operatingSystem": "Linux", "license": "https://opensource.org/licenses/MIT", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "downloadUrl": "https://pypi.org/project/python-voiceio/", "sameAs": ["https://github.com/Hugo0/voiceio", "https://pypi.org/project/python-voiceio/"]}
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
+    <nav aria-label="Site">
+      <a class="opt" href="/#how">How it works</a>
+      <a href="/vs/">Compare</a>
+      <a class="opt" href="/#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+<nav class="crumbs label" aria-label="Breadcrumb"><ol><li><a href="/">voiceio</a></li><li aria-current="page">Voice dictation on Linux</li></ol></nav>
+<header class="head">
+  <span class="label">// guide · linux</span>
+  <h1>Voice dictation on Linux</h1>
+  <p class="lede">To dictate on Linux, install a speech-to-text tool that types into the focused window. voiceio does this on Wayland and X11: press a hotkey, speak, and the text streams into whatever app has focus, with a live underlined preview through IBus. Speech is decoded on your own computer with Whisper, so it works offline and nothing is uploaded. It is free and MIT licensed.</p>
+  <div class="meta"><span class="chip on">Wayland + X11</span><span class="chip on">runs locally</span><span class="chip on">MIT</span><span class="chip">Python 3.11+</span></div>
+</header>
+
+<div class="prose">
+<section class="part" aria-labelledby="how">
+  <span class="label">// how to</span>
+  <h2 id="how">Set up dictation in four steps</h2>
+  <ol class="steps">
+  <li><b>Install the system packages</b> (a C toolchain, PortAudio, IBus). On Debian or Ubuntu:
+<pre><code><span class="p">$</span> sudo apt install pipx build-essential python3-dev \
+    portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi</code></pre>
+  Fedora, Arch and NixOS commands are in the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>.</li>
+  <li><b>Install voiceio</b> with the desktop extra (microphone, hotkeys, tray):
+<pre><code><span class="p">$</span> pipx install 'python-voiceio[desktop]'</code></pre></li>
+  <li><b>Run the guided setup.</b> It downloads the speech model, sets your hotkey and installs a systemd user service so voiceio starts on login:
+<pre><code><span class="p">$</span> voiceio setup</code></pre></li>
+  <li><b>Dictate.</b> Press the hotkey you picked during setup in any app, speak, and press it again. <code>voiceio doctor</code> shows what works; <code>voiceio doctor --fix</code> repairs what it can.</li>
+</ol>
+  <p class="muted">Prefer to hand it off? The <a href="/#install">install section</a> has a prompt for Claude Code, Codex or any coding agent, which follows the runbook in <a href="/llms.txt">llms.txt</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="desktops">
+  <span class="label">// desktops</span>
+  <h2 id="desktops">What works where</h2>
+  <div class="table-scroll"><table class="cmp">
+    <thead><tr><th scope="col">Desktop</th><th scope="col">Text injection</th><th scope="col">Live preview</th><th scope="col">Status (README)</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">GNOME (Wayland)</th><td>IBus, ydotool fallback</td><td>Yes</td><td>Tested daily</td></tr>
+      <tr><th scope="row">GNOME (X11)</th><td>IBus, xdotool fallback</td><td>Yes</td><td>Supported</td></tr>
+      <tr><th scope="row">KDE Plasma (Wayland)</th><td>IBus, ydotool fallback</td><td>Yes, with IBus</td><td>Should work</td></tr>
+      <tr><th scope="row">Hyprland, sway</th><td>IBus, else wtype, then ydotool</td><td>Yes, with IBus</td><td>Should work</td></tr>
+      <tr><th scope="row">i3, other X11</th><td>IBus, xdotool</td><td>Yes, with IBus</td><td>Should work</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">From the <a href="https://github.com/Hugo0/voiceio#linux-support">voiceio README</a>. If fcitx5 is your input method, voiceio leaves it alone and types the final text with wtype or ydotool.</p>
+</section>
+
+<section class="part" aria-labelledby="names">
+  <span class="label">// accuracy</span>
+  <h2 id="names">Getting names and jargon right</h2>
+  <p>Most dictation errors are proper nouns: people, products, your stack. voiceio has three tools for them, from cheapest to strongest:</p>
+  <ul class="ticks">
+    <li><b>Vocabulary.</b> <code>voiceio vocab add Kalshi</code> passes your terms to Whisper as hotwords, ranked by how often you use them. Whisper's hotword channel fits about 35 terms per decode.</li>
+    <li><b>Corrections.</b> Find-and-replace rules for words that still come out wrong, or say "correct that" right after a mistake.</li>
+    <li><b>Fine-tuning.</b> <code>voiceio learn</code> trains a LoRA fine-tune on your own kept recordings, on CPU, and switches to it only when it beats the current model on clips it never trained on. <code>voiceio learn schedule on</code> runs it when the machine is idle.</li>
+  </ul>
+</section>
+
+<section class="part" aria-labelledby="others">
+  <span class="label">// alternatives</span>
+  <h2 id="others">Other ways to dictate on Linux</h2>
+  <ul class="ticks">
+  <li><a href="/vs/voxtype/">Voxtype</a>: a local, MIT-licensed Rust dictation tool for Linux with many speech engines and GPU builds.</li>
+  <li><a href="/vs/nerd-dictation/">nerd-dictation</a>: a single-file Python script using the offline VOSK engine.</li>
+  <li><a href="/vs/talon/">Talon</a>: hands-free computer control by voice; on Linux it runs on X11 only.</li>
+  <li><a href="/vs/whisper/">Whisper, whisper.cpp, faster-whisper</a>: speech models and libraries that transcribe audio but do not type into apps by themselves.</li>
+</ul>
+<p class="muted">Aqua Voice, Wispr Flow and Dragon do not offer Linux apps, and Superwhisper has a prerelease Linux build for Omarchy only (all checked 2026-10-10). See the <a href="/vs/">comparison hub</a>.</p>
+</section>
+
+<section class="part" aria-labelledby="faq">
+  <span class="label">// faq</span>
+  <h2 id="faq">Questions</h2>
+  <div class="faq">
+<details>
+  <summary>Does voice dictation work on Wayland?</summary>
+  <p>Yes. voiceio types through IBus, which works on Wayland and X11, including GNOME, KDE Plasma, Hyprland and sway. Where IBus is not available it falls back to wtype, ydotool or xdotool. See <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>.</p>
+</details>
+<details>
+  <summary>Is there a free dictation app for Linux?</summary>
+  <p>voiceio is free and MIT licensed. Other free options include <a href="/vs/voxtype/">Voxtype</a> (MIT) and <a href="/vs/nerd-dictation/">nerd-dictation</a> (GPL-3.0).</p>
+</details>
+<details>
+  <summary>Does it need an internet connection?</summary>
+  <p>Only to download the speech model the first time. After that, speech is decoded on your own computer and nothing is uploaded. See <a href="/offline-speech-to-text/">offline speech to text</a>.</p>
+</details>
+<details>
+  <summary>Which Linux distributions are supported?</summary>
+  <p>voiceio is a Python package (3.11+) installed with pipx. The README has package commands for Debian/Ubuntu, Fedora and Arch, and a flake for NixOS (not yet built, per the README).</p>
+</details>
+<details>
+  <summary>Can I dictate in languages other than English?</summary>
+  <p>The default Whisper models are multilingual; set <code>model.language</code> to a language code or <code>auto</code>. Fine-tuning and the vocabulary tools have been tested mostly on English.</p>
+</details>
+</div>
+</section>
+</div>
+<section class="band" aria-labelledby="cta-h">
+  <span class="label">// get it</span>
+  <h2 id="cta-h" style="margin-top:10px">Try voiceio</h2>
+  <p>Free and MIT licensed. Install it with pipx on Linux, or try the dictation in your browser first: the demo on the home page runs a small speech model inside the tab.</p>
+  <div class="cta">
+    <a class="pill solid" href="/#install"><span class="d" aria-hidden="true">◇</span>Install voiceio</a>
+    <a class="pill" href="/"><span class="d" aria-hidden="true">▸</span>Try it in your browser</a>
+    <a class="pill" href="/vs/"><span class="d" aria-hidden="true">≡</span>All comparisons</a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav class="compare label" aria-label="Compare">
+        <a href="/vs/">Compare</a>
+        <a href="/vs/voxtype/">vs Voxtype</a>
+        <a href="/vs/aqua-voice/">vs Aqua Voice</a>
+        <a href="/vs/wispr-flow/">vs Wispr Flow</a>
+        <a href="/vs/superwhisper/">vs Superwhisper</a>
+        <a href="/vs/dragon/">vs Dragon</a>
+        <a href="/vs/nerd-dictation/">vs nerd-dictation</a>
+        <a href="/vs/talon/">vs Talon</a>
+        <a href="/vs/whisper/">and Whisper</a>
+    </nav>
+    <nav class="compare label" aria-label="Guides">
+        <a href="/linux-voice-dictation/">Voice dictation on Linux</a>
+        <a href="/offline-speech-to-text/">Offline speech to text</a>
+        <a href="/whisper-dictation-wayland/">Whisper dictation on Wayland</a>
+    </nav>
+    <div class="row">
+      <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+      <span class="label">local · private · learns you · made with ♥ by <a href="https://hugo0.com">hugo0.com</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
