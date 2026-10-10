@@ -217,15 +217,9 @@ def _check_features() -> FeatureGroups:
             else:
                 groups.accuracy["Vocabulary"] = "none"
 
-        # Autocorrect
-        from voiceio.llm_api import resolve_api_key
-        api_key = resolve_api_key(cfg.autocorrect)
-        if api_key:
-            groups.accuracy["Autocorrect"] = f"API ({cfg.autocorrect.model})"
-        elif cfg.llm.enabled:
-            groups.accuracy["Autocorrect"] = "Ollama fallback"
-        else:
-            groups.accuracy["Autocorrect"] = "no API key (set in config or OPENROUTER_API_KEY env var)"
+        if cfg.postcorrect.enabled:
+            model = cfg.postcorrect.model or cfg.autocorrect.model
+            groups.accuracy["Cloud postcorrect"] = f"on ({model}), adds up to {cfg.postcorrect.timeout_secs:g}s"
     except Exception:
         pass
     return groups
@@ -325,7 +319,6 @@ def _accuracy_tips(accuracy: dict[str, str]) -> list[str]:
     hist = accuracy.get("History", "")
     corr = accuracy.get("Corrections", "")
     vocab = accuracy.get("Vocabulary", "")
-    auto = accuracy.get("Autocorrect", "")
 
     if corr == "none" and "entries" in hist:
         tips.append("voiceio vocab suggest  — unusual words from your history")
@@ -333,8 +326,6 @@ def _accuracy_tips(accuracy: dict[str, str]) -> list[str]:
         tips.append("voiceio corrections add WRONG RIGHT  — fix a word that keeps being misheard")
     if vocab == "none":
         tips.append("Add names/jargon to ~/.config/voiceio/vocabulary.txt")
-    if "no API key" in auto:
-        tips.append("Set OPENROUTER_API_KEY for cloud-powered autocorrect")
     return tips
 
 
@@ -419,7 +410,19 @@ def format_report(report: HealthReport) -> str:
 
 # ── Usage checks: how it is actually performing, from the user's own data ──
 
-def usage_findings() -> list[tuple[bool, str, str]]:
+def _latency_hint(cfg) -> str:
+    """Only suggest settings that differ from what is already in effect."""
+    hints = []
+    if cfg.model.decode_lanes < 2:
+        hints.append("voiceio config set model.decode_lanes 2")
+    if cfg.output.streaming_freeze_secs > 8:
+        hints.append("voiceio config set output.streaming_freeze_secs 8")
+    if cfg.postcorrect.enabled:
+        hints.append("voiceio config set postcorrect.enabled false")
+    return "  ·  ".join(hints)
+
+
+def usage_findings(cfg=None) -> list[tuple[bool, str, str]]:
     """(ok, finding, hint) from history/traces/logs. Cheap: reads local files.
 
     These catch what the probes can't: everything can be "installed" while
@@ -445,8 +448,7 @@ def usage_findings() -> list[tuple[bool, str, str]]:
         p90 = statistics.quantiles(waits, n=10)[-1]
         out.append((p90 <= 10, f"stop→text: median {p50:.1f}s, p90 {p90:.1f}s "
                                f"(last {len(waits)} dictations)",
-                    "voiceio config set model.decode_lanes 2  ·  "
-                    "voiceio config set output.streaming_freeze_secs 8"))
+                    _latency_hint(cfg or config.load())))
 
     log_files = sorted(config.LOG_DIR.glob("voiceio.log*")) if config.LOG_DIR.exists() else []
     deaths = timeouts = 0
