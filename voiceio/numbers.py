@@ -108,9 +108,19 @@ def _is_number_word(word: str) -> bool:
     return word.lower() in _ALL_NUMBER_WORDS
 
 
+# Lone zero–nine and first–ninth stay words, as style guides (AP, Chicago)
+# and Whisper itself write them. Converting them did more harm than good on
+# real dictation: "one" is mostly a pronoun ("no one", "this one" → "no 1")
+# and "second" a unit of time ("wait a second" → "wait a 2nd").
+_SPELLED_OUT_BELOW = 10
+
+
 def convert_numbers(text: str, language: str = "en") -> str:
     """Replace spoken number words with digits in text.
 
+    Compounds and anything ten or above become digits ("twenty five" → "25",
+    "three hundred" → "300", "tenth" → "10th"), as do percentages ("five
+    percent" → "5%"); a lone zero–nine or first–ninth is left as a word.
     Only processes English. Other languages pass through unchanged.
     """
     if language not in ("en", "auto"):
@@ -129,7 +139,7 @@ def convert_numbers(text: str, language: str = "en") -> str:
 
         if low in _ORDINAL_WORDS and not _is_number_word_at(words, i + 1):
             val, suffix = _ORDINAL_WORDS[low]
-            result.append(f"{val}{suffix}{trailing_punct}")
+            result.append(words[i] if val < _SPELLED_OUT_BELOW else f"{val}{suffix}{trailing_punct}")
             i += 1
             continue
 
@@ -160,7 +170,11 @@ def convert_numbers(text: str, language: str = "en") -> str:
                         break
                     if w == "and":
                         # "and" only valid between number parts
-                        if j + 1 < len(words) and _is_number_word(words[j + 1].lower().rstrip(".,;:?!")):
+                        nxt = words[j + 1].lower().rstrip(".,;:?!") if j + 1 < len(words) else ""
+                        # …and only after a scale: "hundred and forty", never
+                        # "fifteen and twenty" (two numbers, not 35).
+                        if last_category == "scale" and (
+                                _is_number_word(nxt) or _ends_compound_ordinal(nxt, last_category)):
                             num_words.append(w)
                             j += 1
                             continue
@@ -174,8 +188,19 @@ def convert_numbers(text: str, language: str = "en") -> str:
                     num_words.append(w)
                     last_category = cat
                     j += 1
+                elif _ends_compound_ordinal(w, last_category):
+                    # "twenty fifth", "hundred and first": the ordinal ends it
+                    num_words.append(w)
+                    j += 1
+                    break
                 else:
                     break
+
+            # A trailing "and" that no number followed belongs to the sentence:
+            # "one and two" must not swallow it.
+            while num_words and num_words[-1] == "and":
+                num_words.pop()
+                j -= 1
 
             if num_words:
                 # Check for trailing "percent"
@@ -205,12 +230,16 @@ def convert_numbers(text: str, language: str = "en") -> str:
                             i = j
                             ordinal = True
                     if not ordinal:
-                        result.append(f"{val}{suffix}{num_trailing}")
+                        lone_small = len(num_words) == 1 and val < _SPELLED_OUT_BELOW
+                        result.append(words[i] if lone_small else f"{val}{suffix}{num_trailing}")
                         i = j
                         ordinal = True
 
                 if not ordinal:
                     num = _words_to_number(num_words)
+                    if (num is not None and not percent and num < _SPELLED_OUT_BELOW
+                            and len([w for w in num_words if w not in ("and", "a")]) == 1):
+                        num = None  # a lone zero–nine stays a word
                     if num is not None:
                         s = str(num)
                         if percent:
@@ -228,6 +257,13 @@ def convert_numbers(text: str, language: str = "en") -> str:
         i += 1
 
     return " ".join(result)
+
+
+def _ends_compound_ordinal(word: str, last_category: str | None) -> bool:
+    """An ordinal that can close a compound after tens/scale ("twenty fifth").
+    Not "second": "a thirty second clip" is a duration far more often."""
+    return (word in _ORDINAL_WORDS and word != "second"
+            and last_category in ("tens", "scale") and _ORDINAL_WORDS[word][0] < 10)
 
 
 def _is_number_word_at(words: list[str], idx: int) -> bool:

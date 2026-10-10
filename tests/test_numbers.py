@@ -8,7 +8,7 @@ from voiceio.numbers import convert_numbers
 
 class TestBasicCardinals:
     def test_single_digits(self):
-        assert convert_numbers("I have five cats") == "I have 5 cats"
+        assert convert_numbers("I have five cats") == "I have five cats"  # lone 0-9: words
 
     def test_teens(self):
         assert convert_numbers("she is thirteen") == "she is 13"
@@ -38,7 +38,7 @@ class TestBasicCardinals:
         assert convert_numbers("a thousand times") == "1000 times"
 
     def test_zero(self):
-        assert convert_numbers("zero issues") == "0 issues"
+        assert convert_numbers("zero issues") == "zero issues"
 
 
 class TestPercentages:
@@ -51,16 +51,30 @@ class TestPercentages:
 
 class TestOrdinals:
     def test_first(self):
-        assert convert_numbers("the first time") == "the 1st time"
+        assert convert_numbers("the first time") == "the first time"
 
     def test_second(self):
-        assert convert_numbers("the second try") == "the 2nd try"
+        assert convert_numbers("wait a second") == "wait a second"
 
     def test_third(self):
-        assert convert_numbers("the third option") == "the 3rd option"
+        assert convert_numbers("the third option") == "the third option"
 
     def test_fifth(self):
-        assert convert_numbers("the fifth element") == "the 5th element"
+        assert convert_numbers("the twenty fifth element") == "the 25th element"
+
+    def test_pronoun_one_is_not_a_number(self):
+        assert convert_numbers("no one knows which one") == "no one knows which one"
+
+    def test_small_percent_still_converts(self):
+        assert convert_numbers("five percent") == "5%"
+
+    def test_compound_ordinal(self):
+        assert convert_numbers("on the twenty first") == "on the 21st"
+        assert convert_numbers("the hundred and first") == "the 101st"
+        assert convert_numbers("a thirty second clip") == "a 30 second clip"
+
+    def test_tenth_converts(self):
+        assert convert_numbers("the tenth time") == "the 10th time"
 
     def test_twentieth(self):
         assert convert_numbers("the twentieth century") == "the 20th century"
@@ -77,14 +91,18 @@ class TestEdgeCases:
         assert convert_numbers("trois cent", language="fr") == "trois cent"
 
     def test_mixed(self):
-        assert convert_numbers("I ate three tacos and five burritos") == "I ate 3 tacos and 5 burritos"
+        assert convert_numbers("I ate thirteen tacos and five burritos") == "I ate 13 tacos and five burritos"
 
     def test_number_with_trailing_punct(self):
-        result = convert_numbers("I have five.")
-        assert result == "I have 5."
+        result = convert_numbers("I have fifteen.")
+        assert result == "I have 15."
 
     def test_preserves_non_number_words(self):
         assert convert_numbers("the quick brown fox") == "the quick brown fox"
+
+    def test_and_between_separate_numbers_is_kept(self):
+        assert convert_numbers("one and two") == "one and two"
+        assert convert_numbers("fifteen and twenty") == "15 and 20"
 
     def test_and_not_consumed_alone(self):
         # "and" alone shouldn't be consumed as a number word
