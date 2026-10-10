@@ -169,26 +169,16 @@ class LLMProcessor:
         return self._available
 
     def generate(self, prompt: str, system: str = "", timeout: float | None = None) -> str | None:
-        """Send a prompt to Ollama and return the response text.
-
-        Returns None on any failure (timeout, connection error, etc.).
-        """
-        payload = json.dumps({
-            "model": self._model,
-            "prompt": prompt,
-            "system": system or _SYSTEM_PROMPT,
-            "stream": False,
-        }).encode()
-
-        req = urllib.request.Request(
-            f"{self._base_url}/api/generate",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=timeout or self._timeout) as resp:
-            body = json.loads(resp.read())
-        return body.get("response", "").strip() or None
+        """Send a prompt to Ollama and return the response text, or None on
+        any failure. Through `llm_api`, Ollama's OpenAI-compatible endpoint:
+        one HTTP client, and an Ollama on another machine passes the same
+        consent gate as any other endpoint the text would leave for."""
+        from voiceio import llm_api
+        from voiceio.config import CloudConfig
+        cfg = CloudConfig(base_url=f"{self._base_url}/v1", model=self._model,
+                          timeout_secs=timeout or self._timeout)
+        result = llm_api.chat(cfg, system or _SYSTEM_PROMPT, prompt, api_key="ollama")
+        return result.strip() if result else None
 
     def process(self, text: str) -> str:
         """Send text to Ollama for correction. Returns original on any failure."""

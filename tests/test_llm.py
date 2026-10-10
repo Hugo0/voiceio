@@ -18,6 +18,11 @@ def _make_processor(**kwargs) -> LLMProcessor:
     return LLMProcessor(LLMConfig(**defaults))
 
 
+def _reply(text: str) -> dict:
+    """An OpenAI-compatible chat completion, as Ollama's /v1 returns it."""
+    return {"choices": [{"message": {"content": text}}]}
+
+
 def _mock_response(data: dict) -> MagicMock:
     """Create a mock urllib response with JSON body."""
     body = json.dumps(data).encode()
@@ -29,18 +34,16 @@ def _mock_response(data: dict) -> MagicMock:
 
 
 class TestProcess:
-    @patch("urllib.request.urlopen")
-    def test_success(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response(
-            {"response": "The sky is blue."}
-        )
+    @patch("voiceio.llm_api._post_json")
+    def test_success(self, mock_post):
+        mock_post.return_value = _reply("The sky is blue.")
         proc = _make_processor()
         result = proc.process("the skys is blue")
         assert result == "The sky is blue."
 
-    @patch("urllib.request.urlopen")
-    def test_log_never_contains_the_words(self, mock_urlopen, caplog):
-        mock_urlopen.return_value = _mock_response({"response": "My secret plan."})
+    @patch("voiceio.llm_api._post_json")
+    def test_log_never_contains_the_words(self, mock_post, caplog):
+        mock_post.return_value = _reply("My secret plan.")
         with caplog.at_level("DEBUG", logger="voiceio.llm"):
             assert _make_processor().process("my secrit plan") == "My secret plan."
         assert "secr" not in caplog.text and "chars" in caplog.text
@@ -59,28 +62,24 @@ class TestProcess:
         result = proc.process("hello world")
         assert result == "hello world"
 
-    @patch("urllib.request.urlopen")
-    def test_hallucination_too_long(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response(
-            {"response": "x " * 500}  # way longer than input
-        )
+    @patch("voiceio.llm_api._post_json")
+    def test_hallucination_too_long(self, mock_post):
+        mock_post.return_value = _reply("x " * 500)  # way longer than input
         proc = _make_processor()
         result = proc.process("short text")
         assert result == "short text"
 
-    @patch("urllib.request.urlopen")
-    def test_hallucination_too_short(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response(
-            {"response": "x"}
-        )
+    @patch("voiceio.llm_api._post_json")
+    def test_hallucination_too_short(self, mock_post):
+        mock_post.return_value = _reply("x")
         proc = _make_processor()
         original = "this is a much longer piece of text that should not shrink to one char"
         result = proc.process(original)
         assert result == original
 
-    @patch("urllib.request.urlopen")
-    def test_empty_response_returns_original(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response({"response": ""})
+    @patch("voiceio.llm_api._post_json")
+    def test_empty_response_returns_original(self, mock_post):
+        mock_post.return_value = _reply("")
         proc = _make_processor()
         result = proc.process("hello world")
         assert result == "hello world"
@@ -90,20 +89,16 @@ class TestProcess:
         assert proc.process("") == ""
         assert proc.process("   ") == "   "
 
-    @patch("urllib.request.urlopen")
-    def test_prompt_echo_stripped(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response(
-            {"response": "Here is the corrected text: The sky is blue."}
-        )
+    @patch("voiceio.llm_api._post_json")
+    def test_prompt_echo_stripped(self, mock_post):
+        mock_post.return_value = _reply("Here is the corrected text: The sky is blue.")
         proc = _make_processor()
         result = proc.process("the skys is blue")
         assert result == "The sky is blue."
 
-    @patch("urllib.request.urlopen")
-    def test_quoted_response_stripped(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response(
-            {"response": '"The sky is blue."'}
-        )
+    @patch("voiceio.llm_api._post_json")
+    def test_quoted_response_stripped(self, mock_post):
+        mock_post.return_value = _reply('"The sky is blue."')
         proc = _make_processor()
         result = proc.process("the skys is blue")
         assert result == "The sky is blue."
