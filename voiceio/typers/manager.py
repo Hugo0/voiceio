@@ -117,11 +117,14 @@ class TyperManager:
             if not probe.ok:
                 log.warning("Typer '%s' no longer works: %s", self.typer.name, probe.reason)
             try:
-                self.typer = typer_chain.select(self.platform)
-                log.info("Switched to typer: %s", self.typer.name)
-                self.typer.type_text(text)
+                new = typer_chain.select(self.platform)   # probes: outside the lock
             except RuntimeError:
                 log.error("No working typer backend available")
+                return
+            with self._lock:
+                self.typer = new
+            log.info("Switched to typer: %s", new.name)
+            new.type_text(text)
 
     def clipboard_fallback(self) -> TyperBackend | None:
         """A clipboard typer for the current platform, or None if unavailable."""

@@ -10,6 +10,7 @@ Covers:
 """
 from __future__ import annotations
 
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -58,6 +59,25 @@ class TestGuardedSwaps:
         vio._state = _State.IDLE
         assert vio._typers.swap_typer(new, "test") is True
         assert vio._typers.typer is new
+
+    def test_no_typer_swap_while_batch_output_in_flight(self):
+        """Batch mode is IDLE before its thread types: a swap then would
+        commit through an IBus source never claimed for that recording."""
+        from voiceio.app import _State
+        vio = _make_app()
+        new = MagicMock(spec=TyperBackend)
+        new.name = "ibus"
+        vio._state = _State.IDLE
+        started, release = threading.Event(), threading.Event()
+        vio._output_thread(lambda: (started.set(), release.wait(5)))
+        assert started.wait(5)
+        assert vio._typers.swap_typer(new, "test") is False
+        release.set()
+        for _ in range(100):
+            if not vio._outputs:
+                break
+            time.sleep(0.01)
+        assert vio._typers.swap_typer(new, "test") is True
 
     def test_swap_platform_only_when_idle(self):
         from voiceio.app import _State

@@ -174,13 +174,18 @@ class VoiceIO:
             is_idle=self._is_idle,
             generation=lambda: self._recording,
         )
+        # Batch mode is IDLE again before its thread types the text; a typer
+        # swap must also wait for output in flight (a mid-commit swap to IBus
+        # would commit through a source never claimed for that recording).
+        self._outputs = 0
+        self._outputs_lock = threading.Lock()
         self._typers = TyperManager(
             platform, typer,
             ibus=self._ibus,
             method=cfg.output.method,
             auto_fallback=cfg.health.auto_fallback,
             lock=self._hotkey_lock,
-            is_idle=self._is_idle,
+            is_idle=lambda: self._is_idle() and not self._outputs,
             state=lambda: self._state,
             shutdown=self._shutdown,
         )
@@ -204,6 +209,18 @@ class VoiceIO:
 
     def _is_idle(self) -> bool:
         return self._state == _State.IDLE
+
+    def _output_thread(self, target, *args) -> None:
+        """Run a finalizer that types text, counted as output in flight."""
+        def run() -> None:
+            with self._outputs_lock:
+                self._outputs += 1
+            try:
+                target(*args)
+            finally:
+                with self._outputs_lock:
+                    self._outputs -= 1
+        threading.Thread(target=run, daemon=True).start()
 
     def request_shutdown(self) -> None:
         """Request graceful shutdown from an external signal handler."""
@@ -411,21 +428,13 @@ class VoiceIO:
             session.set_is_current(lambda g=gen: self._generation == g)
             # Finalize in background. Pass audio snapshot — session no longer
             # touches the recorder. Generation check cancels if superseded.
-            threading.Thread(
-                target=self._finalize_streaming,
-                args=(session, audio, elapsed, gen, rid),
-                daemon=True,
-            ).start()
+            self._output_thread(self._finalize_streaming, session, audio, elapsed, gen, rid)
         elif not self._streaming:
             self._state = _State.IDLE
             log.info("Stopped recording (%.1fs)", elapsed)
             if audio is not None:
                 # _process owns deactivation (its finally block).
-                threading.Thread(
-                    target=self._process,
-                    args=(audio, gen, rid, self._recording_bias),
-                    daemon=True,
-                ).start()
+                self._output_thread(self._process, audio, gen, rid, self._recording_bias)
             else:
                 # No processing thread will run — release the source here.
                 self._ibus.release(rid)
