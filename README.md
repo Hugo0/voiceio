@@ -262,6 +262,11 @@ Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture, conventions and the reasoning behind the model choice. Please open an issue before a large PR.
 
+## Credits
+
+- Speech recognition: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [CTranslate2](https://github.com/OpenNMT/CTranslate2), with OpenAI's [Whisper](https://github.com/openai/whisper) models. The in-browser demo on [voiceio.dev](https://voiceio.dev) runs [Moonshine](https://github.com/usefulsensors/moonshine) through [transformers.js](https://github.com/huggingface/transformers.js).
+- The landing page's look (dithered art, typewriter heading, hairline bento) takes its inspiration from Romario Kavin's [KOLlateral](https://github.com/RomarioKavin1/kollateral).
+
 ## License
 
 MIT. Model weights are not part of voiceio and carry their own licenses (see [Choose a model](#choose-a-model)).
