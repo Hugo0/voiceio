@@ -11,6 +11,7 @@ from voiceio import tray
 if TYPE_CHECKING:
     from voiceio import config
     from voiceio.core.decoders.base import Decoder
+    from voiceio.idle_audio import IdleAudio
     from voiceio.ibus.session import IBusSession
     from voiceio.recorder import AudioRecorder
     from voiceio.streaming import StreamingSession
@@ -49,6 +50,7 @@ class Watchdog:
         on_decoder_failed: Callable[[], None],
         on_hotkey: Callable[[], None],
         shutdown: threading.Event,
+        idle_audio: IdleAudio | None = None,
     ):
         self._cfg = cfg
         self._decoder = decoder
@@ -61,6 +63,7 @@ class Watchdog:
         self._on_decoder_failed = on_decoder_failed
         self._on_hotkey = on_hotkey
         self._shutdown = shutdown
+        self._idle_audio = idle_audio
 
         # Audio stream recovery backoff
         self._stream_fail_count = 0
@@ -100,12 +103,14 @@ class Watchdog:
         """
         self._typers.refresh_platform()
 
-        # Audio: reopen stream (device may have changed or died)
-        try:
-            self._recorder.reopen_stream()
-            log.info("Resume: audio stream reopened")
-        except Exception:
-            log.warning("Resume: audio stream reopen failed", exc_info=True)
+        # Audio: reopen stream (device may have changed or died). A stream
+        # closed by the idle policy opens fresh on the next hotkey.
+        if not self._recorder.is_parked:
+            try:
+                self._recorder.reopen_stream()
+                log.info("Resume: audio stream reopened")
+            except Exception:
+                log.warning("Resume: audio stream reopen failed", exc_info=True)
 
         # Typer: re-probe if on a fallback backend (e.g. clipboard instead
         # of ibus) — the preferred backend may be available now.
@@ -167,6 +172,11 @@ class Watchdog:
             self._stream_fail_count = 0
             self._next_stream_retry = 0
             tray.set_error(False)
+
+        # Idle audio policy: close the streams once the warm window ran out,
+        # reopen them when it is wanted again (plugged into AC).
+        if self._idle_audio is not None:
+            self._idle_audio.tick()
 
         # Check tray subprocess (restart if died / lost D-Bus registration)
         if self._cfg.tray.enabled and not tray.is_alive():

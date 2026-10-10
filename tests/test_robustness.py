@@ -890,6 +890,7 @@ class TestZombieStreamRecovery:
         from voiceio import app as app_mod
 
         app = MagicMock()
+        app._idle_audio.ensure_open.return_value = False   # stream was warm
         app.recorder.stream_health.return_value = (True, "")
         app.recorder.is_zombie.return_value = True
         app.recorder.has_signal.return_value = True  # healthy after reopen
@@ -907,6 +908,7 @@ class TestZombieStreamRecovery:
         from voiceio import app as app_mod
 
         app = MagicMock()
+        app._idle_audio.ensure_open.return_value = False   # stream was warm
         app.recorder.stream_health.return_value = (True, "")
         app.recorder.is_zombie.return_value = True
         app.recorder.reopen_stream.side_effect = OSError("no device")

@@ -38,6 +38,8 @@ voiceio/
 ├── display.py       # TypedText: what the session showed, preedit or keystroke edits
 ├── audio_source.py  # Where streaming gets samples (microphone, socket, file)
 ├── recorder.py      # Microphone capture with 1s pre-buffer ring (desktop extra)
+├── idle_audio.py    # When mic + chime streams stay open between dictations ([audio] keep_warm)
+├── power.py         # on_battery() from sysfs (idle audio policy, nightly learning)
 ├── vad.py           # Voice Activity Detection (Silero ONNX / RMS fallback)
 ├── vocabulary.py    # vocabulary.txt, ranked to fit the hotword token budget
 ├── vocab_stats.py   # Per-term usage stats that drive the ranking

@@ -118,6 +118,12 @@ class AudioConfig:
     pause_media: bool = False
     # Lower the default output to this fraction of its level (1.0 = off).
     duck_volume: float = 1.0
+    # Mic + chime streams while idle (voiceio/idle_audio.py). "always": open
+    # for the daemon's lifetime (1s pre-buffer, keeps the audio device awake);
+    # "auto": open on mains power, on battery closed warm_minutes after the
+    # last dictation; "never": closed between dictations, opened on the hotkey.
+    keep_warm: str = "auto"
+    warm_minutes: float = 5.0
 
 
 @dataclass

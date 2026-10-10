@@ -103,6 +103,25 @@ def _no_real_desktop_tools(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_audio(monkeypatch, tmp_path):
+    """No real mic or speaker stream: opening one shows the mic as in use on
+    the developer's desktop and wakes the sound card. Behaves like a machine
+    without audio devices (CI); tests that need a stream fake it. Mains power,
+    so the idle audio policy is deterministic on a laptop on battery."""
+    monkeypatch.setattr("voiceio.power.POWER_SUPPLY", tmp_path / "no-power-supply")
+    try:
+        import sounddevice as sd
+    except (ImportError, OSError):
+        return
+
+    def refuse(*a, **k):
+        raise sd.PortAudioError("tests must not open real audio devices")
+
+    monkeypatch.setattr(sd, "InputStream", refuse)
+    monkeypatch.setattr(sd, "OutputStream", refuse)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_keyboards(monkeypatch):
     """The modifier guard reads the developer's real keyboards: holding Ctrl
     while tests run would slow every typer test by its timeout."""

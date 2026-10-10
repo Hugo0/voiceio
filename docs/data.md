@@ -26,4 +26,6 @@ Everything voiceio keeps is in three directories (they follow `XDG_CONFIG_HOME`,
 | `models/<run>/` | Your fine-tuned models, plus `promotions.jsonl` | — |
 | `runs/` | Evaluation results | — |
 
+The microphone is open only while voiceio is warm: always with `[audio] keep_warm = "always"`, on mains power or within `warm_minutes` (default 5) of your last dictation on battery with `"auto"` (the default), and only while dictating with `"never"`. While open it feeds a 1-second in-memory pre-buffer that is discarded unless you start a dictation; after a cold open there is no pre-buffer, so the first syllable may be clipped.
+
 Set `[data] capture_context = false` to stop recording window titles. `voiceio uninstall` offers to delete the config and state directories; delete `~/.local/share/voiceio` yourself.

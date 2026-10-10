@@ -1,8 +1,9 @@
 """User feedback: notifications and audio cues.
 
 Uses a persistent sounddevice OutputStream on the 'pulse' device for reliable
-playback. The stream stays open for the lifetime of the daemon, avoiding
-PipeWire's dropped-audio issue with short-lived clients (pw-play, paplay).
+playback. The stream stays open while the daemon is warm (idle_audio.py
+decides; by default for its lifetime on mains power), avoiding PipeWire's
+dropped-audio issue with short-lived clients (pw-play, paplay).
 The 'pulse' device routes through PulseAudio/PipeWire's session manager,
 so audio always goes to the same output as other desktop apps.
 """
@@ -69,13 +70,15 @@ def open_output_stream(
 
 
 def warm_up() -> None:
-    """Open a persistent output stream and pre-load all sounds."""
-    global _stream
+    """Pre-load all sounds and open the cue stream."""
+    _load_sounds()
+    open_cue_stream()
 
-    # Pre-load all WAV files
+
+def _load_sounds() -> None:
     for name in ("start", "stop", "commit"):
         path = _SOUNDS_DIR / f"{name}.wav"
-        if not path.exists():
+        if name in _sounds or not path.exists():
             continue
         with wave.open(str(path), "rb") as wf:
             rate = wf.getframerate()
@@ -84,11 +87,46 @@ def warm_up() -> None:
         pad = np.zeros(int(rate * 0.1), dtype=np.int16)
         _sounds[name] = np.concatenate([data, pad]).reshape(-1, 1)
 
-    _stream = open_output_stream(samplerate=44100, latency=CUE_LATENCY_SECS)
-    if _stream:
-        _stream.start()
-    else:
-        log.warning("Sound output unavailable — no working audio device found")
+
+def open_cue_stream() -> bool:
+    """Open and start the cue stream unless it is open. True when open."""
+    global _stream
+    with _stream_lock:
+        if _stream is not None:
+            return True
+        _load_sounds()
+        stream = open_output_stream(samplerate=44100, latency=CUE_LATENCY_SECS)
+        if stream is None:
+            log.warning("Sound output unavailable — no working audio device found")
+            return False
+        try:
+            stream.start()
+        except Exception:
+            log.warning("Could not start the cue stream", exc_info=True)
+            stream.close()
+            return False
+        _stream = stream
+        return True
+
+
+def close_cue_stream() -> None:
+    """Close the cue stream (idle policy). A cue still playing finishes first:
+    the lock waits for its write, and stop() drains the buffer."""
+    global _stream
+    with _stream_lock:
+        stream, _stream = _stream, None
+        if stream is None:
+            return
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:
+            log.debug("Closing the cue stream failed", exc_info=True)
+    log.debug("Cue stream closed")
+
+
+def cue_stream_open() -> bool:
+    return _stream is not None
 
 
 def play_record_start() -> None:
@@ -121,6 +159,8 @@ def _play_sync(name: str) -> None:
     data = _sounds[name]
     try:
         with _stream_lock:
+            if _stream is None:   # closed by the idle policy meanwhile
+                return
             _stream.write(data)
     except Exception:
         log.debug("Playback failed for %s", name, exc_info=True)

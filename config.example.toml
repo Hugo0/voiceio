@@ -40,6 +40,9 @@ vad_backend = "silero"        # silero | rms
 vad_threshold = 0.5
 pause_media = false           # pause playing music/videos while recording
 duck_volume = 1.0             # lower other sound to this fraction while recording; 1.0 = off
+keep_warm = "auto"            # mic + chime open while idle: always | auto (on AC; on battery
+                              # until warm_minutes after the last dictation) | never
+warm_minutes = 5.0            # auto, on battery: close this long after the last dictation
 
 [output]
 method = "auto"               # auto | ibus | ydotool | wtype | xdotool | clipboard | pynput

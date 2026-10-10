@@ -142,6 +142,9 @@ def _check_features() -> FeatureGroups:
         quiet = describe(cfg.audio.pause_media, cfg.audio.duck_volume)
         if quiet:
             groups.processing["Quiet while recording"] = quiet
+        from voiceio.idle_audio import describe as describe_idle
+        groups.processing["Audio when idle"] = describe_idle(
+            cfg.audio.keep_warm, cfg.audio.warm_minutes)
 
         # LLM
         if cfg.llm.enabled:

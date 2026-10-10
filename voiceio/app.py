@@ -207,6 +207,15 @@ class VoiceIO:
                             "(have %s); use `voiceio cancel` instead", self._hotkey.name)
 
         self._shutdown = threading.Event()
+        # Mic + chime streams between dictations ([audio] keep_warm).
+        from voiceio.idle_audio import IdleAudio
+        self._idle_audio = IdleAudio(
+            cfg.audio.keep_warm, cfg.audio.warm_minutes,
+            recorder=self.recorder,
+            cues=lambda: self.cfg.feedback.sound_enabled,
+            lock=self._hotkey_lock,
+            can_close=self._audio_idle,
+        )
         # IBus engine process + input-source claim (only while recording).
         from voiceio.ibus.session import IBusSession
         self._ibus = IBusSession(
@@ -242,6 +251,7 @@ class VoiceIO:
             on_decoder_failed=self._on_decoder_failed,
             on_hotkey=self.on_hotkey,
             shutdown=self._shutdown,
+            idle_audio=self._idle_audio,
         )
 
     @property
@@ -250,6 +260,12 @@ class VoiceIO:
 
     def _is_idle(self) -> bool:
         return self._state == _State.IDLE
+
+    def _audio_idle(self) -> bool:
+        """Nothing needs the audio streams: no recording, no finalizer or
+        batch output in flight (its commit chime), no TTS playing."""
+        tts = self._tts_player is not None and self._tts_player.is_playing()
+        return self._is_idle() and not self._outputs and not tts
 
     def _output_thread(self, target, *args) -> None:
         """Run a finalizer that types text, counted as output in flight."""
@@ -261,6 +277,7 @@ class VoiceIO:
             finally:
                 with self._outputs_lock:
                     self._outputs -= 1
+                self._idle_audio.touch()
         threading.Thread(target=run, daemon=True).start()
 
     def request_shutdown(self) -> None:
@@ -345,6 +362,7 @@ class VoiceIO:
             session.cancel()
         self._state = _State.IDLE
         self._typers.end(rid)
+        self._idle_audio.touch()
         log.info("Recording cancelled")
 
     def _cancel_output(self) -> None:
@@ -480,6 +498,10 @@ class VoiceIO:
 
     def _do_start(self) -> None:
         """Transition to RECORDING."""
+        # Streams closed while idle (keep_warm): mic first, so the ring starts
+        # catching words while the cue stream opens. A cold ring is no
+        # pre-buffer, so the zombie / silent-mic checks below can't judge it.
+        cold = self._idle_audio.ensure_open()
         # The chime first: the checks below can take half a second after an
         # idle or a suspend, and the 1s pre-buffer keeps the words said
         # meanwhile.
@@ -496,7 +518,10 @@ class VoiceIO:
                 log.exception("Cannot reopen audio stream, aborting recording")
                 return
 
-        if self.recorder.is_zombie():
+        if cold:
+            log.debug("Cold start: audio opened %.0f ms ago, no pre-buffer",
+                      (time.monotonic() - self._last_hotkey) * 1000)
+        elif self.recorder.is_zombie():
             # Full pre-buffer of digital zeros with a "healthy" stream is the
             # post-suspend zombie signature (callbacks fire, capture node
             # gone). Reopening fixes it; a failed reopen means no audio is
@@ -569,6 +594,7 @@ class VoiceIO:
         self.recorder.set_on_auto_stop(None)
         audio = self.recorder.stop()
         tray.set_recording(False)
+        self._idle_audio.touch()
         self._warn_if_clipping()
 
         self.engine.prepare_final(title=self._context_title)
@@ -868,12 +894,8 @@ class VoiceIO:
 
         self._typers.prepare()
 
-        self.recorder.open_stream()
-
-        # Pre-open sound output stream so first cue plays instantly
-        if self.cfg.feedback.sound_enabled:
-            from voiceio.feedback import warm_up
-            warm_up()
+        # Mic + cue streams, unless the idle policy wants them closed now.
+        self._idle_audio.start()
 
         if self.cfg.tray.enabled:
             tray.start(self.request_shutdown, self.on_hotkey)
@@ -915,6 +937,7 @@ class VoiceIO:
                 self._tts_player.cancel()
             if self._tts_engine:
                 self._tts_engine.shutdown()
+            self._idle_audio.shutdown()
             self.recorder.close_stream()
             self._quiet.close()
             self.decoder.close()

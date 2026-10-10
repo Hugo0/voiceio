@@ -78,11 +78,14 @@ class RingBuffer:
 
 
 class AudioRecorder:
-    """Audio recorder with always-on pre-buffer ring.
+    """Audio recorder with a pre-buffer ring.
 
-    The audio stream runs continuously. A ring buffer captures the last
+    While the stream is open, a ring buffer captures the last
     `prebuffer_secs` of audio. When recording starts, the ring buffer
     contents become the start of the recording, so no first syllable is lost.
+    The idle policy (idle_audio.py) may park the stream between dictations;
+    a recording started right after reopening has only what the ring caught
+    since the open.
     """
 
     def __init__(
@@ -100,6 +103,9 @@ class AudioRecorder:
         # of every chunk (which made each interim pass O(recording length)).
         self._audio = AudioBuffer(cfg.sample_rate * 60)
         self._stream: sd.InputStream | None = None
+        # Closed on purpose while idle (idle_audio.py): no stream is healthy
+        # then, and the watchdog must not reopen it.
+        self._parked = False
         self._lock = threading.Lock()
         self._recording = False
 
@@ -143,8 +149,11 @@ class AudioRecorder:
 
     def open_stream(self) -> None:
         """Start the always-on audio stream (feeds ring buffer)."""
+        self._parked = False
         if self._stream is not None:
             return
+        # A heartbeat left over from before a close would read as a stale stream.
+        self._last_callback_time = 0.0
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             channels=1,
@@ -169,6 +178,8 @@ class AudioRecorder:
         4. Callback heartbeat stale         — stream "active" but no callbacks
            (device silently disconnected, PipeWire graph change, driver bug)
         """
+        if self._parked:
+            return True, ""
         if self._stream is None:
             return False, "stream is None"
         if self._stream.closed:
@@ -232,6 +243,22 @@ class AudioRecorder:
             self._stream.close()
             self._stream = None
             self._ring.clear()
+
+    def park(self) -> None:
+        """Close the stream while idle; the next open_stream() resumes it.
+        Never while recording: the caller holds the daemon's state lock."""
+        if self._recording:
+            raise RuntimeError("cannot park the mic while recording")
+        self.close_stream()
+        self._parked = True
+
+    @property
+    def is_parked(self) -> bool:
+        return self._parked
+
+    @property
+    def is_open(self) -> bool:
+        return self._stream is not None
 
     def start(self) -> None:
         """Start recording. Grabs ring buffer contents as the beginning."""
