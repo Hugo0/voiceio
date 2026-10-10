@@ -756,7 +756,7 @@ void main(){
   const statusEl = document.getElementById("try-status");
   const RATE = 16000, MAX_SECS = 20, STEP_SECS = 0.35;
   const DEBUG = new URLSearchParams(location.search).has("debug");
-  const touch = matchMedia("(hover: none)").matches;
+  const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
   const TAP_URL = URL.createObjectURL(new Blob([
     "class Tap extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('tap',Tap)",
   ], { type: "text/javascript" }));
@@ -941,19 +941,24 @@ void main(){
     const attempt = ++T.attempt;
     const stale = () => attempt !== T.attempt || !T.want;
     let stream;
+    // Safari only lets audio start inside the key press or tap itself, so the
+    // context is created and resumed now, before awaiting the microphone.
+    const ctx = new AudioContext();
+    ctx.resume().catch(() => {});
     setStatus("waiting for the microphone…");
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     } catch {
+      ctx.close();
       if (attempt === T.attempt) { T.want = false; setStatus("microphone blocked · allow it in the address bar"); }
       return;
     }
     if (stale()) {
       stream.getTracks().forEach((t) => t.stop());
+      ctx.close();
       if (!T.want && !T.live) setStatus("microphone ready · hold to talk");
       return;
     }
-    const ctx = new AudioContext();
     await ctx.resume().catch(() => {});
     await ctx.audioWorklet.addModule(TAP_URL);
     if (stale()) { stream.getTracks().forEach((t) => t.stop()); ctx.close(); setStatus(STATUS_READY); return; }
