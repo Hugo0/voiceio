@@ -151,3 +151,22 @@ def test_latest_eval_matches_model_dataset_and_mode():
     assert evaluate.latest("small", "v0001")["wer"] == 0
     assert evaluate.latest("small", "v0001", mode="streaming")["wer"] == 1
     assert evaluate.latest("medium", "v0001") is None
+
+
+def test_build_drops_suspect_teacher_segments_but_trusts_humans():
+    _clip("t.wav", 20, "x")
+    store.add_label("t.wav", [Segment(0, 5, "ship the Kalshi bot"),
+                              Segment(5, 6, "Thank you."),              # filler over silence
+                              Segment(6, 7, "one two three four five six seven eight")],  # 8 w/s
+                    "teacher:fake")
+    _clip("h.wav", 6, "x")
+    store.add_label("h.wav", [Segment(0, 5, "ship it"), Segment(5, 6, "Thank you.")], "human")
+    dropped: dict[str, int] = {}
+    kept = store._train_windows(store.load_labels()["t.wav"], dropped)
+    assert [w.text for w in kept] == ["ship the Kalshi bot"]
+    assert dropped == {"filler hallucination": 1, "too many words for the audio": 1}
+    teacher = store.Label("t.wav", (Segment(0, 5, "ship the Kalshi bot"),
+                                    Segment(5, 6, "Thank you.")), "teacher:fake", 0)
+    assert [w.text for w in store._train_windows(teacher, {})] == ["ship the Kalshi bot"]
+    human = store._train_windows(store.load_labels()["h.wav"], {})
+    assert [w.text for w in human] == ["ship it Thank you."]

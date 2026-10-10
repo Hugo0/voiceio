@@ -216,6 +216,43 @@ def windows(segments: tuple[Segment, ...], max_secs: float = MAX_WINDOW_SECS) ->
     return [w for w in out if w.text.strip()]
 
 
+# Faster than anyone talks: the label doesn't belong to this audio.
+_MAX_WORDS_PER_SEC = 6.5
+
+
+def _suspect_segment(seg: Segment) -> str | None:
+    """Teacher output that shouldn't train the model. Training on a filler
+    hallucination teaches "silence → Thank you." — the exact failure
+    personalization must not reinforce."""
+    from voiceio.learn import metrics
+    text = seg.text.strip()
+    if text.lower() in metrics.HALLUCINATION_MARKERS:
+        return "filler hallucination"
+    if metrics.count_repetitions(text):
+        return "repetition loop"
+    # Floor the duration: short segments' timestamps jitter.
+    if len(metrics.words(text)) / max(seg.end - seg.start, 0.5) > _MAX_WORDS_PER_SEC:
+        return "too many words for the audio"
+    return None
+
+
+def _train_windows(lab: Label, dropped: dict[str, int]) -> list[Segment]:
+    """Windows to train on. Suspect teacher segments are dropped *before*
+    windowing, so their audio ends up outside a window or inside one with no
+    text — i.e. it teaches silence. Human-reviewed labels are trusted."""
+    def drop(reason: str) -> None:
+        dropped[reason] = dropped.get(reason, 0) + 1
+
+    segments = []
+    for seg in lab.segments:
+        reason = None if lab.reviewed else _suspect_segment(seg)
+        if reason:
+            drop(reason)
+        else:
+            segments.append(seg)
+    return windows(tuple(segments))
+
+
 def build_dataset(*, reviewed_only: bool = False) -> Path:
     """Freeze labeled clips into a new dataset version. Returns its dir.
 
@@ -225,6 +262,7 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
     """
     labels = load_labels()
     rows = {s: [] for s in SPLITS}
+    dropped: dict[str, int] = {}
     for clip in clips():
         lab = labels.get(clip.audio)
         if lab is None or (reviewed_only and not lab.reviewed):
@@ -235,7 +273,7 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
             rows[split].append({**base, "start": 0.0, "end": clip.duration,
                                 "text": lab.text, "raw": clip.raw})
             continue
-        for w in windows(lab.segments):
+        for w in _train_windows(lab, dropped):
             rows[split].append({**base, "start": w.start, "end": w.end, "text": w.text})
     root = learn_dir() / "datasets"
     root.mkdir(parents=True, exist_ok=True)
@@ -249,6 +287,7 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
     manifest = {
         "schema": SCHEMA, "version": version, "created": time.time(),
         "reviewed_only": reviewed_only,
+        "dropped_windows": dropped,
         "counts": {s: len(v) for s, v in rows.items()},
         "hours": {s: round(sum(r["end"] - r["start"] for r in v) / 3600, 2)
                   for s, v in rows.items()},
