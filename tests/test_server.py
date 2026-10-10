@@ -73,6 +73,7 @@ class FakeEngine:
         self.transcribe_error: Exception | None = None
         self.tts_error: Exception | None = None
         self.sessions: list[FakeSession] = []
+        self.retained: list[str] = []
         self.vocab_recorded: list[str] = []
         self.shutdown_called = False
         self.__dict__.update(overrides)
@@ -99,6 +100,9 @@ class FakeEngine:
             raise self.tts_error
         audio = np.zeros(2205, dtype=np.int16)  # 0.1s @ 22050
         return wav_bytes(audio, 22050), 22050, "espeak"
+
+    def retain(self, audio, text, raw):
+        self.retained.append(text)
 
     def record_usage(self, text):
         self.vocab_recorded.append(text)
@@ -310,6 +314,7 @@ def test_ws_ready_partial_final_sequence():
     assert final["text"] == "Hello world."
     assert final["raw"] == "hello world raw"
     assert isinstance(final["ms"], int)
+    assert engine.retained == ["Hello world."]  # offered for opt-in retention
 
 
 def test_ws_feeds_audio_through_to_the_session():
@@ -521,3 +526,27 @@ def test_odd_length_frames_keep_sample_alignment():
         src.feed(raw[i:i + 333])
     got = np.round(src.get_audio_so_far() * 32768).astype(np.int16)
     np.testing.assert_array_equal(got, samples)
+
+
+def test_retain_is_opt_in_and_tags_phone(tmp_path):
+    import json
+
+    import numpy as np
+
+    from voiceio import config
+    from voiceio.server.engine import VoiceEngine
+
+    eng = VoiceEngine.__new__(VoiceEngine)   # no model load
+    eng.vio_cfg = config.Config()
+    eng.model_cfg = eng.vio_cfg.model
+    audio = np.zeros(16000, dtype=np.float32)
+
+    eng.vio_cfg.data.retain_audio = False
+    eng.retain(audio, "Ship it.", "ship it")
+    assert not config.HISTORY_PATH.exists()
+
+    eng.vio_cfg.data.retain_audio = True
+    eng.retain(audio, "Ship it.", "ship it")
+    row = json.loads(config.HISTORY_PATH.read_text().splitlines()[-1])
+    assert row["source"] == "phone" and row["raw"] == "ship it"
+    assert (config.RECORDINGS_DIR / row["audio"]).exists()

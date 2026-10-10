@@ -133,6 +133,14 @@ class VoiceEngine:
         self._tts = None
         self._tts_probed = False
 
+        if self.vio_cfg.data.retain_audio:
+            import threading
+
+            from voiceio import retention
+            log.info("retaining dictations for `voiceio learn` ([data] retain_audio)")
+            threading.Thread(target=retention.prune, args=(self.vio_cfg.data,),
+                             daemon=True).start()
+
         log.info(
             "model=%s device=%s compute=%s threads=%s loaded in %.1fs "
             "(%d vocabulary terms, %d corrections)",
@@ -140,6 +148,22 @@ class VoiceEngine:
             self.load_secs,
             len(self.engine.vocabulary_terms), len(self.engine.corrections.list_all()),
         )
+
+    def retain(self, audio, text: str, raw: str) -> None:
+        """Keep this dictation for `voiceio learn` — only when the server's
+        owner opted in with `[data] retain_audio = true` in its config.toml.
+        Same caps and 0600 files as the desktop; tagged source="phone"."""
+        if not (self.vio_cfg.data.retain_audio and text):
+            return
+        from voiceio import history, retention
+        try:
+            name = retention.save_audio(audio, time.time(), self.vio_cfg.data)
+            history.append(text, raw=raw, duration=round(len(audio) / SAMPLE_RATE, 2),
+                           extra={"audio": name, "source": "phone",
+                                  "model": self.model_cfg.name},
+                           cfg=self.vio_cfg.history)
+        except Exception:  # noqa: BLE001 — retention must never fail a request
+            log.exception("could not retain dictation")
 
     def record_usage(self, text: str) -> None:
         """Feed usage stats + prompt history so biasing follows real use."""
@@ -170,6 +194,7 @@ class VoiceEngine:
         text, raw = result.text, result.raw
         if text:
             self.record_usage(text)
+            self.retain(audio, text, raw)
 
         return {
             "text": text,

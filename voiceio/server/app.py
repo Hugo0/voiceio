@@ -240,6 +240,8 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
 
         if text:
             engine.record_usage(text)
+            await loop.run_in_executor(app[EXECUTOR], engine.retain, audio, text,
+                                       session.raw_final_text or "")
 
         if not ws.closed and not overrun:
             await ws.send_json({
