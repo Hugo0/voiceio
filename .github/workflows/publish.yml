@@ -49,8 +49,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ github.ref_name }}"
-          VERSION_NUM="${VERSION#v}"
-          gh release create "$VERSION" dist/* --notes "$(cat <<NOTES
+          # --generate-notes appends the changes since the previous tag.
+          gh release create "$VERSION" dist/* --generate-notes --notes "$(cat <<NOTES
           ## Install
 
           \`\`\`bash
@@ -58,10 +58,7 @@ jobs:
           voiceio setup
           \`\`\`
 
-          See the README for distro packages and NixOS.
-
-          ---
-
-          **Full Changelog**: https://github.com/Hugo0/voiceio/compare/v${VERSION_NUM}...${VERSION}
+          See the README for distro packages and NixOS. Coming from 0.9.x? Read
+          [UPGRADING.md](https://github.com/Hugo0/voiceio/blob/${VERSION}/UPGRADING.md).
           NOTES
           )"
