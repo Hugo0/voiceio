@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import sys
 
-from voiceio.wizard import (
-    BOLD, CYAN, DIM, GREEN, RESET, YELLOW,
-    Spinner, _get_or_load_model, _print_step, _rl_prompt, _streaming_test,
-)
+from voiceio.setup.speech import _get_or_load_model, _streaming_test
+from voiceio.setup.ui import Spinner, _print_step, _rl_prompt
+from voiceio.ui import BOLD, CYAN, DIM, GREEN, RESET, YELLOW
 
 
 def _press_enter() -> None:

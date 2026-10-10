@@ -8,18 +8,20 @@ import os
 import pytest
 
 import voiceio.config as config
-import voiceio.wizard as wizard
+from voiceio.setup import configfile, noninteractive
+from voiceio.setup.hotkey import _wm_bind_lines
 from voiceio import platform as plat
 
 
 @pytest.fixture
 def cfg_paths(tmp_path, monkeypatch):
-    """Point config + wizard at a throwaway config.toml."""
+    """Point config + setup at a throwaway config.toml."""
     cfg_dir = tmp_path / "config"
     cfg_path = cfg_dir / "config.toml"
     for mod, name, val in [
         (config, "CONFIG_DIR", cfg_dir), (config, "CONFIG_PATH", cfg_path),
-        (wizard, "CONFIG_DIR", cfg_dir), (wizard, "CONFIG_PATH", cfg_path),
+        (configfile, "CONFIG_DIR", cfg_dir), (configfile, "CONFIG_PATH", cfg_path),
+        (noninteractive, "CONFIG_PATH", cfg_path),
     ]:
         monkeypatch.setattr(mod, name, val)
     return cfg_path
@@ -34,11 +36,11 @@ def test_write_config_preserves_secret_when_no_new_key(cfg_paths):
         '[audio]\ndevice = "hw:1"\n'
         '[unknown]\nkept = 7\n'
     )
-    wizard._write_config(
+    configfile._write_config(
         model="base", language="es", hotkey="alt+v", method="auto",
         streaming=True, backend="evdev", quiet=True,
     )
-    raw = wizard._load_raw_config()
+    raw = configfile._load_raw_config()
     # Wizard-owned keys updated
     assert raw["model"]["name"] == "base"
     assert raw["model"]["language"] == "es"
@@ -51,19 +53,19 @@ def test_write_config_preserves_secret_when_no_new_key(cfg_paths):
 
 
 def test_write_config_sets_api_key_when_provided(cfg_paths):
-    wizard._write_config(
+    configfile._write_config(
         model="small", language="en", hotkey="ctrl+alt+v", method="auto",
         streaming=True, backend="evdev",
         autocorrect_api_key="NEWKEY", autocorrect_base_url="https://x/api",
         autocorrect_model="m/n", quiet=True,
     )
-    raw = wizard._load_raw_config()
+    raw = configfile._load_raw_config()
     assert raw["autocorrect"]["api_key"] == "NEWKEY"
     assert raw["autocorrect"]["base_url"] == "https://x/api"
 
 
 def test_write_config_roundtrips_through_loader(cfg_paths):
-    wizard._write_config(
+    configfile._write_config(
         model="tiny", language="fr", hotkey="ctrl+shift+v", method="auto",
         streaming=False, backend="socket", voice_input_prefix="[voice]",
         quiet=True,
@@ -76,7 +78,7 @@ def test_write_config_roundtrips_through_loader(cfg_paths):
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX permissions only")
 def test_write_config_restricts_permissions(cfg_paths):
-    wizard._write_config(
+    configfile._write_config(
         model="small", language="en", hotkey="ctrl+alt+v", method="auto",
         streaming=True, backend="evdev", quiet=True,
     )
@@ -86,7 +88,7 @@ def test_write_config_restricts_permissions(cfg_paths):
 # ── TOML serializer round-trips ──────────────────────────────────────────
 
 def test_dump_toml_types():
-    out = wizard._dump_toml({
+    out = configfile._dump_toml({
         "s": {"str": "hi", "b": True, "i": 3, "f": 1.5, "lst": ["a", "b"]},
     })
     import tomllib
@@ -95,7 +97,7 @@ def test_dump_toml_types():
 
 
 def test_dump_toml_escapes_quotes():
-    out = wizard._dump_toml({"s": {"k": 'a"b\\c'}})
+    out = configfile._dump_toml({"s": {"k": 'a"b\\c'}})
     import tomllib
     assert tomllib.loads(out)["s"]["k"] == 'a"b\\c'
 
@@ -145,8 +147,8 @@ _LINUX_CHECKS = {
 
 def _patch_noninteractive(monkeypatch):
     """Mock the heavy/side-effecting steps of non-interactive setup."""
-    monkeypatch.setattr(wizard, "_check_system", lambda: dict(_LINUX_CHECKS))
-    monkeypatch.setattr(wizard, "_download_model", lambda name: True)
+    monkeypatch.setattr(noninteractive, "_check_system", lambda: dict(_LINUX_CHECKS))
+    monkeypatch.setattr(noninteractive, "_download_model", lambda name: True)
     monkeypatch.setattr("voiceio.tray.probe_availability", lambda: (False, "", ""))
     monkeypatch.setattr("voiceio.platform.check_system_deps", lambda: [])
     monkeypatch.setattr("voiceio.service.has_systemd", lambda: False)
@@ -155,7 +157,7 @@ def _patch_noninteractive(monkeypatch):
 
 def test_noninteractive_defaults_no_tty(cfg_paths, monkeypatch, capsys):
     _patch_noninteractive(monkeypatch)
-    code = wizard.run_setup_noninteractive({})
+    code = noninteractive.run_setup_noninteractive({})
     assert code == 0
     out = capsys.readouterr().out
     assert "[voiceio-setup] step=done status=ok" in out
@@ -167,7 +169,7 @@ def test_noninteractive_defaults_no_tty(cfg_paths, monkeypatch, capsys):
 
 def test_noninteractive_answers_applied(cfg_paths, monkeypatch):
     _patch_noninteractive(monkeypatch)
-    code = wizard.run_setup_noninteractive({
+    code = noninteractive.run_setup_noninteractive({
         "model": "base", "language": "de", "hotkey": "alt+v",
         "tts_enabled": False, "voice_input_prefix": "[v]",
     })
@@ -182,14 +184,14 @@ def test_noninteractive_answers_applied(cfg_paths, monkeypatch):
 
 def test_noninteractive_rejects_unknown_key(cfg_paths, monkeypatch, capsys):
     _patch_noninteractive(monkeypatch)
-    code = wizard.run_setup_noninteractive({"bogus": 1})
+    code = noninteractive.run_setup_noninteractive({"bogus": 1})
     assert code == 2
     assert "unknown answer keys" in capsys.readouterr().out
 
 
 def test_noninteractive_rejects_invalid_model(cfg_paths, monkeypatch, capsys):
     _patch_noninteractive(monkeypatch)
-    code = wizard.run_setup_noninteractive({"model": "gigantic"})
+    code = noninteractive.run_setup_noninteractive({"model": "gigantic"})
     assert code == 2
     assert "invalid model" in capsys.readouterr().out
 
@@ -197,8 +199,8 @@ def test_noninteractive_rejects_invalid_model(cfg_paths, monkeypatch, capsys):
 def test_noninteractive_fails_without_microphone(cfg_paths, monkeypatch, capsys):
     _patch_noninteractive(monkeypatch)
     no_audio = dict(_LINUX_CHECKS, audio=False, audio_devices=[])
-    monkeypatch.setattr(wizard, "_check_system", lambda: no_audio)
-    code = wizard.run_setup_noninteractive({})
+    monkeypatch.setattr(noninteractive, "_check_system", lambda: no_audio)
+    code = noninteractive.run_setup_noninteractive({})
     assert code == 5
     assert "microphone" in capsys.readouterr().out
 
@@ -209,10 +211,10 @@ def test_noninteractive_headless_writes_config_and_skips_heavy_steps(
     documented exit code, and no model download / service install."""
     _patch_noninteractive(monkeypatch)
     headless = dict(_LINUX_CHECKS, audio=False, audio_devices=[], xdotool=False)
-    monkeypatch.setattr(wizard, "_check_system", lambda: headless)
-    monkeypatch.setattr(wizard, "_download_model",
+    monkeypatch.setattr(noninteractive, "_check_system", lambda: headless)
+    monkeypatch.setattr(noninteractive, "_download_model",
                         lambda name: pytest.fail("model download must be skipped"))
-    code = wizard.run_setup_noninteractive({})
+    code = noninteractive.run_setup_noninteractive({})
     assert code == 5  # first failure (audio) wins
     out = capsys.readouterr().out
     assert "step=config status=written" in out
@@ -224,8 +226,8 @@ def test_noninteractive_headless_writes_config_and_skips_heavy_steps(
 
 def test_noninteractive_fails_on_model_download(cfg_paths, monkeypatch, capsys):
     _patch_noninteractive(monkeypatch)
-    monkeypatch.setattr(wizard, "_download_model", lambda name: False)
-    code = wizard.run_setup_noninteractive({})
+    monkeypatch.setattr(noninteractive, "_download_model", lambda name: False)
+    code = noninteractive.run_setup_noninteractive({})
     assert code == 7
     assert "download" in capsys.readouterr().out.lower()
 
@@ -237,18 +239,18 @@ def test_noninteractive_fails_on_model_download(cfg_paths, monkeypatch, capsys):
      "bindsym Mod4+Shift+d exec voiceio toggle"),
 ])
 def test_wm_bind_lines_use_chosen_hotkey(hotkey, hypr, sway):
-    assert dict(wizard._wm_bind_lines(hotkey)) == {"hyprland": hypr, "i3/sway": sway}
+    assert dict(_wm_bind_lines(hotkey)) == {"hyprland": hypr, "i3/sway": sway}
 
 
 def test_write_config_with_api_key_records_consent_and_is_private(tmp_path, monkeypatch):
     """Regression: wizard called record_consent() positionally → TypeError."""
     import stat
     import voiceio.consent as consent
-    monkeypatch.setattr(wizard, "CONFIG_PATH", config.CONFIG_PATH)
-    wizard._write_config(
+    monkeypatch.setattr(configfile, "CONFIG_PATH", config.CONFIG_PATH)
+    configfile._write_config(
         model="small", language="en", hotkey="ctrl+alt+v", method="auto",
         streaming=True, backend="auto", autocorrect_api_key="sk-test", quiet=True,
     )
-    wizard._record_cloud_consent()
+    configfile._record_cloud_consent()
     assert consent.has_cloud_consent()
     assert stat.S_IMODE(config.CONFIG_PATH.stat().st_mode) == 0o600

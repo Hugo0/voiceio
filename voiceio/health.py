@@ -260,7 +260,7 @@ def _check_ibus() -> IBusStatus:
     return status
 
 
-# ── ANSI colors (shared with wizard.py) ──────────────────────────────────────
+# ── ANSI colors (shared with the setup wizard) ───────────────────────────────
 
 from voiceio.ui import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW  # noqa: E402
 
@@ -331,7 +331,7 @@ def _accuracy_tips(accuracy: dict[str, str]) -> list[str]:
 
 def format_report(report: HealthReport) -> str:
     """Format a health report as a human-readable string."""
-    from voiceio.wizard import LOGO_DOCTOR
+    from voiceio.setup.ui import LOGO_DOCTOR
 
     lines = [LOGO_DOCTOR]
 

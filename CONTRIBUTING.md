@@ -57,7 +57,6 @@ voiceio/
 ├── config.py        # Config schema, TOML loading, data paths, 0600/0700 permissions
 ├── platform.py      # OS/DE/IM detection, distro-aware pkg_install(), system python lookup
 ├── health.py        # Diagnostic probes for all backends + features (`voiceio doctor`)
-├── wizard.py        # Interactive + non-interactive setup
 ├── service.py       # systemd user units + CLI symlink management
 ├── feedback.py      # Sound cues (persistent output stream) + notifications
 ├── hints.py         # Contextual CLI hints (silenceable, frequency-limited)
@@ -66,6 +65,7 @@ voiceio/
 ├── wordfreq.py      # Word frequency lookup
 ├── pidlock.py       # PID file locking
 ├── backends.py      # ProbeResult and shared backend types
+├── setup/           # `voiceio setup`: wizard steps over a shared SetupState + non-interactive mode
 ├── hotkeys/         # evdev, pynput, Unix socket backends + chain resolution
 ├── typers/          # ibus, ydotool, wtype, xdotool, clipboard, pynput + chain
 ├── ibus/            # IBus engine process (GLib main loop + socket listener)

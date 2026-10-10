@@ -155,10 +155,10 @@ def _cmd_setup(args: argparse.Namespace) -> None:
                 print("[voiceio-setup] step=validate status=error reason='--answers must be a JSON object'",
                       file=sys.stderr)
                 sys.exit(2)
-        from voiceio.wizard import run_setup_noninteractive
+        from voiceio.setup import run_setup_noninteractive
         sys.exit(run_setup_noninteractive(answers, install_deps=getattr(args, "yes", False)))
 
-    from voiceio.wizard import run_wizard
+    from voiceio.setup import run_wizard
     run_wizard()
     from voiceio.hints import hint
     hint("test", "Run 'voiceio doctor --live' to try a quick recording")
@@ -197,7 +197,7 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     print(format_report(report))
     print(format_usage(usage_findings()))
     if args.live:
-        from voiceio.wizard import run_test
+        from voiceio.setup import run_test
         run_test()
 
     # Permission probe: nothing voiceio persists should be group/world-readable.
