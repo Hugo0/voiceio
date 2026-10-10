@@ -29,8 +29,8 @@ voiceio/
 ├── learn/           # Personalization: store (corpus), importer, teacher (label), review,
 │                    #   augment, metrics, evaluate (offline + streaming), train (LoRA →
 │                    #   CTranslate2), clean
-├── cli/             # CLI: __init__ (entry point, run/setup/doctor/service), models, vocab,
-│                    #   corrections, learn, history, configcmd
+├── cli/             # CLI: __init__ (entry point, run/toggle/setup), doctor, servicecmd,
+│                    #   uninstall, models, vocab, corrections, learn, history, configcmd
 ├── server/          # Headless HTTP/WebSocket server (python -m voiceio.server)
 ├── app.py           # Desktop daemon state machine (IDLE/RECORDING/FINALIZING/ERROR)
 ├── watchdog.py      # Health thread: worker recovery, audio stream, tray, resume detection
