@@ -102,9 +102,11 @@ class AudioConfig:
     auto_stop_no_speech_secs: float = 20.0
     vad_backend: str = "silero"  # "silero" | "rms"
     vad_threshold: float = 0.5  # Silero speech probability threshold
-    # Pause media players (MPRIS, via playerctl) while recording; only the
-    # ones that were playing resume afterwards.
+    # Quiet the desktop while recording (voiceio/quiet_audio.py). Pause MPRIS
+    # players; only the ones that were playing resume afterwards.
     pause_media: bool = False
+    # Lower the default output to this fraction of its level (1.0 = off).
+    duck_volume: float = 1.0
 
 
 @dataclass

@@ -108,8 +108,8 @@ class VoiceIO:
         self.recorder = AudioRecorder(cfg.audio, vad=vad)
 
         self._recording_bias = Bias()
-        from voiceio.media import MediaPauser
-        self._media = MediaPauser(cfg.audio.pause_media)
+        from voiceio.quiet_audio import QuietAudio
+        self._quiet = QuietAudio(cfg.audio.pause_media, cfg.audio.duck_volume)
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._streaming = cfg.output.streaming
@@ -395,9 +395,12 @@ class VoiceIO:
             threading.Thread(target=self._capture_context, daemon=True).start()
         self._record_start = time.monotonic()
         self.recorder.start()
-        self._media.pause()
         self.recorder.set_on_auto_stop(self._on_auto_stop)
         self._play_record_cue(start=True)
+        # Ducking lowers the whole output, voiceio's chimes included: it waits
+        # for the start chime to play out, and _do_stop restores the volume
+        # before the stop chime plays.
+        self._quiet.start(duck_after=self._start_cue_secs())
         tray.set_recording(True)
         if self._streaming:
             self._session = self.engine.session(
@@ -416,11 +419,11 @@ class VoiceIO:
         gen = self._generation
         rid = self._recording
 
-        # Stop audio capture immediately — chime and recorder stop are synchronous
-        self._play_record_cue(start=False)
+        # Stop audio capture immediately; the stop chime follows the volume
+        # restore (see _do_start), off this thread.
+        self._quiet.stop(then=lambda: self._play_record_cue(start=False))
         self.recorder.set_on_auto_stop(None)
         audio = self.recorder.stop()
-        self._media.resume()
         tray.set_recording(False)
         self._warn_if_clipping()
 
@@ -624,6 +627,12 @@ class VoiceIO:
             from voiceio.feedback import play_record_stop
             play_record_stop()
 
+    def _start_cue_secs(self) -> float:
+        if not self.cfg.feedback.sound_enabled:
+            return 0.0
+        from voiceio.feedback import cue_secs
+        return cue_secs("start")
+
     def _on_interim_text(self, text: str) -> None:
         """Streaming update: mirror the best-so-far text to the clipboard.
 
@@ -734,7 +743,7 @@ class VoiceIO:
             if self._tts_engine:
                 self._tts_engine.shutdown()
             self.recorder.close_stream()
-            self._media.close()
+            self._quiet.close()
             self.decoder.close()
             tray.stop()
             self._ibus.shutdown()

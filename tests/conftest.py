@@ -64,9 +64,15 @@ def _quiet_desktop(monkeypatch):
     # the plain path above (tests of notify_actions itself fake subprocess).
     monkeypatch.setattr(feedback, "_notify_send_has_actions", lambda: False)
     monkeypatch.setattr(feedback, "_play", lambda *a, **k: None)
-    # No playerctl: a test with pause_media on must not pause the user's music.
-    from voiceio import media
-    monkeypatch.setattr(media, "_playerctl", lambda: None)
+    # No busctl/playerctl/wpctl/pactl: a test with pause_media or duck_volume
+    # on must not pause the user's music or change their volume.
+    from voiceio import quiet_audio
+
+    def blocked(argv, **kwargs):
+        raise OSError(f"tests must not run {argv[0]}")
+
+    monkeypatch.setattr(quiet_audio, "_which", lambda name: None)
+    monkeypatch.setattr(quiet_audio, "_run", blocked)
 
 
 @pytest.fixture(autouse=True)

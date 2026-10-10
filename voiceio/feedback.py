@@ -96,6 +96,13 @@ def play_commit_sound() -> None:
     _play("commit")
 
 
+def cue_secs(name: str) -> float:
+    """How long a cue takes to play out; 0 when sound output is off."""
+    if _stream is None or name not in _sounds:
+        return 0.0
+    return len(_sounds[name]) / _stream.samplerate + _stream.latency
+
+
 def _play(name: str) -> None:
     """Write pre-loaded samples to the persistent stream. Non-blocking."""
     if _stream is None or name not in _sounds:

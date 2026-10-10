@@ -32,7 +32,8 @@ auto_stop_silence_secs = 5.0  # stop after this much silence once you've spoken
 auto_stop_no_speech_secs = 20.0  # stop if nothing is said at all
 vad_backend = "silero"        # silero | rms
 vad_threshold = 0.5
-pause_media = false           # pause playing music/videos while recording (needs playerctl)
+pause_media = false           # pause playing music/videos while recording
+duck_volume = 1.0             # lower other sound to this fraction while recording; 1.0 = off
 
 [output]
 method = "auto"               # auto | ibus | ydotool | wtype | xdotool | clipboard | pynput
