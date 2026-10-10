@@ -97,6 +97,47 @@ def pcm16_to_float32(data: bytes) -> np.ndarray:
     return np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
 
 
+class PauseDetector:
+    """Speech-pause events from energy alone, for sources without a VAD.
+
+    A pause is half a second below a fifth of the recent speaking level after
+    some speech — what the streaming session needs to decode at the natural
+    break (and to speculate the final pass there) instead of on its timer.
+    Relative to the speaker's own level, so microphone gain doesn't matter.
+    """
+
+    FRAME_SECS = 0.03
+    PAUSE_SECS = 0.5
+    RATIO = 0.2
+    FLOOR = 1e-3            # below this nothing is speech, however quiet the room
+    DECAY = 0.998           # per frame: the level forgets over ~15s
+
+    def __init__(self, sample_rate: int = SAMPLE_RATE) -> None:
+        self._frame = int(self.FRAME_SECS * sample_rate)
+        self._pause_frames = int(self.PAUSE_SECS / self.FRAME_SECS)
+        self._pending = np.zeros(0, dtype=np.float32)
+        self._level = 0.0
+        self._quiet = 0
+        self._spoke = False
+
+    def push(self, samples: np.ndarray) -> bool:
+        """Feed audio; True when a pause has just begun."""
+        data = np.concatenate([self._pending, samples]) if len(self._pending) else samples
+        n = len(data) // self._frame
+        self._pending = data[n * self._frame:]
+        fired = False
+        for frame in data[:n * self._frame].reshape(n, self._frame) if n else ():
+            rms = float(np.sqrt(np.mean(frame.astype(np.float64) ** 2)))
+            self._level = max(rms, self._level * self.DECAY)
+            if rms > max(self.FLOOR, self.RATIO * self._level):
+                self._quiet, self._spoke = 0, True
+                continue
+            self._quiet += 1
+            if self._spoke and self._quiet == self._pause_frames:
+                self._spoke, fired = False, True
+        return fired
+
+
 class PushAudioSource:
     """An `AudioSource` fed from outside, instead of pulling from a device.
 
@@ -107,9 +148,10 @@ class PushAudioSource:
     per-second interim decode pays the copy.
     """
 
-    def __init__(self, sample_rate: int = SAMPLE_RATE) -> None:
+    def __init__(self, sample_rate: int = SAMPLE_RATE, *, detect_pauses: bool = True) -> None:
         self.sample_rate = sample_rate
         self._buffer = AudioBuffer(sample_rate * 60)
+        self._pauses = PauseDetector(sample_rate) if detect_pauses else None
         self._lock = threading.Lock()
         self._on_speech_pause: Callable[[], None] | None = None
         self._closed = False
@@ -137,7 +179,10 @@ class PushAudioSource:
         with self._lock:
             if len(samples) and not self._closed:
                 self._buffer.append(samples)
-            return len(self._buffer)
+            total = len(self._buffer)
+        if self._pauses is not None and len(samples) and self._pauses.push(samples):
+            self.notify_speech_pause()
+        return total
 
     def notify_speech_pause(self) -> None:
         """Tell the consumer a pause happened, so it can decode now rather

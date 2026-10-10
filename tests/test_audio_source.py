@@ -202,3 +202,31 @@ def test_audio_buffer_views_survive_growth_and_clear():
     buf.clear()
     buf.append(np.full(10, 7, dtype=np.float32))
     assert list(snapshot) == list(range(10))          # not overwritten
+
+
+def test_pause_detector_fires_once_per_pause_after_speech():
+    import numpy as np
+
+    from voiceio.audio_source import PauseDetector
+    sr = 16000
+    loud = (np.sin(np.arange(sr) / 5) * 0.3).astype(np.float32)
+    quiet = np.zeros(sr, dtype=np.float32)
+    d = PauseDetector(sr)
+    assert not d.push(quiet)                 # silence before any speech: no pause
+    assert not d.push(loud)
+    fired = [d.push(quiet[i:i + 1600]) for i in range(0, sr, 1600)]
+    assert fired.count(True) == 1            # one event, ~0.5s into the silence
+    assert not d.push(quiet)                 # still the same pause
+    d.push(loud)
+    assert d.push(quiet)                     # next pause
+
+
+def test_push_source_reports_pauses_to_the_session():
+    import numpy as np
+
+    from voiceio.audio_source import PushAudioSource
+    src, pauses = PushAudioSource(16000), []
+    src.set_on_speech_pause(lambda: pauses.append(1))
+    src.feed((np.sin(np.arange(16000) / 5) * 0.3).astype(np.float32))
+    src.feed(np.zeros(16000, dtype=np.float32))
+    assert pauses == [1]
