@@ -218,20 +218,23 @@ class HealthConfig:
 class DataConfig:
     """Local data retention for diagnostics and self-improvement.
 
+    Opt-in: nothing here is kept unless you turn it on (`voiceio setup` asks).
     Everything stays on disk under ~/.local/state/voiceio/ — nothing is
     uploaded. retain_audio keeps a WAV per utterance so (audio, final text)
-    pairs accumulate for later analysis or fine-tuning.
+    pairs accumulate for `voiceio learn` to fine-tune on.
     """
-    retain_audio: bool = True
+    retain_audio: bool = False
     max_audio_mb: int = 4096   # prune oldest recordings beyond this
     # Never let retention squeeze the disk: skip saving and prune harder
     # when the filesystem has less than this much free space.
     min_free_gb: float = 5.0
-    capture_context: bool = True  # best-effort active-window title
+    # Active-window title, stored with each history row and given to the
+    # cloud pass as context when that is on.
+    capture_context: bool = False
     # Per-pass streaming decode traces + postcorrect before/after pairs
     # (streaming_trace.jsonl / postcorrect_pairs.jsonl) for debugging,
     # profiling, and future fine-tuning.
-    capture_intermediates: bool = True
+    capture_intermediates: bool = False
 
 
 @dataclass

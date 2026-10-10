@@ -64,6 +64,7 @@ class SetupState:
     tts_enabled: bool = True
     tts_engine: str = "auto"
     tts_speed: float = 1.0
+    retain_audio: bool | None = None  # None: not asked, leave the config as is
 
     @property
     def is_rerun(self) -> bool:
@@ -90,6 +91,7 @@ class SetupState:
             cloud_model=self.cloud_model,
             tts_enabled=self.tts_enabled, tts_engine=self.tts_engine,
             tts_speed=self.tts_speed,
+            retain_audio=self.retain_audio,
         )
 
 
@@ -497,6 +499,10 @@ def _step_advanced(state: SetupState) -> None:
 
 def _step_finalize(state: SetupState) -> None:
     _print_step(8, _TOTAL_STEPS, "Finalize")
+    print(f"  {DIM}voiceio can learn your voice: keep a recording of each dictation on this")
+    print(f"  machine (never uploaded) and fine-tune on them with `voiceio learn`.{RESET}")
+    state.retain_audio = _ask_yn("Keep recordings so voiceio can learn your voice?",
+                                 default=state.cur.data.retain_audio if state.cur else True)
     _write_config(**state.config_kwargs())
     _setup_desktop_shortcut(state)
     _install_autostart(state)

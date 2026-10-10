@@ -254,3 +254,14 @@ def test_write_config_with_api_key_records_consent_and_is_private(tmp_path, monk
     configfile._record_cloud_consent()
     assert consent.has_cloud_consent()
     assert stat.S_IMODE(config.CONFIG_PATH.stat().st_mode) == 0o600
+
+
+def test_retention_is_written_only_when_asked(cfg_paths):
+    from voiceio import config
+    kw = dict(model="small", language="en", hotkey="ctrl+alt+v", method="auto",
+              streaming=True, backend="auto", quiet=True)
+    configfile._write_config(**kw)
+    assert "retain_audio" not in configfile._load_raw_config().get("data", {})
+    assert config.load(cfg_paths).data.retain_audio is False      # off unless chosen
+    configfile._write_config(**kw, retain_audio=True)
+    assert config.load(cfg_paths).data.retain_audio is True

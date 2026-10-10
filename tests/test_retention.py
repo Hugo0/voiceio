@@ -12,7 +12,7 @@ from voiceio.config import DataConfig
 
 class TestSaveAudio:
     def test_saves_wav(self, tmp_path):
-        cfg = DataConfig()
+        cfg = DataConfig(retain_audio=True)
         audio = np.full(16000, 0.1, dtype=np.float32)
         with patch.object(retention, "RECORDINGS_DIR", tmp_path):
             name = retention.save_audio(audio, ts=1700000000.5, cfg=cfg)
@@ -29,13 +29,13 @@ class TestSaveAudio:
             assert retention.save_audio(audio, ts=0, cfg=cfg) is None
 
     def test_none_and_empty_audio(self, tmp_path):
-        cfg = DataConfig()
+        cfg = DataConfig(retain_audio=True)
         with patch.object(retention, "RECORDINGS_DIR", tmp_path):
             assert retention.save_audio(None, ts=0, cfg=cfg) is None
             assert retention.save_audio(np.zeros(0, dtype=np.float32), ts=0, cfg=cfg) is None
 
     def test_roundtrip_amplitude(self, tmp_path):
-        cfg = DataConfig()
+        cfg = DataConfig(retain_audio=True)
         audio = np.full(1600, 0.5, dtype=np.float32)
         with patch.object(retention, "RECORDINGS_DIR", tmp_path):
             name = retention.save_audio(audio, ts=1700000001.0, cfg=cfg)
@@ -47,7 +47,7 @@ class TestSaveAudio:
 class TestPrune:
     def test_prunes_oldest_over_cap(self, tmp_path):
         import os
-        cfg = DataConfig(max_audio_mb=1)
+        cfg = DataConfig(retain_audio=True, max_audio_mb=1)
         # Three ~600KB files: total ~1.8MB > 1MB cap → oldest goes
         for i, name in enumerate(["a.wav", "b.wav", "c.wav"]):
             p = tmp_path / name
@@ -60,7 +60,7 @@ class TestPrune:
         assert "c.wav" in remaining
 
     def test_noop_under_cap(self, tmp_path):
-        cfg = DataConfig(max_audio_mb=100)
+        cfg = DataConfig(retain_audio=True, max_audio_mb=100)
         (tmp_path / "a.wav").write_bytes(b"\0" * 1000)
         with patch.object(retention, "RECORDINGS_DIR", tmp_path):
             retention.prune(cfg)
@@ -122,7 +122,7 @@ class TestSaveTrace:
         from voiceio import retention
         from voiceio.config import DataConfig
         monkeypatch.setattr(retention, "TRACES_PATH", tmp_path / "trace.jsonl")
-        retention.save_trace(DataConfig(), {"ts": 1, "passes": []})
+        retention.save_trace(DataConfig(capture_intermediates=True), {"ts": 1, "passes": []})
         assert (tmp_path / "trace.jsonl").exists()
 
     def test_skips_when_disabled(self, tmp_path, monkeypatch):
@@ -140,7 +140,7 @@ class TestDiskFloor:
         from voiceio.config import DataConfig
         monkeypatch.setattr(retention, "_free_gb", lambda p: 1.0)
         name = retention.save_audio(
-            np.zeros(1600, dtype=np.float32), 0.0, DataConfig(min_free_gb=5.0),
+            np.zeros(1600, dtype=np.float32), 0.0, DataConfig(retain_audio=True, min_free_gb=5.0),
         )
         assert name is None
 
@@ -151,7 +151,7 @@ class TestDiskFloor:
         monkeypatch.setattr(retention, "RECORDINGS_DIR", tmp_path)
         monkeypatch.setattr(retention, "_free_gb", lambda p: 100.0)
         name = retention.save_audio(
-            np.zeros(1600, dtype=np.float32), 0.0, DataConfig(min_free_gb=5.0),
+            np.zeros(1600, dtype=np.float32), 0.0, DataConfig(retain_audio=True, min_free_gb=5.0),
         )
         assert name is not None and (tmp_path / name).exists()
 

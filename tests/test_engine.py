@@ -67,6 +67,7 @@ def test_commit_strips_prefix_learns_and_keeps_history():
 
     from voiceio import config
     eng, _ = _engine(voice_input_prefix="[voice]")
+    eng.cfg.data.retain_audio = True
     stored = eng.commit("[voice] we deployed the Kalshi bot", raw="we deployed the kalshi bot",
                         duration=2.0, audio=np.zeros(16000, dtype=np.float32))
     assert stored == "we deployed the Kalshi bot"

@@ -21,6 +21,7 @@ _ALLOWED_ANSWER_KEYS = {
     "sound_enabled", "notify_clipboard", "commands_enabled",
     "punctuation_cleanup", "number_conversion", "voice_input_prefix",
     "tray_enabled", "install_service", "download_model", "install_system_deps",
+    "retain_audio",
 }
 
 
@@ -160,6 +161,8 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
         cloud_api_key=cloud_key,
         cloud_base_url=str(answers.get("cloud_base_url", "")),
         cloud_model=str(answers.get("cloud_model", "")),
+        # Keeping recordings is the user's call; an agent only sets it if told.
+        retain_audio=bool(answers["retain_audio"]) if "retain_audio" in answers else None,
         tts_enabled=bool(answers.get("tts_enabled", True)),
         tts_engine=str(answers.get("tts_engine", "auto")),
         tts_speed=float(answers.get("tts_speed", 1.0)),

@@ -69,11 +69,11 @@ auto_fallback = true          # switch backends when one breaks
 
 [data]
 # Local only. Retained audio + text is what `voiceio learn` trains on.
-retain_audio = true
+retain_audio = false
 max_audio_mb = 4096
 min_free_gb = 5.0
-capture_context = true        # note the focused app's title per utterance
-capture_intermediates = true  # decode traces, for `voiceio doctor` latency stats
+capture_context = false        # note the focused app's title per utterance
+capture_intermediates = false  # every interim pass's text + timings, for debugging
 
 [history]
 enabled = true

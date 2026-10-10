@@ -61,6 +61,19 @@ are left alone; delete the folder when you no longer want them.
   words.
 - Transcript text is no longer written to the log at INFO level.
 
+## Keeping recordings is now opt-in
+
+0.x kept a WAV of every dictation, decode traces and window titles by
+default. 1.0 keeps none of these unless you choose to: `voiceio setup` asks
+whether to keep recordings so `voiceio learn` can fine-tune on your voice.
+If you relied on the old default, turn it back on with
+
+```bash
+voiceio config set data.retain_audio true
+```
+
+Recordings you already have are untouched.
+
 ## Renamed options
 
 `[autocorrect]` is now `[cloud]`: it only ever held the endpoint for the

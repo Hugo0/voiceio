@@ -17,6 +17,7 @@ def _cfg(*, enabled=True, api_key="test-key", min_words=4, model="",
     )
     cfg.output.remove_disfluencies = remove_disfluencies
     cfg.cloud.api_key = api_key
+    cfg.data.capture_intermediates = True   # most tests here check the pairs log
     return cfg
 
 
@@ -364,3 +365,14 @@ def test_guard_rejects_meaning_changes(original, corrected, reason):
 def test_guard_allows_filler_repeats_and_false_starts(original, corrected):
     pc = PostCorrector(_cfg(remove_disfluencies=True))
     assert pc._guard(original, corrected) == (True, "")
+
+
+def test_nothing_recorded_unless_opted_in(tmp_path, monkeypatch):
+    from voiceio import config as cfgmod
+    pairs = tmp_path / "pairs.jsonl"
+    monkeypatch.setattr(cfgmod, "POSTCORRECT_PAIRS_PATH", pairs)
+    cfg = _cfg()
+    cfg.data.capture_intermediates = False
+    with patch("voiceio.llm_api.chat", return_value="Crisp chat is the tool"):
+        PostCorrector(cfg).correct("Chris chat is the tool")
+    assert not pairs.exists()

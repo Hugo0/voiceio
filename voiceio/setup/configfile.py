@@ -75,6 +75,7 @@ def _write_config(
     tts_engine: str = "auto",
     tts_speed: float = 1.0,
     voice_input_prefix: str = "",
+    retain_audio: bool | None = None,
     quiet: bool = False,
 ) -> None:
     """Merge wizard answers into the existing config, preserving everything else.
@@ -112,6 +113,9 @@ def _write_config(
         "engine": tts_engine,
         "speed": tts_speed,
     })
+
+    if retain_audio is not None:   # only when the user was asked
+        section("data")["retain_audio"] = retain_audio
 
     # Cloud endpoint: only touch these keys when the wizard collected a NEW
     # key this run. Otherwise a saved secret / hand-edited endpoint is kept.
