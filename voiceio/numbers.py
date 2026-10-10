@@ -25,6 +25,9 @@ _SCALES = {
     "billion": 1_000_000_000,
 }
 
+# Written as "<n> million", the way people write them.
+_WORDY_SCALES = {"million", "billion"}
+
 _ALL_NUMBER_WORDS = set(_ONES) | set(_TENS) | set(_SCALES) | {"and", "a"}
 
 _ORDINAL_SUFFIXES = {
@@ -235,13 +238,26 @@ def convert_numbers(text: str, language: str = "en") -> str:
                         i = j
                         ordinal = True
 
+                if not ordinal and num_words[-1] in _WORDY_SCALES and not percent:
+                    # "five million" → "5 million", not "5000000"; "a million"
+                    # stays as said.
+                    lead = num_words[:-1]
+                    lead_n = _words_to_number(lead) if lead and lead != ["a"] else None
+                    if lead_n is not None:
+                        result.append(f"{lead_n} {num_words[-1]}{num_trailing}")
+                    else:
+                        result.extend(words[i:j])
+                    i = j
+                    continue
+
                 if not ordinal:
                     num = _words_to_number(num_words)
                     if (num is not None and not percent and num < _SPELLED_OUT_BELOW
                             and len([w for w in num_words if w not in ("and", "a")]) == 1):
                         num = None  # a lone zero–nine stays a word
                     if num is not None:
-                        s = str(num)
+                        # Separators from five digits: "2,300,000", but "2500".
+                        s = f"{num:,}" if num >= 10_000 else str(num)
                         if percent:
                             s += "%" + trail_p
                         else:

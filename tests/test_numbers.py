@@ -73,6 +73,13 @@ class TestOrdinals:
         assert convert_numbers("the hundred and first") == "the 101st"
         assert convert_numbers("a thirty second clip") == "a 30 second clip"
 
+    def test_millions_read_like_writing(self):
+        assert convert_numbers("five million users") == "5 million users"
+        assert convert_numbers("a million times") == "a million times"
+        assert convert_numbers("twenty five billion.") == "25 billion."
+        assert convert_numbers("two million three hundred thousand") == "2,300,000"
+        assert convert_numbers("forty thousand") == "40,000"
+
     def test_tenth_converts(self):
         assert convert_numbers("the tenth time") == "the 10th time"
 

@@ -17,6 +17,8 @@ Results are saved under learn/runs/ so models can be compared over time.
 """
 from __future__ import annotations
 
+import collections
+import difflib
 import json
 import statistics
 import time
@@ -195,6 +197,9 @@ class StageScore:
     changed: int = 0        # clips this stage altered
     better: int = 0         # … moving the text closer to the reference
     worse: int = 0
+    # Exact token edits, case and punctuation included — WER ignores both, so
+    # "claude.ai" → "claude. Ai" only shows up here.
+    edits: collections.Counter = field(default_factory=collections.Counter)
 
 
 @dataclass
@@ -215,6 +220,8 @@ class PipelineAudit:
             label = ("what was committed" if st is self.committed else f"+ {st.name}")
             lines.append(f"  {label:<22} WER {wer(st.errors)}   changed {st.changed:>3}: "
                          f"{st.better} closer, {st.worse} further")
+            if st is not self.committed:
+                lines += [f"      {n}× {a!r} → {b!r}" for (a, b), n in st.edits.most_common(3)]
         lines.append("  (\"what was committed\" also includes stages that ran then but not "
                      "locally now: cloud postcorrect, LLM cleanup, older versions)")
         return "\n".join(lines)
@@ -252,3 +259,7 @@ def _tally(score: StageScore, before: str, after: str, e_before: int, e_after: i
         score.changed += 1
         score.better += e_after < e_before
         score.worse += e_after > e_before
+        a, b = before.split(), after.split()
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b).get_opcodes():
+            if tag != "equal":
+                score.edits[(" ".join(a[i1:i2])[-40:], " ".join(b[j1:j2])[-40:])] += 1
