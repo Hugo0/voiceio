@@ -19,6 +19,15 @@ class TestApply:
         cd.add("Kosagra", "Kusagra")
         assert cd.apply("Hey Kosagra") == "Hey Kusagra"
 
+    def test_apply_writes_nothing_to_disk(self, cd, tmp_path):
+        """Applying a rule once archived the sentence around it to a log."""
+        from voiceio import config
+        cd.add("Kosagra", "Kusagra")
+        dirs = (tmp_path, config.LOG_DIR)
+        before = {p for d in dirs if d.exists() for p in d.rglob("*")}
+        cd.apply("my secret plan with Kosagra")
+        assert {p for d in dirs if d.exists() for p in d.rglob("*")} == before
+
     def test_case_insensitive(self, cd):
         cd.add("Kosagra", "Kusagra")
         assert cd.apply("hey kosagra") == "hey Kusagra"

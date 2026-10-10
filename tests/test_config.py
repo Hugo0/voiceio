@@ -134,3 +134,13 @@ def test_set_value_never_writes_unparseable_toml(tmp_path):
     with _pytest.raises(tomllib.TOMLDecodeError):
         set_value("model", "bad key", "x", path=p)
     assert p.read_text() == before
+
+
+def test_remove_legacy_state_deletes_pre_1_0_mining_files(tmp_path, monkeypatch):
+    from voiceio import config
+    files = (tmp_path / "corrections_audit.jsonl", tmp_path / "autocorrect_state.json")
+    for f in files:
+        f.write_text("{}")
+    monkeypatch.setattr(config, "LEGACY_STATE_FILES", files + (tmp_path / "absent.json",))
+    config.remove_legacy_state()
+    assert not any(f.exists() for f in files)

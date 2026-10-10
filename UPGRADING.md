@@ -44,6 +44,12 @@ deletes the old timer. In its place:
 - `voiceio vocab suggest`: unusual words from your history, offline
 - `voiceio learn`: fine-tune recognition on your own voice
 
+`voiceio run` also deletes the mining state it left behind:
+`corrections_audit.jsonl` (which kept the sentence around every correction
+that fired), `metrics.jsonl`, `audit_state.json` and `autocorrect_state.json`.
+Old backups of your corrections and vocabulary in `~/.config/voiceio/snapshots/`
+are left alone; delete the folder when you no longer want them.
+
 ## Defaults that changed
 
 - Two decoder processes (`model.decode_lanes = 2`), so stopping never waits

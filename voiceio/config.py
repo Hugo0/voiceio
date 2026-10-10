@@ -34,18 +34,19 @@ HISTORY_PATH = LOG_DIR / "history.jsonl"
 RECORDINGS_DIR = LOG_DIR / "recordings"
 LOG_PATH = LOG_DIR / "voiceio.log"
 PID_PATH = LOG_DIR / "voiceio.pid"
-# Self-correcting rule lifecycle: fire log, teacher-audit metrics, snapshots,
-# and the retired-rule state consulted by the mining side.
-CORRECTIONS_AUDIT_PATH = LOG_DIR / "corrections_audit.jsonl"
-METRICS_PATH = LOG_DIR / "metrics.jsonl"
 # Intermediate pipeline data kept for debugging/profiling and future training:
 # per-pass streaming decode traces and postcorrect before/after pairs. These
 # live in their own JSONL files (not the rotating log) so they survive.
 TRACES_PATH = LOG_DIR / "streaming_trace.jsonl"
 POSTCORRECT_PAIRS_PATH = LOG_DIR / "postcorrect_pairs.jsonl"
-SNAPSHOTS_DIR = CONFIG_DIR / "snapshots"
-AUDIT_STATE_PATH = CONFIG_DIR / "audit_state.json"
-AUTOCORRECT_STATE_PATH = CONFIG_DIR / "autocorrect_state.json"
+# State of pre-1.0 cloud rule mining, removed at daemon start. The first one
+# archived a snippet of dictated text every time a correction fired.
+LEGACY_STATE_FILES = (
+    LOG_DIR / "corrections_audit.jsonl",
+    LOG_DIR / "metrics.jsonl",
+    CONFIG_DIR / "audit_state.json",
+    CONFIG_DIR / "autocorrect_state.json",
+)
 # Explicit, per-user record that cloud LLM calls (text, never audio) are allowed.
 CONSENT_PATH = CONFIG_DIR / "consent.json"
 
@@ -338,19 +339,15 @@ def _content_files() -> list[Path]:
         CORRECTIONS_PATH,
         FLAGGED_PATH,
         HISTORY_PATH,
-        CORRECTIONS_AUDIT_PATH,
-        METRICS_PATH,
         TRACES_PATH,
         POSTCORRECT_PAIRS_PATH,
-        AUDIT_STATE_PATH,
-        AUTOCORRECT_STATE_PATH,
         CONSENT_PATH,
     ]
 
 
 def _content_dirs() -> list[Path]:
     """Directories that hold user content (0700)."""
-    return [CONFIG_DIR, LOG_DIR, RECORDINGS_DIR, SNAPSHOTS_DIR]
+    return [CONFIG_DIR, LOG_DIR, RECORDINGS_DIR]
 
 
 def _chmod(path: Path, mode: int) -> None:
@@ -472,3 +469,9 @@ def harden_permissions() -> int:
                 _chmod(wav, _SECURE_FILE)
                 changed += 1
     return changed
+
+
+def remove_legacy_state() -> None:
+    """Delete pre-1.0 mining state nothing reads any more."""
+    for path in LEGACY_STATE_FILES:
+        path.unlink(missing_ok=True)

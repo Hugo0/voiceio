@@ -120,6 +120,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
     from voiceio import service
     if service.CORRECT_TIMER_PATH.exists():  # pre-1.0 cloud-mining timer
         service.uninstall_correct_timer()
+    config.remove_legacy_state()
     from voiceio.app import VoiceIO
     app = VoiceIO(cfg)
     if sys.platform != "win32":
