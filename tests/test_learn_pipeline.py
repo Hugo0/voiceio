@@ -10,7 +10,7 @@ import numpy as np
 
 from fakes import FakeDecoder
 from voiceio import config
-from voiceio.learn import augment, evaluate, review, store, train
+from voiceio.learn import augment, evaluate, metrics, review, store, train
 from voiceio.learn.store import Segment
 
 
@@ -147,7 +147,10 @@ def test_latest_eval_matches_model_dataset_and_mode():
                                          ("faster-whisper:small+draft", "v0001", "streaming"),
                                          ("faster-whisper:small", "v0002", "offline")]):
         (runs / f"eval-2026010{i}.json").write_text(json.dumps(
-            {"decoder": dec, "dataset": ds, "mode": mode, "wer": i}))
+            {"decoder": dec, "dataset": ds, "mode": mode, "wer": i,
+             "metrics": metrics.METRICS_VERSION}))
+    (runs / "eval-20260109.json").write_text(json.dumps(   # newer, but stale scoring
+        {"decoder": "faster-whisper:small", "dataset": "v0001", "wer": 9}))
     assert evaluate.latest("small", "v0001")["wer"] == 0
     assert evaluate.latest("small", "v0001", mode="streaming")["wer"] == 1
     assert evaluate.latest("medium", "v0001") is None
@@ -260,7 +263,8 @@ def test_status_shows_scores_and_suggests_a_winning_run(capsys):
                                          (f"faster-whisper:{run / 'ct2'}", 0.08, 0.8)]):
         (runs / f"eval-2026010{i}.json").write_text(json.dumps({
             "decoder": dec, "dataset": ds.name, "mode": "offline", "wer": wer,
-            "term_recall": rec, "repetitions": 0, "clips": 5, "gold": 0}))
+            "term_recall": rec, "repetitions": 0, "clips": 5, "gold": 0,
+            "metrics": metrics.METRICS_VERSION}))
     cli.cmd_status(argparse.Namespace())
     out = capsys.readouterr().out
     assert "small (active)" in out and "WER 8.0%" in out

@@ -149,7 +149,7 @@ def save(result: EvalResult) -> Path:
     runs.mkdir(parents=True, exist_ok=True)
     path = runs / f"eval-{time.strftime('%Y%m%d-%H%M%S')}.json"
     data = asdict(result) | {"wer": result.wer, "term_recall": result.term_recall,
-                             "rtf": result.rtf}
+                             "rtf": result.rtf, "metrics": metrics.METRICS_VERSION}
     if result.waits:
         data["stop_to_text_median"] = statistics.median(result.waits)
     path.write_text(json.dumps(data, indent=2) + "\n")
@@ -158,7 +158,7 @@ def save(result: EvalResult) -> Path:
 
 def latest(model: str, dataset: str, mode: str = "offline") -> dict | None:
     """The newest saved run of `model` (a faster-whisper name or path) on
-    `dataset`, or None."""
+    `dataset` scored by the current metrics, or None."""
     runs = learn_dir() / "runs"
     want = f"faster-whisper:{model}"
     for path in sorted(runs.glob("eval-*.json"), reverse=True) if runs.exists() else []:
@@ -167,7 +167,8 @@ def latest(model: str, dataset: str, mode: str = "offline") -> dict | None:
         except (OSError, json.JSONDecodeError):
             continue
         if (data.get("decoder", "").removesuffix("+draft") == want
-                and data.get("dataset") == dataset and data.get("mode", "offline") == mode):
+                and data.get("dataset") == dataset and data.get("mode", "offline") == mode
+                and data.get("metrics", 1) == metrics.METRICS_VERSION):
             return data
     return None
 

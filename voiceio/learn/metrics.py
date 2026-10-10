@@ -13,7 +13,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_WORD = re.compile(r"[\w'-]+")
+# Bump when scoring changes: saved evals are only comparable within a version.
+METRICS_VERSION = 2
+
+_WORD = re.compile(r"[\w']+|%")
+# Spellings that differ by style, not by what was heard. Without these a model
+# fine-tuned on teacher labels "improves" by copying the teacher's habits
+# ("sub-agents" vs "sub agents", "okay" vs "ok"). Hyphens split words, as in
+# Whisper's own English normalizer.
+_SPELLING = {"okay": "ok", "alright": "all right", "%": "percent"}
 
 # Whisper's greatest hits over silence — it emits these with high confidence
 # when there is nothing to transcribe. Matched whole-segment, so real speech
@@ -31,8 +39,12 @@ _MIN_PERIOD, _MAX_PERIOD = 3, 20
 
 
 def words(text: str) -> list[str]:
-    """Normalized word tokens: lowercase, punctuation stripped."""
-    return _WORD.findall(text.lower())
+    """Normalized word tokens: lowercase, punctuation and hyphens stripped,
+    style-only spelling variants unified."""
+    out: list[str] = []
+    for w in _WORD.findall(text.lower()):
+        out.extend(_SPELLING.get(w, w).split())
+    return out
 
 
 @dataclass(frozen=True)

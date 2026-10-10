@@ -13,6 +13,12 @@ def test_wer_ignores_case_and_punctuation():
     assert wer("Hello, world.", "hello world") == 0.0
 
 
+def test_wer_ignores_style_only_spelling():
+    assert wer("Spin up sub-agents, okay? 20% done, alright.",
+               "spin up sub agents ok 20 percent done all right") == 0.0
+    assert term_hits("the mock-up", "the mock up", ["mock-up"]) == (1, 1)
+
+
 def test_wer_empty_reference():
     assert wer("", "") == 0.0
     assert wer("", "noise") == 1.0
