@@ -76,6 +76,9 @@ class ModelConfig:
     # "modified_beam_search" (required for hotwords).
     decoding: str = ""
     vocabulary_file: str = ""  # path to vocabulary.txt
+    # Beam width of the passes whose text you keep (freezes and the final
+    # tail); interim previews are always greedy. 1 is greedy: faster stop.
+    beam_size: int = 5
     # Other languages you dictate in: a correction rule that would rewrite a
     # real word in one of these is flagged (e.g. ["es"] protects "harina").
     protect_languages: list[str] = field(default_factory=list)

@@ -313,3 +313,14 @@ def test_no_log_call_formats_the_transcript_itself():
                     and any(leaks(a) for a in node.args[1:])):
                 hits.append(f"{path.name}:{node.lineno}")
     assert not hits, hits
+
+
+def test_non_default_beam_is_scored_under_its_own_name():
+    """An eval at beam 1 must not stand in for the model's default score."""
+    mock_proc = MagicMock()
+    mock_proc.stdout.readline.return_value = "READY\n"
+    mock_proc.poll.return_value = None
+    with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
+        from voiceio.core.decoders.faster_whisper import Transcriber
+        assert Transcriber(ModelConfig()).name == "faster-whisper:small"
+        assert Transcriber(ModelConfig(beam_size=1)).name == "faster-whisper:small@beam1"

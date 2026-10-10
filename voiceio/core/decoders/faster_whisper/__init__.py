@@ -93,6 +93,8 @@ class Transcriber:
     def __init__(self, cfg: ModelConfig):
         self._cfg = cfg
         self.name = f"faster-whisper:{cfg.name}"
+        if cfg.beam_size != 5:   # scored separately from the default
+            self.name += f"@beam{cfg.beam_size}"
         if _PROMPTLESS.search(cfg.name):
             self.capabilities = Capabilities(bias=BiasMode.NONE)
         self._proc: subprocess.Popen | None = None
@@ -205,7 +207,7 @@ class Transcriber:
 
             audio = normalize_audio(audio)
             audio_b64 = base64.b64encode(audio.tobytes()).decode("ascii")
-            req = {"audio_b64": audio_b64, "options": {"beam_size": 5 if final else 1}}
+            req = {"audio_b64": audio_b64, "options": {"beam_size": self._cfg.beam_size if final else 1}}
             # Cap the combined prompt. initial_prompt (recent transcripts) and
             # `context` (streaming's frozen-text tail) are both bounded in CHARS
             # by their callers, but nothing bounded their SUM in tokens — and

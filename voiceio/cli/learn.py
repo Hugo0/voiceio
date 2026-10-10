@@ -63,6 +63,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     e.add_argument("--pipeline", action="store_true",
                    help="no decoding: score what each text stage (corrections, numbers, "
                         "cloud postcorrect…) did to past dictations")
+    e.add_argument("--beam", type=int, default=None,
+                   help="beam width of the passes you keep (default: [model] beam_size)")
     e.add_argument("--speed", type=float, default=1.0,
                    help="streaming replay speed; >1 is faster but skews latency")
     e.set_defaults(func=cmd_eval)
@@ -334,12 +336,12 @@ def cmd_eval(args: argparse.Namespace) -> None:
     if ds is None or not ds.exists():
         raise SystemExit("no dataset — run `voiceio learn build` first")
     _run_eval(args.model, ds, limit=args.limit, streaming=args.streaming, lanes=args.lanes,
-              freeze=args.freeze, speed=args.speed)
+              freeze=args.freeze, speed=args.speed, beam=args.beam)
 
 
 def _run_eval(model: str | None, ds: Path, *, limit: int | None = None,
               streaming: bool = False, lanes: int | None = None,
-              freeze: float | None = None, speed: float = 1.0):
+              freeze: float | None = None, speed: float = 1.0, beam: int | None = None):
     """Score `model` (default: the configured one) on `ds`; print and save."""
     from voiceio.core.bias import BiasProvider
     from voiceio.core.decoders import build_decoder
@@ -348,6 +350,8 @@ def _run_eval(model: str | None, ds: Path, *, limit: int | None = None,
     cfg = _cfg()
     if model:
         cfg.model.name = model
+    if beam:
+        cfg.model.beam_size = beam
     print(f"Loading {cfg.model.name}…", flush=True)
     # Offline scoring needs one lane; streaming mirrors the live setup.
     decoder = build_decoder(cfg.model, lanes=lanes if lanes is not None else
