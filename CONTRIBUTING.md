@@ -32,7 +32,8 @@ voiceio/
 ├── cli/             # CLI: __init__ (entry point, run/setup/doctor/service), models, vocab,
 │                    #   corrections, learn, history, configcmd
 ├── server/          # Headless HTTP/WebSocket server (python -m voiceio.server)
-├── app.py           # Desktop daemon state machine (IDLE/RECORDING/FINALIZING/ERROR), watchdog
+├── app.py           # Desktop daemon state machine (IDLE/RECORDING/FINALIZING/ERROR)
+├── watchdog.py      # Health thread: worker recovery, audio stream, tray, resume detection
 ├── streaming.py     # Real-time transcription session with word-level corrections
 ├── audio_source.py  # Where streaming gets samples (microphone, socket, file)
 ├── recorder.py      # Microphone capture with 1s pre-buffer ring (desktop extra)
@@ -68,8 +69,10 @@ voiceio/
 ├── backends.py      # ProbeResult and shared backend types
 ├── setup/           # `voiceio setup`: wizard steps over a shared SetupState + non-interactive mode
 ├── hotkeys/         # evdev, pynput, Unix socket backends + chain resolution
-├── typers/          # ibus, ydotool, wtype, xdotool, clipboard, pynput + chain
-├── ibus/            # IBus engine process (GLib main loop + socket listener)
+├── typers/          # ibus, ydotool, wtype, xdotool, clipboard, pynput, fcitx bridge + chain;
+│                    #   manager.py: TyperManager (selection, IDLE-gated upgrade/fallback)
+├── ibus/            # IBus engine process (GLib main loop + socket listener);
+│                    #   session.py: IBusSession (input sources, engine lifecycle)
 ├── tray/            # Animated tray icon (AppIndicator3 / pystray fallback)
 ├── tts/             # Text-to-speech engines (piper, espeak, edge-tts) + chain
 ├── data/            # Shipped static files (udev uaccess rule)
