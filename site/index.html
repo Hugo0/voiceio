@@ -752,16 +752,16 @@ void main(){
     if (T.model === "loading") return;
     talkLabel.innerHTML = touch || editing() ? "hold to talk" : "hold <kbd>space</kbd> to talk";
   }
-  function progress(frac, text) {
+  function progress(frac, text, pct = "") {
     talk.style.setProperty("--lvl", frac.toFixed(3));
-    talkLabel.innerHTML = text + '<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>';
+    talkLabel.innerHTML = text + '<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>' + (pct && " " + pct);
   }
 
   function ensureModel() {
     if (T.worker) return;
     T.model = "loading";
     label();
-    progress(0.02, "loading the local model");
+    progress(0.02, "loading local model");
     setStatus("downloads once (67 MB), then it's cached");
     T.worker = new Worker("asr-worker.js", { type: "module" });
     T.worker.onmessage = onWorker;
@@ -880,7 +880,8 @@ void main(){
       const got = all.reduce((n, f) => n + (f.loaded || 0), 0), total = all.reduce((n, f) => n + (f.total || 0), 0);
       const frac = total ? got / total : 0;
       // Files announce themselves one by one, so "done" only counts once the big ones are in.
-      progress(Math.max(0.02, frac), got >= total && total > 40e6 ? "preparing the local model" : "loading the local model · " + Math.round(frac * 100) + "%");
+      if (got >= total && total > 40e6) progress(1, "preparing local model");
+      else progress(Math.max(0.02, frac), "loading local model", Math.round(frac * 100) + "%");
     } else if (data.type === "ready") {
       T.model = "ready";
       setLevel(0);
