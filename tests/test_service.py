@@ -23,3 +23,23 @@ def test_install_symlinks_relinks_and_drops_legacy(monkeypatch, tmp_path):
     assert service.install_symlinks() == service.SCRIPT_NAMES
     assert Path(local_bin / "voiceio").resolve() == (venv_bin / "voiceio").resolve()
     assert not (local_bin / "voiceio-doctor").is_symlink()
+
+
+def test_learn_timer_runs_maintain_at_idle_priority(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(service, "has_systemd", lambda: True)
+    monkeypatch.setattr(service, "_systemctl", lambda *a: calls.append(a) or True)
+    monkeypatch.setattr(service, "_find_voiceio_bin", lambda: "/opt/v/bin/voiceio")
+    monkeypatch.setattr(service, "SERVICE_DIR", tmp_path)
+    monkeypatch.setattr(service, "LEARN_SERVICE_PATH", tmp_path / service.LEARN_SERVICE_NAME)
+    monkeypatch.setattr(service, "LEARN_TIMER_PATH", tmp_path / service.LEARN_TIMER_NAME)
+
+    assert service.install_learn_timer()
+    unit = service.LEARN_SERVICE_PATH.read_text()
+    assert "ExecStart=/opt/v/bin/voiceio learn maintain" in unit
+    assert "CPUWeight=idle" in unit and "VOICEIO_IDLE_SCOPE=1" in unit
+    assert "Persistent=true" in service.LEARN_TIMER_PATH.read_text()
+    assert ("enable", "--now", service.LEARN_TIMER_NAME) in calls
+
+    service.uninstall_learn_timer()
+    assert not service.LEARN_TIMER_PATH.exists() and not service.LEARN_SERVICE_PATH.exists()

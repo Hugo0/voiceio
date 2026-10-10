@@ -101,6 +101,9 @@ def _cmd_uninstall() -> None:
         if _service.CORRECT_TIMER_PATH.exists() or _service.CORRECT_SERVICE_PATH.exists():
             _service.uninstall_correct_timer()
             removed.append(str(_service.CORRECT_TIMER_PATH))
+        if _service.LEARN_TIMER_PATH.exists():
+            _service.uninstall_learn_timer()
+            removed.append(str(_service.LEARN_TIMER_PATH))
 
         # 2. Remove IBus component and launcher
         ibus_component = home / ".local" / "share" / "ibus" / "component" / "voiceio.xml"

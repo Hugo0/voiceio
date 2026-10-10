@@ -27,6 +27,12 @@ SERVICE_NAME = "voiceio.service"
 SERVICE_DIR = Path.home() / ".config" / "systemd" / "user"
 SERVICE_PATH = SERVICE_DIR / SERVICE_NAME
 
+# Nightly `voiceio learn maintain` (opt-in: `voiceio learn schedule on`)
+LEARN_SERVICE_NAME = "voiceio-learn.service"
+LEARN_TIMER_NAME = "voiceio-learn.timer"
+LEARN_SERVICE_PATH = SERVICE_DIR / LEARN_SERVICE_NAME
+LEARN_TIMER_PATH = SERVICE_DIR / LEARN_TIMER_NAME
+
 # Pre-1.0 weekly cloud mining timer — only referenced to remove it
 CORRECT_SERVICE_NAME = "voiceio-correct.service"
 CORRECT_TIMER_NAME = "voiceio-correct.timer"
@@ -78,6 +84,71 @@ PassEnvironment=DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_RUNTIME_DIR
 [Install]
 WantedBy=graphical-session.target
 """
+
+
+def _learn_units(bin_path: str) -> tuple[str, str]:
+    """(service, timer) for nightly learning on this machine."""
+    service = f"""\
+[Unit]
+Description=VoiceIO - learn from today's dictation (label, retrain when enough is new)
+Documentation=https://github.com/Hugo0/voiceio#make-it-yours
+
+[Service]
+Type=oneshot
+ExecStart={bin_path} learn maintain
+# Background work: it gets the CPU only when nothing else wants it, so
+# dictation and everything else stay fast. The unit's own cgroup already
+# does what `learn` would otherwise re-exec into a scope for.
+CPUWeight=idle
+IOWeight=10
+Nice=19
+Environment=VOICEIO_IDLE_SCOPE=1 PYTHONUNBUFFERED=1
+"""
+    timer = """\
+[Unit]
+Description=VoiceIO - nightly learning
+
+[Timer]
+OnCalendar=*-*-* 03:30
+RandomizedDelaySec=30min
+# A laptop that was asleep at 03:30 catches up when it next runs.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+    return service, timer
+
+
+def _systemctl(*args: str) -> bool:
+    try:
+        return subprocess.run(["systemctl", "--user", *args], capture_output=True,
+                              timeout=10).returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def install_learn_timer() -> bool:
+    """Run `voiceio learn maintain` nightly. True when the timer is enabled."""
+    if _IS_WINDOWS or not has_systemd():
+        return False
+    service, timer = _learn_units(_find_voiceio_bin())
+    SERVICE_DIR.mkdir(parents=True, exist_ok=True)
+    LEARN_SERVICE_PATH.write_text(service)
+    LEARN_TIMER_PATH.write_text(timer)
+    _systemctl("daemon-reload")
+    return _systemctl("enable", "--now", LEARN_TIMER_NAME)
+
+
+def uninstall_learn_timer() -> None:
+    _systemctl("disable", "--now", LEARN_TIMER_NAME)
+    for p in (LEARN_TIMER_PATH, LEARN_SERVICE_PATH):
+        p.unlink(missing_ok=True)
+    _systemctl("daemon-reload")
+
+
+def learn_timer_enabled() -> bool:
+    return LEARN_TIMER_PATH.exists() and _systemctl("is-enabled", "--quiet", LEARN_TIMER_NAME)
 
 
 def uninstall_correct_timer() -> None:

@@ -84,6 +84,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     mt.add_argument("--epochs", type=int, default=4)
     mt.set_defaults(func=cmd_maintain)
 
+    sc = lsub.add_parser("schedule", help="Run `maintain` every night (systemd timer)")
+    sc.add_argument("state", nargs="?", choices=("on", "off"), help="omit to show")
+    sc.set_defaults(func=cmd_schedule)
+
     pr = lsub.add_parser("promote", help="Use a trained model for dictation")
     pr.add_argument("run", help="run name under learn/models (see `learn status`)")
     pr.add_argument("--force", action="store_true",
@@ -176,6 +180,8 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(f"models     {', '.join(runs)}")
     active = _cfg().model.name
     print(f"active     {active}")
+    from voiceio import service
+    print(f"nightly    {'on' if service.learn_timer_enabled() else 'off (voiceio learn schedule on)'}")
     promotable = _print_scores(ds, active, runs) if ds else None
     if promotable:
         nxt = f"promote {promotable}"
@@ -438,6 +444,29 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     print(f"\n{_cfg().model.name} → {run.name} on {ds.name}:\n{table}")
     print(f"better or equal on everything — `voiceio learn promote {run.name}`" if ok
           else "not better on everything — keeping the current model")
+    if ok:   # often runs unattended at night: say so where it will be seen
+        from voiceio import feedback
+        feedback.notify("VoiceIO: a better model is ready",
+                        f"Trained on your dictation. Use it: voiceio learn promote {run.name}",
+                        urgent=True)
+
+
+def cmd_schedule(args: argparse.Namespace) -> None:
+    from voiceio import config, service
+    if args.state == "on":
+        if not config.load().data.retain_audio:
+            print("note: [data] retain_audio is off, so there is nothing new to learn from;\n"
+                  "      turn it on with: voiceio config set data.retain_audio true")
+        if not service.install_learn_timer():
+            raise SystemExit("could not enable the timer (needs systemd --user)")
+        print("on: every night ~03:30, `voiceio learn maintain` labels new dictation at idle "
+              "priority, retrains once 50+ clips are new, and tells you if the result is better. "
+              "It never switches models by itself.")
+    elif args.state == "off":
+        service.uninstall_learn_timer()
+        print("off")
+    else:
+        print("on" if service.learn_timer_enabled() else "off — enable: voiceio learn schedule on")
 
 
 def _scores(result) -> dict:
