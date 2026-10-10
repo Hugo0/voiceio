@@ -1,0 +1,35 @@
+# voiceio
+
+> Local, open-source voice dictation for Linux that fine-tunes itself on your voice. Press a hotkey, speak, and text streams into the focused app (IBus on Wayland and X11). Speech is decoded on the user's own machine with Whisper (faster-whisper); nothing is uploaded and there is no telemetry. Optionally, voiceio keeps the user's recordings and trains a LoRA fine-tune on them overnight on CPU, switching to it only when it beats the current model on held-out clips. MIT licensed, Python 3.11+, PyPI package `python-voiceio`, CLI `voiceio`.
+
+## Install it for a user (agent runbook)
+
+Linux only; needs a microphone, a graphical session and sudo for one step.
+
+1. System packages, for the user's distro:
+   - Debian/Ubuntu: `sudo apt update && sudo apt install -y pipx build-essential python3-dev portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi`
+   - Fedora: `sudo dnf install -y pipx gcc gcc-c++ make python3-devel portaudio-devel ibus ibus-libs python3-gobject`
+   - Arch: `sudo pacman -S --noconfirm python-pipx base-devel portaudio ibus python-gobject`
+   - NixOS: use the flake, `github:Hugo0/voiceio` (see README).
+2. `pipx install 'python-voiceio[desktop]' && pipx ensurepath` (the base package without `[desktop]` is headless: no mic or hotkeys).
+3. Ask the user which hotkey they want, and whether voiceio may keep their recordings (needed for fine-tuning; off by default). Then configure without prompts:
+   `voiceio setup --answers '{"hotkey":"<their choice>","install_service":true}'`
+   It prints `[voiceio-setup] step=... status=...` lines and ends with `step=done status=ok`.
+4. Verify: `voiceio doctor` exits 0; `voiceio service status` says running.
+5. Optional, if they keep recordings: `voiceio learn schedule on` trains nightly at idle priority.
+6. Tell the user: press the hotkey in any app, speak, press it again. Their data stays in `~/.config/voiceio`, `~/.local/state/voiceio` and `~/.local/share/voiceio`.
+
+The full runbook, with every `--answers` key and a troubleshooting tree keyed on real error output: [INSTALL.md](https://github.com/Hugo0/voiceio/blob/main/INSTALL.md)
+
+## Docs
+
+- [README](https://github.com/Hugo0/voiceio/blob/main/README.md): features, commands, models, privacy, phone dictation, troubleshooting
+- [INSTALL.md](https://github.com/Hugo0/voiceio/blob/main/INSTALL.md): non-interactive install for agents
+- [config.example.toml](https://github.com/Hugo0/voiceio/blob/main/config.example.toml): every config option, commented
+- [UPGRADING.md](https://github.com/Hugo0/voiceio/blob/main/UPGRADING.md): renamed options and behavior changes between releases
+
+## Optional
+
+- [CONTRIBUTING.md](https://github.com/Hugo0/voiceio/blob/main/CONTRIBUTING.md): architecture and code style, for changing voiceio itself
+- [PyPI](https://pypi.org/project/python-voiceio/): releases
+- [Source](https://github.com/Hugo0/voiceio)

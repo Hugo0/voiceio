@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://voiceio-site.voiceio-v1.workers.dev/sitemap.xml

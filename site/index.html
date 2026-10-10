@@ -6,6 +6,30 @@
 <title>voiceio — dictation that learns you</title>
 <meta name="description" content="Local, open-source voice dictation for Linux that fine-tunes itself on your voice, overnight, on your own machine.">
 <meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="canonical" href="https://voiceio-site.voiceio-v1.workers.dev/">
+<link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="voiceio">
+<meta property="og:url" content="https://voiceio-site.voiceio-v1.workers.dev/">
+<meta property="og:title" content="voiceio — dictation that learns you">
+<meta property="og:description" content="Local, open-source voice dictation for Linux. It trains on your voice overnight, on your own machine, so it gets your names right.">
+<meta property="og:image" content="https://voiceio-site.voiceio-v1.workers.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="voiceio — dictation that learns you">
+<meta name="twitter:description" content="Local, open-source voice dictation for Linux that fine-tunes itself on your voice.">
+<meta name="twitter:image" content="https://voiceio-site.voiceio-v1.workers.dev/og.png">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "voiceio",
+ "description": "Local, open-source voice dictation for Linux that fine-tunes itself on your voice.",
+ "url": "https://voiceio-site.voiceio-v1.workers.dev/", "applicationCategory": "UtilitiesApplication", "operatingSystem": "Linux",
+ "license": "https://opensource.org/licenses/MIT", "isAccessibleForFree": true,
+ "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+ "downloadUrl": "https://pypi.org/project/python-voiceio/",
+ "sameAs": ["https://github.com/Hugo0/voiceio", "https://pypi.org/project/python-voiceio/"]}
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -84,9 +108,9 @@ code { white-space: nowrap; font-family: var(--mono); font-size: 0.95em; backgro
     linear-gradient(0deg, var(--bg), transparent 24%),
     linear-gradient(180deg, color-mix(in oklch, var(--bg) 45%, transparent), transparent 14%); }
 .hero-in { position: relative; z-index: 2; min-height: min(92vh, 900px); display: flex; flex-direction: column; justify-content: center; padding-block: 72px 96px; }
-.hero h1 { font-size: clamp(44px, 8.6vw, 112px); line-height: 0.94; margin-top: 18px; max-width: 13ch; min-height: 1.88em; font-weight: 800; }
+.hero h1 { font-size: clamp(42px, 8vw, 108px); line-height: 0.94; margin-top: 26px; max-width: 15ch; min-height: 1.88em; font-weight: 800; }
 .hero h1 .pre { text-decoration: underline; text-decoration-thickness: 0.05em; text-underline-offset: 0.1em; text-decoration-color: var(--faint); color: color-mix(in oklch, var(--ink) 72%, var(--bg)); }
-.lede { max-width: 52ch; margin-top: 22px; min-height: 5em; font-size: 15px; color: var(--muted); transition: color .2s var(--ease-quart); }
+.lede { max-width: 52ch; min-height: 5em; font-size: 15px; color: var(--muted); transition: color .2s var(--ease-quart); }
 .lede.on { color: var(--ink); }
 .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px; align-items: center; }
 .pill { display: inline-flex; align-items: center; gap: 9px; padding: 8px 14px 8px 12px; border: 1px solid var(--line-strong); border-radius: 999px;
@@ -95,11 +119,42 @@ code { white-space: nowrap; font-family: var(--mono); font-size: 0.95em; backgro
 .pill.solid { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .pill.solid:hover { color: var(--surface); background: color-mix(in oklch, var(--ink) 85%, var(--signal)); }
 .pill .d { color: var(--signal); }
-.tenets { margin-top: 34px; }
-.tenets .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.tenet { font: 500 11px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); background: transparent;
-         border: 1px solid var(--line); border-radius: 999px; padding: 8px 13px; cursor: pointer; transition: color .18s, border-color .18s, background .18s; }
-.tenet:hover, .tenet:focus-visible, .tenet[aria-pressed="true"] { color: var(--dark); background: var(--signal); border-color: var(--signal); }
+button.pill { cursor: pointer; font-family: var(--mono); }
+#handoff .d { color: var(--ink); }
+#handoff.done { border-color: var(--gain); color: var(--gain); }
+/* the promises: tabs above the headline that cycle on their own, so a first
+   visit sees the headline rewrite itself; hover or tap takes over */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tab { position: relative; overflow: hidden; font: 500 12px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
+       color: var(--muted); background: color-mix(in oklch, var(--bg) 80%, transparent); border: 1px solid var(--line-strong);
+       border-radius: var(--radius); padding: 11px 15px 12px; cursor: pointer; transition: color .18s, border-color .18s, background .18s; }
+.tab:hover { color: var(--ink); border-color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--surface); background: var(--ink); border-color: var(--ink); }
+.tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--signal);
+       transform-origin: left; animation: tabfill var(--cycle, 6s) linear both; }
+.tabs.held .tab[aria-selected="true"]::after { animation: none; }
+@keyframes tabfill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.hero-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 48px; align-items: start; margin-top: 30px; }
+.try { position: relative; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 16px 16px 14px;
+       background: color-mix(in oklch, var(--bg) 78%, transparent); backdrop-filter: blur(3px);
+       box-shadow: 0 18px 44px -26px color-mix(in oklch, var(--ink) 45%, transparent); }
+.try.live { border-color: var(--ink); }
+.try-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.try-out { margin-top: 12px; min-height: 6.6em; max-height: 9.9em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
+           font: 400 15px/1.65 var(--mono); color: var(--ink); }
+.try-out .ph { color: var(--faint); }
+.try-out .pre { text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 4px; color: var(--muted); }
+.talk { margin-top: 12px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; touch-action: none; user-select: none;
+        -webkit-user-select: none; font: 500 12px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+        background: var(--ink); color: var(--surface); border: 1px solid var(--ink); border-radius: var(--radius); padding: 14px; transition: background .18s; }
+.talk:hover { background: color-mix(in oklch, var(--ink) 85%, var(--signal)); }
+.talk .recdot { margin: 0; background: var(--faint); animation: none; }
+.try.live .talk { background: var(--miss); border-color: var(--miss); }
+.try.live .talk .recdot { background: var(--surface); animation: rec 1.2s ease-in-out infinite; }
+.talk kbd { font: 600 11px/1 var(--mono); border: 1px solid color-mix(in oklch, var(--surface) 45%, transparent); border-bottom-width: 2px;
+            border-radius: 3px; padding: 3px 6px 2px; letter-spacing: 0.08em; }
+.try-foot { margin-top: 10px; text-align: center; min-height: 1.4em; }
 .scroll-hint { display: block; position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; z-index: 2; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
@@ -197,6 +252,8 @@ footer .wrap { padding-block: 28px 48px; display: flex; justify-content: space-b
 footer a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
 
 @media (max-width: 900px) {
+  .hero-row { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .try { max-width: 460px; }
   .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .b-lg { grid-column: span 2; grid-row: auto; }
   .b-sm { grid-column: span 1; }
@@ -207,6 +264,8 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
   .wrap { padding: 0 16px; }
   .bento { grid-template-columns: minmax(0, 1fr); }
   .hero, .hero-in { min-height: 0; }
+  .hero-row { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .tab { padding: 10px 11px 11px; font-size: 11px; }
   .hero-in { padding-block: 56px 72px; }
   .b-lg, .b-sm, .b-wide { grid-column: span 1; }
   .hero .scrim { background: linear-gradient(0deg, var(--bg), transparent 30%), color-mix(in oklch, var(--bg) 62%, transparent); }
@@ -241,22 +300,28 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
     <div class="veil" aria-hidden="true"></div>
     <div class="scrim" aria-hidden="true"></div>
     <div class="wrap hero-in">
-      <div class="label rise"><span class="recdot" aria-hidden="true"></span>ctrl+alt+v · listening</div>
-      <h1 class="rise" style="animation-delay:80ms" aria-live="polite"><span id="h1">DICTATION THAT LEARNS YOU.</span><span class="caret" aria-hidden="true"></span></h1>
-      <p class="lede rise" style="animation-delay:180ms"><span id="lede" class="swap"></span></p>
-      <div class="cta rise" style="animation-delay:250ms">
-        <a class="pill solid" href="#install"><span class="d" aria-hidden="true">◇</span>pipx install python-voiceio</a>
-        <a class="pill" href="https://github.com/Hugo0/voiceio">read the source <span aria-hidden="true">↗</span></a>
+      <div class="tabs rise" role="tablist" aria-label="What voiceio is">
+        <button class="tab" type="button" role="tab" data-k="default">learns you</button>
+        <button class="tab" type="button" role="tab" data-k="local">local</button>
+        <button class="tab" type="button" role="tab" data-k="private">private</button>
+        <button class="tab" type="button" role="tab" data-k="open">open source</button>
+        <button class="tab" type="button" role="tab" data-k="linux">linux</button>
       </div>
-      <div class="tenets rise" style="animation-delay:360ms">
-        <div class="label" id="tenet-label">// hover a promise</div>
-        <div class="row" role="group" aria-labelledby="tenet-label">
-          <button class="tenet" type="button" data-k="local">local</button>
-          <button class="tenet" type="button" data-k="private">private</button>
-          <button class="tenet" type="button" data-k="learns">self-improving</button>
-          <button class="tenet" type="button" data-k="open">open source</button>
-          <button class="tenet" type="button" data-k="linux">linux</button>
+      <h1 class="rise" style="animation-delay:80ms"><span id="h1">DICTATION THAT LEARNS YOU.</span><span class="caret" aria-hidden="true"></span></h1>
+      <div class="hero-row">
+        <div>
+          <p class="lede rise" style="animation-delay:180ms"><span id="lede" class="swap" aria-live="polite"></span></p>
+          <div class="cta rise" style="animation-delay:250ms">
+            <a class="pill solid" href="#install"><span class="d" aria-hidden="true">◇</span>pipx install python-voiceio</a>
+            <button class="pill" id="handoff" type="button" title="Copies a prompt for Claude Code, Codex or any coding agent"><span class="d" aria-hidden="true">▸</span><span id="handoff-label">hand off to your agent</span></button>
+          </div>
         </div>
+        <aside class="try rise" id="try" style="animation-delay:320ms" aria-label="Try dictation in your browser">
+          <div class="try-head"><span class="label" style="color:var(--ink)">// try it here</span><span class="label">nothing to install</span></div>
+          <div class="try-out" id="try-out" aria-live="polite"><span class="ph">Hold space and say something. Words appear as you speak.</span></div>
+          <button class="talk" id="talk" type="button"><span class="recdot" aria-hidden="true"></span><span id="talk-label">hold <kbd>space</kbd> to talk</span></button>
+          <div class="try-foot label" id="try-status">runs in this tab · 67 MB model, downloaded once</div>
+        </aside>
       </div>
     </div>
     <a class="label scroll-hint" href="#how">↓ how it works</a>
@@ -270,7 +335,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
         <div class="cell-head"><span class="num">01</span><span class="label">speak</span></div>
         <div class="art"><canvas data-shape="wave" data-gap="4"></canvas></div>
         <h3>Words land where you type.</h3>
-        <p>Press <code>Ctrl+Alt+V</code> and talk. Text streams into the focused app — editor, browser, terminal — and commits the moment you stop.</p>
+        <p>Press your hotkey and talk. Text streams into the focused app — editor, browser, terminal — and commits the moment you stop.</p>
       </article>
       <article class="cell scan">
         <div class="cell-head"><span class="num">02</span><span class="label">learn</span></div>
@@ -360,7 +425,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
       <div class="cmd">
         <span class="label">then</span>
         <button type="button" class="copy" data-copy="c2">copy</button>
-<pre id="c2"><span class="c"># ctrl+alt+v, speak, ctrl+alt+v</span>
+<pre id="c2"><span class="c"># setup asks for your hotkey: press it, speak, press again</span>
 <span class="p">$</span> voiceio vocab add Kalshi     <span class="c"># a name, right away</span>
 <span class="p">$</span> voiceio learn schedule on    <span class="c"># learn every night</span>
 <span class="p">$</span> voiceio doctor               <span class="c"># what works, what doesn't</span></pre>
@@ -389,13 +454,11 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
   // ---------------------------------------------------------------- hero copy
   const COPY = {
     default: ["DICTATION THAT LEARNS YOU.",
-      "Press a hotkey, speak, and your words appear in any Linux app. It runs entirely on your machine — and every night it trains on your voice, so it gets your names right."],
+      "Press your hotkey, speak, and your words appear in any Linux app. It runs entirely on your machine, and every night it trains on your own voice, so it gets your names right."],
     local: ["NOTHING LEAVES THIS MACHINE.",
       "Whisper runs on your own CPU. No account, no server, no upload — it works on a plane."],
     private: ["YOUR VOICE STAYS YOURS.",
       "No telemetry. Logs keep timings, never words. Recordings are off until you choose, and they're plain files you can read and delete."],
-    learns: ["IT TRAINS WHILE YOU SLEEP.",
-      "A nightly fine-tune on your own dictation. It replaces your model only when it wins on clips it never saw."],
     open: ["READ EVERY LINE.",
       "MIT licensed Python on GitHub and PyPI. The training, the eval, the privacy rules — all in the open."],
     linux: ["BUILT FOR LINUX FIRST.",
@@ -403,20 +466,22 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
   };
   const h1 = document.getElementById("h1");
   const lede = document.getElementById("lede");
-  const tenets = [...document.querySelectorAll(".tenet")];
-  let typing = 0, current = "default";
+  const tabs = [...document.querySelectorAll(".tab")];
+  const tablist = document.querySelector(".tabs");
+  const CYCLE_MS = 6000;
+  let typing = 0, current = "", cycle = 0;
 
   // Types the heading like a dictation: underlined preview, then commit.
   function say(key) {
     if (key === current) return;
     current = key;
     const [head, body] = COPY[key];
-    tenets.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === key)));
+    tabs.forEach((b) => b.setAttribute("aria-selected", String(b.dataset.k === key)));
     lede.parentElement.classList.toggle("on", key !== "default");
     lede.classList.remove("swap"); void lede.offsetWidth; lede.classList.add("swap");
     lede.textContent = body;
     clearInterval(typing);
-    if (still) { h1.textContent = head; return; }
+    if (still || !h1.textContent) { h1.textContent = head; return; }
     let i = 0;
     typing = setInterval(() => {
       i += 1 + (Math.random() < 0.35);
@@ -428,14 +493,28 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
       h1.appendChild(pre);
     }, 34);
   }
-  lede.textContent = COPY.default[1];
-  tenets.forEach((b) => {
-    b.addEventListener("mouseenter", () => say(b.dataset.k));
-    b.addEventListener("focus", () => say(b.dataset.k));
-    b.addEventListener("click", () => say(b.dataset.k));
+  // Auto-advance through the promises until the visitor takes over.
+  function autoplay() {
+    clearTimeout(cycle);
+    tablist.classList.toggle("held", still);
+    if (still) return;
+    tablist.style.setProperty("--cycle", CYCLE_MS + "ms");
+    cycle = setTimeout(() => {
+      const i = tabs.findIndex((b) => b.dataset.k === current);
+      say(tabs[(i + 1) % tabs.length].dataset.k);
+      autoplay();
+    }, CYCLE_MS);
+  }
+  function hold(key) { clearTimeout(cycle); tablist.classList.add("held"); say(key); }
+  h1.textContent = "";
+  say("default");
+  autoplay();
+  tabs.forEach((b) => {
+    b.addEventListener("mouseenter", () => hold(b.dataset.k));
+    b.addEventListener("focus", () => hold(b.dataset.k));
+    b.addEventListener("click", () => { hold(b.dataset.k); clearTimeout(cycle); cycle = setTimeout(autoplay, 4000); });
   });
-  if (matchMedia("(hover: none)").matches) document.getElementById("tenet-label").textContent = "// tap a promise";
-  document.querySelector(".tenets .row").addEventListener("mouseleave", () => say("default"));
+  tablist.addEventListener("mouseleave", () => { tablist.classList.remove("held"); autoplay(); });
 
   // ------------------------------------------------- hero: dithered sound wave
   // A speech waveform (syllable bursts over a carrier, plus orbiting ribbons)
@@ -443,7 +522,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
   // wave swells and the grain sharpens around it.
   const FRAG = `
 precision highp float;
-uniform vec2 uRes; uniform float uTime; uniform vec2 uMouse; uniform float uMouseOn;
+uniform vec2 uRes; uniform float uTime; uniform vec2 uMouse; uniform float uMouseOn; uniform float uVoice;
 float hash(vec2 p){ p = fract(p*vec2(123.34, 345.45)); p += dot(p, p+34.345); return fract(p.x*p.y); }
 float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f*f*(3.0-2.0*f);
   return mix(mix(hash(i), hash(i+vec2(1,0)), u.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y); }
@@ -462,7 +541,7 @@ void main(){
   // syllables inside phrases, flowing left to right
   float syl = smoothstep(0.32, 0.85, vnoise(vec2(p.x*3.2 - t*1.1, 1.7)));
   float phr = smoothstep(0.2, 0.7, vnoise(vec2(p.x*0.7 - t*0.32, 9.1)));
-  float env = syl*phr*0.9 + 0.06 + lens*0.55;
+  float env = syl*phr*0.9 + 0.06 + lens*0.55 + uVoice*(0.5 + 0.5*syl);
   float carrier = 0.55 + 0.45*abs(sin(p.x*46.0 - t*7.0) * sin(p.x*13.0 + t*2.3));
   float amp = env*carrier*0.4;
   float d = abs(uv.y - cy);
@@ -502,10 +581,10 @@ void main(){
     const a = gl.getAttribLocation(prog, "a");
     gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
     const U = (n) => gl.getUniformLocation(prog, n);
-    const uRes = U("uRes"), uTime = U("uTime"), uMouse = U("uMouse"), uOn = U("uMouseOn");
+    const uRes = U("uRes"), uTime = U("uTime"), uMouse = U("uMouse"), uOn = U("uMouseOn"), uVoice = U("uVoice");
     const dpr = Math.min(devicePixelRatio || 1, 2);
     const mouse = { x: 0.7, y: 0.5, on: 0 };
-    let on = 0, visible = true, raf = 0;
+    let on = 0, voice = 0, visible = true, raf = 0;
     const start = performance.now();
     function resize() {
       const w = Math.max(1, Math.floor(canvas.clientWidth * dpr)), h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
@@ -523,14 +602,192 @@ void main(){
       gl.uniform1f(uTime, (now - start) / 1000);
       gl.uniform2f(uMouse, mouse.x, mouse.y);
       gl.uniform1f(uOn, on);
+      voice += (mic.level - voice) * 0.25;
+      gl.uniform1f(uVoice, voice);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     const loop = (now) => { draw(now); raf = visible ? requestAnimationFrame(loop) : 0; };
     draw(start + 4000);
+    mic.wake = () => { if (!raf) raf = requestAnimationFrame(loop); };
     if (still) return;
     new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) raf = requestAnimationFrame(loop); }).observe(canvas);
   }
+  const mic = { level: 0, wake: () => {} };  // live input level, drives the hero wave
   hero();
+
+  // ------------------------------------------------ try it: dictation in-tab
+  // Hold space (or the button) to talk. A small speech model runs in a Web
+  // Worker: partial decodes show as underlined preview, the final one commits
+  // on release, the way voiceio types. The mic is open only while held.
+  const tryEl = document.getElementById("try");
+  const out = document.getElementById("try-out");
+  const talk = document.getElementById("talk");
+  const statusEl = document.getElementById("try-status");
+  const RATE = 16000, MAX_SECS = 20, STEP_SECS = 0.35;
+  const DEBUG = new URLSearchParams(location.search).has("debug");
+  const T = { worker: null, ready: false, busy: false, want: false, live: false, session: 0,
+              chunks: [], n: 0, sent: 0, rate: RATE, pending: null, said: [], preview: "", stream: null, ctx: null, files: {} };
+  const touch = matchMedia("(hover: none)").matches;
+  if (touch) document.getElementById("talk-label").textContent = "hold to talk";
+  queueMicrotask(() => render());
+  const setStatus = (t) => (statusEl.textContent = t);
+
+  function render() {
+    out.textContent = "";
+    if (!T.said.length && !T.preview && !T.live) {
+      out.innerHTML = '<span class="ph">' + (touch ? "Hold the button" : "Hold space") + " and say something. Words appear as you speak.</span>";
+      return;
+    }
+    const p = document.createElement("div");
+    const said = T.said.join(" ");
+    p.textContent = (said.length > 400 ? "…" + said.slice(said.indexOf(" ", said.length - 400)) : said) + (said && T.preview ? " " : "");
+    if (T.preview) { const s = document.createElement("span"); s.className = "pre"; s.textContent = T.preview; p.appendChild(s); }
+    if (T.live) { const c = document.createElement("span"); c.className = "caret"; p.appendChild(c); }
+    out.appendChild(p);
+  }
+
+  async function ensureModel() {
+    if (T.worker) return;
+    T.worker = new Worker("asr-worker.js", { type: "module" });
+    T.worker.onmessage = onWorker;
+    T.worker.onerror = () => setStatus("this browser couldn't run the model");
+    const webgpu = !!(navigator.gpu && (await navigator.gpu.requestAdapter().catch(() => null)));
+    T.worker.postMessage({ type: "load", webgpu });
+    setStatus("loading the speech model…");
+  }
+
+  // Everything is kept at the mic's own rate and resampled per decode.
+  function audio16k() {
+    const raw = new Float32Array(T.n);
+    let o = 0;
+    for (const c of T.chunks) { raw.set(c, o); o += c.length; }
+    const ratio = T.rate / RATE;
+    if (ratio === 1) return raw;
+    const outA = new Float32Array(Math.floor(raw.length / ratio));
+    for (let i = 0; i < outA.length; i++) {
+      const a = Math.floor(i * ratio), b = Math.min(raw.length, Math.floor((i + 1) * ratio));
+      let sum = 0;
+      for (let j = a; j < b; j++) sum += raw[j];
+      outA[i] = sum / Math.max(1, b - a);
+    }
+    return outA;
+  }
+  const secs = () => T.n / T.rate;
+
+  function tick() {
+    if (!T.ready || T.busy || !T.live || secs() - T.sent < STEP_SECS) return;
+    T.busy = true;
+    T.sent = secs();
+    T.worker.postMessage({ type: "decode", id: T.session, final: false, audio: audio16k() });
+  }
+  function flush() {
+    if (!T.ready || T.busy || !T.pending) return;
+    T.busy = true;
+    T.worker.postMessage({ type: "decode", id: T.pending.id, final: true, audio: T.pending.audio });
+    T.pending = null;
+    setStatus("finishing…");
+  }
+
+  function onWorker({ data }) {
+    if (data.type === "progress") {
+      T.files[data.file] = data;
+      const all = Object.values(T.files);
+      const mb = (x) => (x / 1e6).toFixed(0);
+      setStatus("downloading model · " + mb(all.reduce((n, f) => n + (f.loaded || 0), 0)) + " / " +
+        mb(all.reduce((n, f) => n + (f.total || 0), 0)) + " MB · once, then cached");
+    } else if (data.type === "ready") {
+      T.ready = true;
+      T.modelNote = data.model + " · " + data.device + " · audio never leaves your browser";
+      setStatus(T.live ? "listening… release to finish" : T.modelNote);
+      flush(); tick();
+    } else if (data.type === "error") {
+      setStatus("this browser couldn't run the model");
+    } else if (data.type === "text") {
+      T.busy = false;
+      if (DEBUG) console.log("asr", data.final ? "final" : "partial", Math.round(data.ms) + "ms", secs().toFixed(1) + "s", mic.level.toFixed(3), JSON.stringify(data.text));
+      if (data.final) {
+        if (data.text) T.said.push(data.text);
+        T.preview = "";
+        setStatus(T.live ? "listening… release to finish" : T.modelNote);
+      } else if (data.id === T.session && T.live) {
+        T.preview = data.text;
+      }
+      render();
+      flush(); tick();
+    }
+  }
+
+  const TAP = "class Tap extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('tap',Tap)";
+  async function start() {
+    if (T.want) return;
+    T.want = true;
+    ensureModel();
+    try {
+      T.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    } catch {
+      T.want = false;
+      setStatus("microphone blocked · allow it in the address bar");
+      return;
+    }
+    if (!T.want) { closeMic(); setStatus("mic ready · hold again to talk"); return; }  // released during the permission prompt
+    T.ctx = new AudioContext();
+    T.rate = T.ctx.sampleRate;
+    await T.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP], { type: "text/javascript" })));
+    const node = new AudioWorkletNode(T.ctx, "tap");
+    node.port.onmessage = ({ data }) => {
+      if (!T.live) return;
+      T.chunks.push(data);
+      T.n += data.length;
+      let e = 0;
+      for (let i = 0; i < data.length; i++) e += data[i] * data[i];
+      mic.level = Math.min(1, Math.sqrt(e / data.length) * 9);
+      if (secs() >= MAX_SECS) stop();
+      else tick();
+    };
+    T.ctx.createMediaStreamSource(T.stream).connect(node);
+    T.session++;
+    T.chunks = []; T.n = 0; T.sent = 0; T.preview = "";
+    T.live = true;
+    tryEl.classList.add("live");
+    mic.wake();
+    setStatus(T.ready ? "listening… release to finish" : statusEl.textContent);
+    render();
+    if (!T.want) stop();
+  }
+  function closeMic() {
+    T.stream?.getTracks().forEach((t) => t.stop());
+    T.ctx?.close();
+    T.stream = T.ctx = null;
+  }
+  function stop() {
+    T.want = false;
+    if (!T.live) return;
+    T.live = false;
+    tryEl.classList.remove("live");
+    closeMic();
+    mic.level = 0;
+    if (secs() >= 0.3) { T.pending = { id: T.session, audio: audio16k() }; setStatus(T.ready ? "finishing…" : statusEl.textContent); flush(); }
+    else T.preview = "";
+    render();
+  }
+
+  // Space is push-to-talk while the demo is on screen; elsewhere it scrolls.
+  let tryVisible = false;
+  new IntersectionObserver(([e]) => (tryVisible = e.isIntersecting), { threshold: 0.3 }).observe(tryEl);
+  addEventListener("keydown", (e) => {
+    if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey || !tryVisible) return;
+    if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]")) return;
+    e.preventDefault();
+    if (!e.repeat) start();
+  });
+  addEventListener("keyup", (e) => { if (e.code === "Space" && (T.want || T.live)) { e.preventDefault(); stop(); } });
+  addEventListener("blur", stop);
+  talk.addEventListener("pointerdown", (e) => { e.preventDefault(); talk.setPointerCapture(e.pointerId); start(); });
+  ["pointerup", "pointercancel"].forEach((ev) => talk.addEventListener(ev, stop));
+  talk.addEventListener("keydown", (e) => e.code === "Enter" && e.preventDefault());
+  // Fetch the model as soon as someone shows interest, not on every visit.
+  tryEl.addEventListener("pointerenter", ensureModel, { once: true });
+  talk.addEventListener("focus", ensureModel, { once: true });
 
   // ----------------------------------------------------- 2D halftone dither art
   function hash(x, y) { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); }
@@ -665,6 +922,20 @@ void main(){
     o.disconnect();
     document.querySelectorAll(".fill").forEach((f) => (f.style.width = f.dataset.w + "%"));
   }, { threshold: 0.5 }).observe(document.getElementById("meter"));
+
+  // Agent handoff: copy a prompt that points a coding agent at llms.txt.
+  const HANDOFF = "Install voiceio, local voice dictation for Linux, on this machine. " +
+    "Follow the agent runbook at https://voiceio-site.voiceio-v1.workers.dev/llms.txt: detect my distro, install the system packages, " +
+    "install python-voiceio[desktop] with pipx, and run the non-interactive setup. Before setup, ask me which hotkey I want " +
+    "and whether voiceio may keep my recordings so it can learn my voice. Finish with voiceio doctor and fix whatever it reports.";
+  const handoff = document.getElementById("handoff");
+  handoff.addEventListener("click", async () => {
+    const label = document.getElementById("handoff-label");
+    try { await navigator.clipboard.writeText(HANDOFF); label.textContent = "copied · paste it into your agent"; }
+    catch { prompt("Copy this prompt into your coding agent:", HANDOFF); }
+    handoff.classList.add("done");
+    setTimeout(() => { label.textContent = "hand off to your agent"; handoff.classList.remove("done"); }, 3200);
+  });
 
   // copy buttons copy the commands, not the prompts or comments
   document.querySelectorAll(".copy").forEach((btn) => btn.addEventListener("click", async () => {
