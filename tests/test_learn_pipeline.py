@@ -132,12 +132,32 @@ def test_learn_jobs_reexec_into_an_idle_scope(monkeypatch):
 
 
 def test_promotion_requires_a_winning_eval():
-    base = {"wer": 0.10, "term_recall": 0.40, "repetitions": 0}
-    better = {"wer": 0.101, "term_recall": 0.70, "repetitions": 0}   # vocab win, WER within slack
-    worse = {"wer": 0.13, "term_recall": 0.70, "repetitions": 0}
+    base = {"wer": 0.10, "term_recall": 0.40, "repetitions": 0, "clips": 44}
+    better = {"wer": 0.101, "term_recall": 0.70, "repetitions": 0, "clips": 44}   # vocab win
+    worse = {"wer": 0.13, "term_recall": 0.70, "repetitions": 0, "clips": 44}
     assert evaluate.promotion_verdict(better, base)[0]
     assert not evaluate.promotion_verdict(worse, base)[0]
     assert not evaluate.promotion_verdict({**better, "repetitions": 2}, base)[0]
+
+
+def test_no_promotion_without_evidence():
+    """A crashed decode scores 0% WER; an empty test split scores nothing."""
+    base = {"wer": 0.10, "term_recall": 0.40, "repetitions": 0, "clips": 44}
+    perfect = {"wer": 0.0, "term_recall": 1.0, "repetitions": 0}
+    assert not evaluate.promotion_verdict({**perfect, "clips": 44, "failures": 3}, base)[0]
+    assert not evaluate.promotion_verdict({**perfect, "clips": 40}, base)[0]      # other clips
+    assert not evaluate.promotion_verdict({**perfect, "clips": 2}, {**base, "clips": 2})[0]
+
+
+def test_latest_finds_runs_at_the_configured_beam():
+    runs = store.learn_dir() / "runs"
+    runs.mkdir(parents=True)
+    for i, (dec, wer) in enumerate([("faster-whisper:small", 5), ("faster-whisper:small@beam2+draft", 2)]):
+        (runs / f"eval-2026010{i}.json").write_text(json.dumps(
+            {"decoder": dec, "dataset": "v0001", "wer": wer, "metrics": metrics.METRICS_VERSION}))
+    assert evaluate.latest("small", "v0001")["wer"] == 5
+    assert evaluate.latest("small", "v0001", beam=2)["wer"] == 2
+    assert evaluate.latest("small", "v0001", beam=1) is None
 
 
 def test_latest_eval_matches_model_dataset_and_mode():
@@ -330,9 +350,19 @@ def test_maintain_auto_promote_switches_restarts_and_says_how_to_undo(monkeypatc
     monkeypatch.setattr(evaluate, "promotion_verdict", lambda c, b: (True, "table"))
     monkeypatch.setattr(cli, "cmd_promote", lambda a: calls.append(("promote", a.run)))
     monkeypatch.setattr(service, "is_installed", lambda: True)
-    monkeypatch.setattr(service, "restart_when_idle", lambda: calls.append(("restart",)))
+    monkeypatch.setattr(service, "restart_when_idle", lambda: calls.append(("restart",)) or True)
     monkeypatch.setattr(feedback, "notify", lambda t, b, urgent=False: calls.append(("notify", b)))
 
     cli.cmd_maintain(argparse.Namespace(min_new=1, base="small", epochs=1, auto_promote=True))
     assert calls[:2] == [("promote", "v0001-small-x"), ("restart",)]
     assert "voiceio learn rollback" in calls[2][1]
+
+    # The gate's own re-check refuses: no restart, no "switched" notification,
+    # and no crash (the nightly unit must not fail).
+    calls.clear()
+
+    def refuse(a):
+        raise SystemExit("evaluate both models first")
+    monkeypatch.setattr(cli, "cmd_promote", refuse)
+    cli.cmd_maintain(argparse.Namespace(min_new=1, base="small", epochs=1, auto_promote=True))
+    assert calls == []

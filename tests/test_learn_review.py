@@ -33,3 +33,12 @@ def test_gold_review_asks_only_where_the_models_disagree_cheapest_clip_first():
         ("one.wav", 0),                       # one answer completes a gold clip
         ("two.wav", 0), ("two.wav", 1),
     ]                                         # agree.wav: nothing to ask
+
+
+def test_gold_review_counts_one_misheard_term_as_disagreement():
+    from voiceio.learn import review
+    from voiceio.learn.store import Clip, Label, Segment
+    segs = (Segment(0, 4, "we ship the Kalshi bot every single day"),)
+    clip = Clip("a.wav", 0, 4, "we ship the kalchi bot every single day", "")
+    items = review.queue_all([clip], {"a.wav": Label("a.wav", segs, "teacher:x", 0)})
+    assert len(items) == 1

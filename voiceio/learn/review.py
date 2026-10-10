@@ -26,8 +26,10 @@ class Item:
     reason: str
 
 
-def _contains(seg_words: list[str], live_words: list[str]) -> bool:
-    """Whether the segment's words occur (nearly) contiguously in the live text."""
+def _contains(seg_words: list[str], live_words: list[str],
+              tolerance: float = _DISAGREE_WER) -> bool:
+    """Whether the segment's words occur (nearly, within `tolerance` of its
+    words) contiguously in the live text."""
     n = len(seg_words)
     if not n:
         return True
@@ -36,7 +38,7 @@ def _contains(seg_words: list[str], live_words: list[str]) -> bool:
         window = live_words[i:i + n]
         match = sum(a == b for a, b in zip(seg_words, window)) / n
         best = max(best, match)
-        if best >= 1 - _DISAGREE_WER:
+        if best >= 1 - tolerance:
             return True
     return False
 
@@ -102,7 +104,9 @@ def queue_all(clips: list[Clip], labels: dict[str, Label]) -> list[Item]:
         live = metrics.words(clip.raw)
         items = [Item(clip, lab, i, "test set: teacher and live disagree" if live else "test set")
                  for i, seg in enumerate(lab.segments)
-                 if not live or not _contains(metrics.words(seg.text), live)]
+                 # Word for word: a gold reference can't skip "kalchi" vs
+                 # "Kalshi" in an otherwise matching sentence.
+                 if not live or not _contains(metrics.words(seg.text), live, tolerance=0.0)]
         if items:
             per_clip.append(items)
     per_clip.sort(key=len)

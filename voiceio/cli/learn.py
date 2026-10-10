@@ -200,9 +200,9 @@ def _print_scores(ds: Path, active: str, runs: list[str]) -> str | None:
     """Scores on `ds` for the active model and each fine-tune; returns the
     run that beats the active model on everything, if any."""
     from voiceio.learn import evaluate
-    current = evaluate.latest(active, ds.name)
+    current = evaluate.latest(active, ds.name, beam=_cfg().model.beam_size)
     rows = [(active + " (active)", current)] + [
-        (run, evaluate.latest(str(_models_dir() / run / "ct2"), ds.name)) for run in runs]
+        (run, evaluate.latest(str(_models_dir() / run / "ct2"), ds.name, beam=_cfg().model.beam_size)) for run in runs]
     if not any(r for _, r in rows):
         return None
     print(f"\nscores on {ds.name} test clips:")
@@ -445,8 +445,9 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     labeled = {c.audio for c in store.clips() if c.audio in labels}
     ds = store.latest_dataset()
     new = len(labeled - store.dataset_clips(ds)) if ds else len(labeled)
-    if ds is not None and new < args.min_new:
-        print(f"{new} new labeled clips since {ds.name}; retraining waits for {args.min_new}.")
+    if new < args.min_new:   # the first dataset too: a handful of clips trains nothing
+        since = f" since {ds.name}" if ds else ""
+        print(f"{new} new labeled clips{since}; retraining waits for {args.min_new}.")
         return
     ds = store.build_dataset()
     print(f"built {ds.name} ({new} new clips)")
@@ -462,10 +463,18 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     # Often runs unattended at night: say so where it will be seen.
     from voiceio import feedback
     if getattr(args, "auto_promote", False):
-        cmd_promote(argparse.Namespace(run=run.name, force=False))
+        try:
+            cmd_promote(argparse.Namespace(run=run.name, force=False))
+        except SystemExit as refused:   # the gate's own re-check said no
+            print(f"not promoted: {refused}")
+            return
         from voiceio import service
-        if service.is_installed():
-            service.restart_when_idle()
+        if service.is_installed() and not service.restart_when_idle():
+            feedback.notify("VoiceIO: a better model is ready",
+                            f"Switched to {run.name}; restart voiceio to use it "
+                            "(a dictation was in progress). Undo: voiceio learn rollback",
+                            urgent=True)
+            return
         feedback.notify("VoiceIO: switched to a better model",
                         f"Trained on your dictation: {run.name}. Undo: voiceio learn rollback",
                         urgent=True)
@@ -529,16 +538,16 @@ def _check_beats_current(ct2: Path) -> None:
     """Refuse a promotion the evals don't support (a fine-tune can regress)."""
     from voiceio.learn import evaluate
     ds = store.latest_dataset()
-    current = _cfg().model.name
+    current, beam = _cfg().model.name, _cfg().model.beam_size
     if ds is None:
         raise SystemExit("no dataset to compare on — `voiceio learn build`, or --force")
-    missing = [m for m in (current, str(ct2)) if evaluate.latest(m, ds.name) is None]
+    missing = [m for m in (current, str(ct2)) if evaluate.latest(m, ds.name, beam=beam) is None]
     if missing:
         raise SystemExit("evaluate both models on the same clips first:\n"
                          + "".join(f"  voiceio learn eval --model {m}\n" for m in missing)
                          + "(or promote anyway with --force)")
-    ok, table = evaluate.promotion_verdict(evaluate.latest(str(ct2), ds.name),
-                                           evaluate.latest(current, ds.name))
+    ok, table = evaluate.promotion_verdict(evaluate.latest(str(ct2), ds.name, beam=beam),
+                                           evaluate.latest(current, ds.name, beam=beam))
     print(f"on {ds.name} test clips, {current} → fine-tune:\n{table}")
     if not ok:
         raise SystemExit("the fine-tune is worse on something — not promoting (--force overrides)")

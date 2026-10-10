@@ -156,11 +156,11 @@ def save(result: EvalResult) -> Path:
     return path
 
 
-def latest(model: str, dataset: str, mode: str = "offline") -> dict | None:
-    """The newest saved run of `model` (a faster-whisper name or path) on
-    `dataset` scored by the current metrics, or None."""
+def latest(model: str, dataset: str, mode: str = "offline", beam: int = 5) -> dict | None:
+    """The newest saved run of `model` (a faster-whisper name or path) at
+    beam width `beam` on `dataset` scored by the current metrics, or None."""
     runs = learn_dir() / "runs"
-    want = f"faster-whisper:{model}"
+    want = f"faster-whisper:{model}" + (f"@beam{beam}" if beam != 5 else "")
     for path in sorted(runs.glob("eval-*.json"), reverse=True) if runs.exists() else []:
         try:
             data = json.loads(path.read_text())
@@ -172,6 +172,9 @@ def latest(model: str, dataset: str, mode: str = "offline") -> dict | None:
             return data
     return None
 
+
+# Fewer held-out clips than this can't tell a better model from luck.
+MIN_EVAL_CLIPS = 5
 
 # A fine-tune may trade a hair of WER for vocabulary; it may not regress either.
 WER_SLACK = 0.002
@@ -196,7 +199,10 @@ def paired(candidate: dict, current: dict, *, n_boot: int = 2000) -> dict | None
 
 
 def promotion_verdict(candidate: dict, current: dict) -> tuple[bool, str]:
-    """Is `candidate` at least as good as `current` on the same clips?"""
+    """Is `candidate` at least as good as `current` on the same clips?
+
+    No verdict without evidence: too few clips, different clips, or a clip
+    the candidate failed to decode at all (a crashed decode scores 0% WER)."""
     rows = [("WER", current["wer"], candidate["wer"], "{:.1%}"),
             ("vocab recall", current["term_recall"], candidate["term_recall"], "{:.1%}"),
             ("loops", current["repetitions"], candidate["repetitions"], "{}")]
@@ -208,6 +214,10 @@ def promotion_verdict(candidate: dict, current: dict) -> tuple[bool, str]:
                   f"WER change {p['mean']:+.1%} (90% interval {p['lo']:+.1%} … {p['hi']:+.1%})")
         if p["lo"] < 0 < p["hi"]:
             table += "\n  (the interval spans zero: the WER difference may be luck)"
+    clips = candidate.get("clips", 0)
+    if candidate.get("failures", 0) or clips != current.get("clips", 0) or clips < MIN_EVAL_CLIPS:
+        return False, table + (f"\n  not enough evidence: {clips} clips "
+                               f"({candidate.get('failures', 0)} failed) vs {current.get('clips', 0)}")
     ok = (candidate["wer"] <= current["wer"] + WER_SLACK
           and candidate["term_recall"] >= current["term_recall"]
           and candidate["repetitions"] <= current["repetitions"])

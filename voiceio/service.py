@@ -160,10 +160,10 @@ def learn_timer_auto_promotes() -> bool:
 
 
 def restart_when_idle() -> bool:
-    """Restart the daemon once no dictation is in progress."""
+    """Restart the daemon once no dictation is in progress. False when it
+    stayed busy (never cut a dictation off) or the restart failed."""
     from voiceio.cli.servicecmd import wait_until_idle
-    wait_until_idle()
-    return _systemctl("restart", SERVICE_NAME)
+    return wait_until_idle() and _systemctl("restart", SERVICE_NAME)
 
 
 def uninstall_correct_timer() -> None:
