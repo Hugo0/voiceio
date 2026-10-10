@@ -14,7 +14,7 @@ hours of audio takes under an hour on one consumer GPU.
 On CPU the default is decoder-only: the encoder is frozen, so its output for
 each window is computed once and cached, and every step trains only the
 decoder — where vocabulary spelling is learned. Measured on a Ryzen 7940HS
-(whisper-small): ~4s per window vs ~18s for a full step. Full LoRA also adapts
+under load (whisper-small): ~1.1s per window vs ~18s for a full step. Full LoRA also adapts
 the encoder to a voice and microphone; use it where there is a GPU.
 
 A fine-tuned model inherits the base model's license; Whisper is MIT.
@@ -64,6 +64,16 @@ class TrainConfig:
     # (and learns with) the biasing channel instead of eroding it.
     hotwords: str = ""
     prompt_share: float = 0.5
+
+
+# Full: every attention/MLP projection. Decoder-only additionally skips the
+# cross-attention key/value projections — they re-project all 1500 encoder
+# frames each step, so adapting them doubled step time (2.15s → 1.13s per
+# window, Ryzen 7940HS). They are how the decoder reads acoustics; vocabulary
+# lives in self-attention, cross-attention query/output and the MLPs.
+_FULL_TARGETS = r".*\.(q_proj|k_proj|v_proj|out_proj|fc1|fc2)"
+_DECODER_TARGETS = (r".*decoder\.layers\.\d+\.(self_attn\.(q_proj|k_proj|v_proj|out_proj)"
+                    r"|encoder_attn\.(q_proj|out_proj)|fc1|fc2)")
 
 
 def require_train_deps() -> None:
@@ -189,10 +199,9 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
     processor = WhisperProcessor.from_pretrained(base_id, language=cfg.language, task="transcribe")
     model = WhisperForConditionalGeneration.from_pretrained(base_id)
     model.config.forced_decoder_ids = None
-    projections = "(q_proj|k_proj|v_proj|out_proj|fc1|fc2)"
     model = get_peft_model(model, LoraConfig(
         r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=0.05,
-        target_modules=rf".*decoder.*\.{projections}" if decoder_only else rf".*\.{projections}",
+        target_modules=_DECODER_TARGETS if decoder_only else _FULL_TARGETS,
     )).to(device)
     model.print_trainable_parameters()
     encoder = model.get_base_model().model.encoder
