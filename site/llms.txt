@@ -27,7 +27,10 @@ The full runbook, with every `--answers` key and a troubleshooting tree keyed on
 
 ## Docs
 
-- [README](https://github.com/Hugo0/voiceio/blob/main/README.md): features, commands, models, privacy, phone dictation, troubleshooting
+- [README](https://github.com/Hugo0/voiceio/blob/main/README.md): overview, install, the main commands
+- [docs/linux.md](https://github.com/Hugo0/voiceio/blob/main/docs/linux.md): desktops, backends, NixOS, troubleshooting
+- [docs/learning.md](https://github.com/Hugo0/voiceio/blob/main/docs/learning.md): vocabulary, corrections, fine-tuning, schedule
+- [docs/commands.md](https://github.com/Hugo0/voiceio/blob/main/docs/commands.md): every command
 - [INSTALL.md](https://github.com/Hugo0/voiceio/blob/main/INSTALL.md): non-interactive install for agents
 - [config.example.toml](https://github.com/Hugo0/voiceio/blob/main/config.example.toml): every config option, commented
 - [UPGRADING.md](https://github.com/Hugo0/voiceio/blob/main/UPGRADING.md): renamed options and behavior changes between releases

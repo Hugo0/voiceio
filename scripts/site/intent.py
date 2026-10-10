@@ -4,7 +4,7 @@ INSTALL_STEPS = """<ol class="steps">
   <li><b>Install the system packages</b> (a C toolchain, PortAudio, IBus). On Debian or Ubuntu:
 <pre><code><span class="p">$</span> sudo apt install pipx build-essential python3-dev \\
     portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi</code></pre>
-  Fedora, Arch and NixOS commands are in the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>.</li>
+  Fedora, Arch and NixOS commands are in the <a href="https://github.com/Hugo0/voiceio#install">README</a>.</li>
   <li><b>Install voiceio</b> with the desktop extra (microphone, hotkeys, tray):
 <pre><code><span class="p">$</span> pipx install 'python-voiceio[desktop]'</code></pre></li>
   <li><b>Run the guided setup.</b> It downloads the speech model, sets your hotkey and installs a systemd user service so voiceio starts on login:
@@ -62,7 +62,7 @@ def linux():
       <tr><th scope="row">i3, other X11</th><td>IBus, xdotool</td><td>Yes, with IBus</td><td>Should work</td></tr>
     </tbody>
   </table></div>
-  <p class="note">From the <a href="https://github.com/Hugo0/voiceio#linux-support">voiceio README</a>. If fcitx5 is your input method, voiceio leaves it alone and types the final text with wtype or ydotool.</p>
+  <p class="note">From the <a href="https://github.com/Hugo0/voiceio/blob/main/docs/linux.md">voiceio README</a>. If fcitx5 is your input method, voiceio leaves it alone and types the final text with wtype or ydotool.</p>
 </section>
 
 <section class="part" aria-labelledby="names">
