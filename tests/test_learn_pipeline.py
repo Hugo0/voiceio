@@ -236,3 +236,10 @@ def test_dev_mix_is_stable_per_row():
     assert train._row_draws("a.wav") == train._row_draws("a.wav")
     assert train._row_draws("a.wav") != train._row_draws("b.wav")
     assert all(0 <= x < 1 for x in train._row_draws("c.wav"))
+
+
+def test_clip_without_windows_is_not_new_forever():
+    _clip("long.wav", 40, "x")
+    store.add_label("long.wav", [Segment(0, 40, "one very long segment")], "teacher:fake")
+    ds = store.build_dataset()           # >28s segment: no windows, still considered
+    assert "long.wav" in store.dataset_clips(ds)

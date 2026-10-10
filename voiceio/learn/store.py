@@ -272,10 +272,12 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
     labels = load_labels()
     rows = {s: [] for s in SPLITS}
     dropped: dict[str, int] = {}
+    considered: list[str] = []
     for clip in clips():
         lab = labels.get(clip.audio)
         if lab is None or (reviewed_only and not lab.reviewed):
             continue
+        considered.append(clip.audio)
         split = split_of(clip.audio)
         base = {"file_name": str(clip.path), "label_source": lab.source, "source": clip.source}
         if split == "test":
@@ -303,6 +305,9 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
         "schema": SCHEMA, "version": version, "created": time.time(),
         "reviewed_only": reviewed_only,
         "dropped_windows": dropped,
+        # Every labeled clip this build looked at, windows or not: what
+        # `learn maintain` counts new clips against.
+        "clips": sorted(considered),
         "counts": {s: len(v) for s, v in rows.items()},
         "hours": {s: round(sum(r["end"] - r["start"] for r in v) / 3600, 2)
                   for s, v in rows.items()},
@@ -313,6 +318,11 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
 
 def dataset_clips(dataset: Path) -> set[str]:
     """Audio names (as in labels) that `dataset` was built from."""
+    manifest = dataset / "manifest.json"
+    if manifest.exists():
+        recorded = json.loads(manifest.read_text()).get("clips")
+        if recorded is not None:
+            return set(recorded)
     out = set()
     for split in SPLITS:
         for row in read_split(dataset, split):
