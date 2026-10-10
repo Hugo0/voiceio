@@ -17,7 +17,7 @@ _ALLOWED_ANSWER_KEYS = {
     "model", "language", "hotkey", "backend", "streaming",
     "tts_enabled", "tts_engine", "tts_speed",
     "llm_enabled", "llm_model",
-    "autocorrect_api_key", "autocorrect_base_url", "autocorrect_model",
+    "cloud_api_key", "cloud_base_url", "cloud_model",
     "sound_enabled", "notify_clipboard", "commands_enabled",
     "punctuation_cleanup", "number_conversion", "voice_input_prefix",
     "tray_enabled", "install_service", "download_model", "install_system_deps",
@@ -47,6 +47,9 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     printed reason otherwise.
     """
     answers = dict(answers or {})
+    # Pre-1.0 name of the cloud endpoint answers.
+    for key in [k for k in answers if k.startswith("autocorrect_")]:
+        answers.setdefault("cloud_" + key.removeprefix("autocorrect_"), answers.pop(key))
 
     # ── Validate at the boundary ────────────────────────────────────────
     unknown = set(answers) - _ALLOWED_ANSWER_KEYS
@@ -137,8 +140,8 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     if "tray_enabled" in answers:
         tray_ok = bool(answers["tray_enabled"])
 
-    ac_key = str(answers.get("autocorrect_api_key", ""))
-    if ac_key:
+    cloud_key = str(answers.get("cloud_api_key", ""))
+    if cloud_key:
         _record_cloud_consent()
 
     # ── Write config (merge-preserving) ─────────────────────────────────
@@ -154,9 +157,9 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
         voice_input_prefix=str(answers.get("voice_input_prefix", "")),
         llm_enabled=bool(answers.get("llm_enabled", False)),
         llm_model=str(answers.get("llm_model", "")),
-        autocorrect_api_key=ac_key,
-        autocorrect_base_url=str(answers.get("autocorrect_base_url", "")),
-        autocorrect_model=str(answers.get("autocorrect_model", "")),
+        cloud_api_key=cloud_key,
+        cloud_base_url=str(answers.get("cloud_base_url", "")),
+        cloud_model=str(answers.get("cloud_model", "")),
         tts_enabled=bool(answers.get("tts_enabled", True)),
         tts_engine=str(answers.get("tts_engine", "auto")),
         tts_speed=float(answers.get("tts_speed", 1.0)),

@@ -46,8 +46,8 @@ def test_write_config_preserves_secret_when_no_new_key(cfg_paths):
     assert raw["model"]["language"] == "es"
     assert raw["hotkey"]["key"] == "alt+v"
     # Secret + hand-edited + unknown keys preserved verbatim
-    assert raw["autocorrect"]["api_key"] == "SECRET"
-    assert raw["autocorrect"]["model"] == "custom/model"
+    assert raw["cloud"]["api_key"] == "SECRET"
+    assert raw["cloud"]["model"] == "custom/model"
     assert raw["audio"]["device"] == "hw:1"
     assert raw["unknown"]["kept"] == 7
 
@@ -56,12 +56,12 @@ def test_write_config_sets_api_key_when_provided(cfg_paths):
     configfile._write_config(
         model="small", language="en", hotkey="ctrl+alt+v", method="auto",
         streaming=True, backend="evdev",
-        autocorrect_api_key="NEWKEY", autocorrect_base_url="https://x/api",
-        autocorrect_model="m/n", quiet=True,
+        cloud_api_key="NEWKEY", cloud_base_url="https://x/api",
+        cloud_model="m/n", quiet=True,
     )
     raw = configfile._load_raw_config()
-    assert raw["autocorrect"]["api_key"] == "NEWKEY"
-    assert raw["autocorrect"]["base_url"] == "https://x/api"
+    assert raw["cloud"]["api_key"] == "NEWKEY"
+    assert raw["cloud"]["base_url"] == "https://x/api"
 
 
 def test_write_config_roundtrips_through_loader(cfg_paths):
@@ -249,7 +249,7 @@ def test_write_config_with_api_key_records_consent_and_is_private(tmp_path, monk
     monkeypatch.setattr(configfile, "CONFIG_PATH", config.CONFIG_PATH)
     configfile._write_config(
         model="small", language="en", hotkey="ctrl+alt+v", method="auto",
-        streaming=True, backend="auto", autocorrect_api_key="sk-test", quiet=True,
+        streaming=True, backend="auto", cloud_api_key="sk-test", quiet=True,
     )
     configfile._record_cloud_consent()
     assert consent.has_cloud_consent()

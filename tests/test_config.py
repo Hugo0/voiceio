@@ -144,3 +144,13 @@ def test_remove_legacy_state_deletes_pre_1_0_mining_files(tmp_path, monkeypatch)
     monkeypatch.setattr(config, "LEGACY_STATE_FILES", files + (tmp_path / "absent.json",))
     config.remove_legacy_state()
     assert not any(f.exists() for f in files)
+
+
+def test_autocorrect_section_migrates_to_cloud_and_model(tmp_path):
+    from voiceio import config
+    path = tmp_path / "config.toml"
+    path.write_text('[autocorrect]\napi_key = "k"\nmodel = "old/m"\nprotect_languages = ["es"]\n'
+                    '[cloud]\nmodel = "new/m"\n')
+    cfg = config.load(path)
+    assert (cfg.cloud.api_key, cfg.cloud.model) == ("k", "new/m")   # [cloud] wins
+    assert cfg.model.protect_languages == ["es"]

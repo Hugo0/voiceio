@@ -61,6 +61,14 @@ are left alone; delete the folder when you no longer want them.
   words.
 - Transcript text is no longer written to the log at INFO level.
 
+## Renamed options
+
+`[autocorrect]` is now `[cloud]`: it only ever held the endpoint for the
+opt-in cloud pass. `autocorrect.protect_languages` moved to
+`model.protect_languages`. Old config files keep working — they are read
+under the new names, and `voiceio setup` rewrites them. Non-interactive setup
+accepts `cloud_api_key` (and still `autocorrect_api_key`).
+
 ## Removed options
 
 `output.min_recording_secs`, `output.cancel_window_secs` and

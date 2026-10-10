@@ -16,7 +16,7 @@ def _cfg(*, enabled=True, api_key="test-key", min_words=4, model="",
         enabled=enabled, min_words=min_words, model=model,
     )
     cfg.output.remove_disfluencies = remove_disfluencies
-    cfg.autocorrect.api_key = api_key
+    cfg.cloud.api_key = api_key
     return cfg
 
 

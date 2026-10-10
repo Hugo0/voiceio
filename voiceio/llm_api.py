@@ -14,7 +14,7 @@ import threading
 import urllib.error
 from urllib.parse import urlsplit
 
-from voiceio.config import AutocorrectConfig
+from voiceio.config import CloudConfig
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ def _is_local(base_url: str) -> bool:
     return any(h in base_url for h in _LOCAL_HOSTS)
 
 
-def _cloud_call_allowed(cfg: AutocorrectConfig) -> bool:
+def _cloud_call_allowed(cfg: CloudConfig) -> bool:
     """Consent gate for cloud LLM calls (never applies to local endpoints).
 
     Fails open to local-only behaviour: with no recorded consent we log one
@@ -113,7 +113,7 @@ def _cloud_call_allowed(cfg: AutocorrectConfig) -> bool:
     return False
 
 
-def resolve_api_key(cfg: AutocorrectConfig) -> str:
+def resolve_api_key(cfg: CloudConfig) -> str:
     """Resolve API key from config or environment variables."""
     if cfg.api_key:
         return cfg.api_key
@@ -209,7 +209,7 @@ def _openai_request(
 
 
 def chat(
-    cfg: AutocorrectConfig,
+    cfg: CloudConfig,
     system: str,
     user_message: str,
     *,
@@ -263,7 +263,7 @@ def detect_provider(api_key: str) -> tuple[str, str]:
     return "https://openrouter.ai/api/v1", "moonshotai/kimi-k2-0905"
 
 
-def check_api_key(cfg: AutocorrectConfig, api_key: str = "") -> bool:
+def check_api_key(cfg: CloudConfig, api_key: str = "") -> bool:
     """Validate an API key with a minimal request."""
     key = api_key or resolve_api_key(cfg)
     if not key:

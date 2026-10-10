@@ -76,6 +76,9 @@ class ModelConfig:
     # "modified_beam_search" (required for hotwords).
     decoding: str = ""
     vocabulary_file: str = ""  # path to vocabulary.txt
+    # Other languages you dictate in: a correction rule that would rewrite a
+    # real word in one of these is flagged (e.g. ["es"] protects "harina").
+    protect_languages: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -155,30 +158,29 @@ class LLMConfig:
 
 
 @dataclass
-class AutocorrectConfig:
+class CloudConfig:
+    """The OpenAI-compatible endpoint for the opt-in cloud features (text only,
+    never audio). Was `[autocorrect]` before 1.0; old files are migrated."""
     api_key: str = ""                      # API key, or set OPENROUTER_API_KEY env var
     base_url: str = "https://openrouter.ai/api/v1"  # Any OpenAI-compatible endpoint
     model: str = "moonshotai/kimi-k2-0905"   # Model ID (OpenRouter format) — fast, cheap, non-thinking
     timeout_secs: float = 30.0
-    # Languages you also dictate in: mined corrections never rewrite words
-    # that are real in these (e.g. ["es"] protects Spanish "harina").
-    protect_languages: list[str] = field(default_factory=list)
 
 
 @dataclass
 class PostCorrectConfig:
     """Constrained LLM post-correction of final transcripts.
 
-    Reuses the [autocorrect] section's API key / base_url resolution (config
-    key → OPENROUTER_API_KEY → OPENAI_API_KEY → ANTHROPIC_API_KEY). Only the
-    model can be overridden here; empty falls back to the autocorrect model.
+    Uses the [cloud] section's API key / base_url resolution (config key →
+    OPENROUTER_API_KEY → OPENAI_API_KEY → ANTHROPIC_API_KEY). Only the model
+    can be overridden here; empty falls back to the [cloud] model.
     """
     enabled: bool = False
     # Latency-critical (blocks the commit): default to a fast cheap model.
     # Bake-off on the real correction prompt: gemini-2.5-flash-lite 0.44s
     # with fixes identical to kimi-k2's 2.0s. OpenRouter model id — on a
     # custom base_url set a model your endpoint serves (empty = use
-    # [autocorrect].model).
+    # [cloud].model).
     model: str = "google/gemini-2.5-flash-lite"
     # It blocks the commit: past this the original text is kept.
     timeout_secs: float = 3.0
@@ -243,7 +245,7 @@ class Config:
     commands: CommandsConfig = field(default_factory=CommandsConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
-    autocorrect: AutocorrectConfig = field(default_factory=AutocorrectConfig)
+    cloud: CloudConfig = field(default_factory=CloudConfig)
     postcorrect: PostCorrectConfig = field(default_factory=PostCorrectConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     health: HealthConfig = field(default_factory=HealthConfig)
@@ -265,6 +267,16 @@ def _migrate_v1(raw: dict) -> dict:
             if key in raw.get(section, {}):
                 del raw[section][key]
                 log.info("Config: ignoring removed option %s.%s", section, key)
+
+    # [autocorrect] held only the cloud endpoint once mining was gone; a
+    # [cloud] key written since wins. Its protect_languages is about
+    # correction safety, so it joins the language setting in [model].
+    if "autocorrect" in raw:
+        old = raw.pop("autocorrect")
+        protect = old.pop("protect_languages", None)
+        if protect and "protect_languages" not in raw.get("model", {}):
+            raw.setdefault("model", {})["protect_languages"] = protect
+        raw["cloud"] = old | raw.get("cloud", {})
 
     # Migrate old output methods
     if "output" in raw and "method" in raw["output"]:
@@ -313,7 +325,7 @@ def load(path: Path | None = None) -> Config:
         commands=_build(CommandsConfig, raw.get("commands", {})),
         daemon=_build(DaemonConfig, raw.get("daemon", {})),
         llm=_build(LLMConfig, raw.get("llm", {})),
-        autocorrect=_build(AutocorrectConfig, raw.get("autocorrect", {})),
+        cloud=_build(CloudConfig, raw.get("cloud", {})),
         postcorrect=_build(PostCorrectConfig, raw.get("postcorrect", {})),
         tts=_build(TTSConfig, raw.get("tts", {})),
         health=_build(HealthConfig, raw.get("health", {})),

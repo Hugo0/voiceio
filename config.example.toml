@@ -19,6 +19,7 @@ cpu_threads = 0               # 0 = half your logical cores, 4–8
 decode_lanes = 2              # 2 = separate preview process, so stopping never waits on it
 decoding = ""                 # sherpa-onnx only: greedy_search | modified_beam_search
 vocabulary_file = ""          # empty = ~/.config/voiceio/vocabulary.txt
+protect_languages = []        # other languages you dictate in: corrections must not rewrite their words
 
 [audio]
 sample_rate = 16000
@@ -88,14 +89,13 @@ model = "google/gemini-2.5-flash-lite"
 timeout_secs = 3.0            # past this the original text is kept
 min_words = 4
 
-[autocorrect]
-# Credentials for the cloud pass (or set OPENROUTER_API_KEY / OPENAI_API_KEY /
-# ANTHROPIC_API_KEY in the environment instead of storing a key here).
+[cloud]
+# The endpoint for the opt-in cloud pass above; [autocorrect] before 1.0. Or set
+# OPENROUTER_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY instead of a key here.
 api_key = ""
 base_url = "https://openrouter.ai/api/v1"
 model = "moonshotai/kimi-k2-0905"
 timeout_secs = 30.0
-protect_languages = []        # languages whose real words corrections must not rewrite
 
 [llm]
 enabled = false               # local Ollama cleanup pass

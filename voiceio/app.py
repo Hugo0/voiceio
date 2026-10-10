@@ -111,7 +111,7 @@ class VoiceIO:
             from voiceio.postcorrect import PostCorrector
             self._postcorrect = PostCorrector(cfg)
             if self._postcorrect.is_available():
-                log.info("PostCorrect: %s", cfg.postcorrect.model or cfg.autocorrect.model)
+                log.info("PostCorrect: %s", cfg.postcorrect.model or cfg.cloud.model)
             else:
                 log.warning("PostCorrect enabled but no API key resolved (disabled)")
 

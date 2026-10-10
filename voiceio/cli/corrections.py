@@ -71,7 +71,7 @@ def cmd_add(args: argparse.Namespace) -> None:
     cfg = load()
     # Manual adds are allowed, but warn when the rule would rewrite real words.
     for why in rule_warnings(args.wrong, args.right, language=cfg.model.language,
-                             protect_languages=cfg.autocorrect.protect_languages,
+                             protect_languages=cfg.model.protect_languages,
                              vocabulary=set(load_terms(cfg.model))):
         print(f"warning: {why}")
     CorrectionDict().add(args.wrong, args.right)

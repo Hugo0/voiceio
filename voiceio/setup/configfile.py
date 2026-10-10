@@ -68,9 +68,9 @@ def _write_config(
     number_conversion: bool = True,
     llm_enabled: bool = False,
     llm_model: str = "",
-    autocorrect_api_key: str = "",
-    autocorrect_base_url: str = "",
-    autocorrect_model: str = "",
+    cloud_api_key: str = "",
+    cloud_base_url: str = "",
+    cloud_model: str = "",
     tts_enabled: bool = True,
     tts_engine: str = "auto",
     tts_speed: float = 1.0,
@@ -84,7 +84,8 @@ def _write_config(
     enter a new one) are preserved verbatim.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    cfg = _load_raw_config()
+    from voiceio.config import _migrate_v1
+    cfg = _migrate_v1(_load_raw_config())   # e.g. [autocorrect] → [cloud]
 
     def section(name: str) -> dict:
         return cfg.setdefault(name, {})
@@ -112,13 +113,13 @@ def _write_config(
         "speed": tts_speed,
     })
 
-    # Autocorrect: only touch these keys when the wizard collected a NEW key
-    # this run. Otherwise a saved secret / hand-edited endpoint is preserved.
-    if autocorrect_api_key:
-        section("autocorrect").update({
-            "api_key": autocorrect_api_key,
-            "base_url": autocorrect_base_url or "https://openrouter.ai/api/v1",
-            "model": autocorrect_model or "moonshotai/kimi-k2-0905",
+    # Cloud endpoint: only touch these keys when the wizard collected a NEW
+    # key this run. Otherwise a saved secret / hand-edited endpoint is kept.
+    if cloud_api_key:
+        section("cloud").update({
+            "api_key": cloud_api_key,
+            "base_url": cloud_base_url or "https://openrouter.ai/api/v1",
+            "model": cloud_model or "moonshotai/kimi-k2-0905",
         })
 
     # May hold a cloud API key: written 0600 from the first byte.

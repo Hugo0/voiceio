@@ -2,7 +2,7 @@
 
 A final-pass-only rewrite that fixes misrecognized words (wrong proper nouns,
 homophones, garbled technical terms) without rephrasing. Uses the cloud
-OpenAI-compatible client in ``llm_api`` (the same one autocorrect uses) — never
+OpenAI-compatible client in ``llm_api`` (configured in [cloud]) — never
 local Ollama, which is too weak for this task.
 
 Every rewrite is tightly guarded: the LLM only ever *replaces* the original if
@@ -18,7 +18,7 @@ import logging
 import threading
 import time
 
-from voiceio.config import AutocorrectConfig, Config
+from voiceio.config import CloudConfig, Config
 
 log = logging.getLogger(__name__)
 
@@ -177,8 +177,8 @@ class PostCorrector:
         self._cfg = cfg
         self._pc = cfg.postcorrect
         self._remove_disfluencies = cfg.output.remove_disfluencies
-        # API key / base_url resolution is shared with [autocorrect].
-        self._ac = cfg.autocorrect
+        # API key / base_url come from [cloud].
+        self._cloud = cfg.cloud
         self._available: bool | None = None
         # Wall-clock seconds of the most recent LLM call (latency metrics).
         self.last_secs: float | None = None
@@ -202,7 +202,7 @@ class PostCorrector:
             return False
         if self._available is None:
             from voiceio.llm_api import resolve_api_key
-            self._available = bool(resolve_api_key(self._ac))
+            self._available = bool(resolve_api_key(self._cloud))
             if not self._available:
                 log.debug("PostCorrector disabled: no API key resolved")
         return self._available
@@ -220,11 +220,11 @@ class PostCorrector:
 
     # ── correction ──────────────────────────────────────────────────────
 
-    def _client_cfg(self) -> AutocorrectConfig:
-        """AutocorrectConfig carrying the postcorrect model + timeout."""
+    def _client_cfg(self) -> CloudConfig:
+        """[cloud] settings carrying the postcorrect model + timeout."""
         return dataclasses.replace(
-            self._ac,
-            model=self._pc.model or self._ac.model,
+            self._cloud,
+            model=self._pc.model or self._cloud.model,
             timeout_secs=self._pc.timeout_secs,
         )
 
@@ -260,7 +260,7 @@ class PostCorrector:
             "after": after,
             "outcome": outcome,
             "secs": round(self.last_secs, 3) if self.last_secs is not None else None,
-            "model": self._pc.model or self._ac.model,
+            "model": self._pc.model or self._cloud.model,
             "context": self._effective_ctx,
         })
 

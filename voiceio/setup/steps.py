@@ -58,9 +58,9 @@ class SetupState:
     voice_input_prefix: str = ""
     llm_enabled: bool = False
     llm_model: str = ""
-    autocorrect_api_key: str = ""
-    autocorrect_base_url: str = ""
-    autocorrect_model: str = ""
+    cloud_api_key: str = ""
+    cloud_base_url: str = ""
+    cloud_model: str = ""
     tts_enabled: bool = True
     tts_engine: str = "auto"
     tts_speed: float = 1.0
@@ -85,9 +85,9 @@ class SetupState:
             number_conversion=self.number_conversion,
             voice_input_prefix=self.voice_input_prefix,
             llm_enabled=self.llm_enabled, llm_model=self.llm_model,
-            autocorrect_api_key=self.autocorrect_api_key,
-            autocorrect_base_url=self.autocorrect_base_url,
-            autocorrect_model=self.autocorrect_model,
+            cloud_api_key=self.cloud_api_key,
+            cloud_base_url=self.cloud_base_url,
+            cloud_model=self.cloud_model,
             tts_enabled=self.tts_enabled, tts_engine=self.tts_engine,
             tts_speed=self.tts_speed,
         )
@@ -374,14 +374,14 @@ def _choose_tts_engine(state: SetupState) -> None:
     state.tts_speed = [1.0, 0.8, 1.3][sp_idx]
 
 
-# ── Step 6: LLM & autocorrect ────────────────────────────────────────────
+# ── Step 6: LLM & cloud ────────────────────────────────────────────
 
 def _step_llm(state: SetupState) -> None:
-    _print_step(6, _TOTAL_STEPS, "LLM & autocorrect")
+    _print_step(6, _TOTAL_STEPS, "LLM & cloud")
     print(f"  {DIM}Use a local LLM to fix grammar and spelling in your dictation.{RESET}")
     print(f"  {DIM}Runs only on the final pass — streaming preview is unaffected.{RESET}")
     _choose_local_llm(state)
-    _choose_cloud_autocorrect(state)
+    _choose_cloud(state)
 
 
 def _choose_local_llm(state: SetupState) -> None:
@@ -446,7 +446,7 @@ def _choose_local_llm(state: SetupState) -> None:
         state.llm_model = ""
 
 
-def _choose_cloud_autocorrect(state: SetupState) -> None:
+def _choose_cloud(state: SetupState) -> None:
     print(f"\n  {BOLD}Autocorrect{RESET}")
     print(f"  {DIM}The optional cloud pass (postcorrect) uses an LLM to fix misheard words at the end of each dictation.{RESET}\n")
     ac_options = [
@@ -459,7 +459,7 @@ def _choose_cloud_autocorrect(state: SetupState) -> None:
     if not api_input:
         return
 
-    from voiceio.config import AutocorrectConfig
+    from voiceio.config import CloudConfig
     from voiceio.llm_api import check_api_key, detect_provider
     det_url, det_model = detect_provider(api_input)
     provider_name = "OpenRouter"
@@ -468,14 +468,14 @@ def _choose_cloud_autocorrect(state: SetupState) -> None:
     elif "anthropic.com" in det_url:
         provider_name = "Anthropic"
     print(f"  {DIM}Detected: {provider_name}{RESET}")
-    cfg_check = AutocorrectConfig(
+    cfg_check = CloudConfig(
         api_key=api_input, base_url=det_url, model=det_model,
     )
     if check_api_key(cfg_check):
         print(f"  {GREEN}✓{RESET} API key validated ({provider_name})")
-        state.autocorrect_api_key = api_input
-        state.autocorrect_base_url = det_url
-        state.autocorrect_model = det_model
+        state.cloud_api_key = api_input
+        state.cloud_base_url = det_url
+        state.cloud_model = det_model
         _record_cloud_consent()
     else:
         print(f"  {YELLOW}⚠{RESET}  Validation failed. You can set it later in config.toml.")

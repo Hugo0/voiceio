@@ -218,7 +218,7 @@ def _check_features() -> FeatureGroups:
                 groups.accuracy["Vocabulary"] = "none"
 
         if cfg.postcorrect.enabled:
-            model = cfg.postcorrect.model or cfg.autocorrect.model
+            model = cfg.postcorrect.model or cfg.cloud.model
             groups.accuracy["Cloud postcorrect"] = f"on ({model}), adds up to {cfg.postcorrect.timeout_secs:g}s"
     except Exception:
         pass

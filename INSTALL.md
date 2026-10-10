@@ -74,7 +74,7 @@ dependency is still missing (otherwise it only prints the command).
 Accepted `--answers` keys: `model` (tiny|base|small|distil-large-v3|large-v3-turbo),
 `language`, `hotkey`, `backend` (auto|evdev|socket|pynput), `streaming`,
 `tts_enabled`, `tts_engine`, `tts_speed`, `llm_enabled`, `llm_model`,
-`autocorrect_api_key`, `autocorrect_base_url`, `autocorrect_model`,
+`cloud_api_key`, `cloud_base_url`, `cloud_model`,
 `sound_enabled`, `notify_clipboard`, `commands_enabled`, `punctuation_cleanup`,
 `number_conversion`, `voice_input_prefix`, `tray_enabled`, `install_service`,
 `download_model`, `install_system_deps`.
@@ -86,7 +86,7 @@ Success looks like a final line:
 ```
 
 Re-running setup is **safe**: it merges over the existing `config.toml` and
-never wipes hand-edited keys or a saved `autocorrect.api_key`.
+never wipes hand-edited keys or a saved `cloud.api_key`.
 
 ## 4. Install the autostart service
 

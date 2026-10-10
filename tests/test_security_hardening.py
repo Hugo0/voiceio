@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from voiceio import config, consent, history, llm_api, retention
-from voiceio.config import AutocorrectConfig, HistoryConfig
+from voiceio.config import CloudConfig, HistoryConfig
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions only")
 
@@ -200,7 +200,7 @@ def test_consent_record_and_read(tmp_path, monkeypatch):
 
 def test_cloud_call_blocked_without_consent(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONSENT_PATH", tmp_path / "consent.json")
-    cfg = AutocorrectConfig(api_key="", base_url="https://openrouter.ai/api/v1")
+    cfg = CloudConfig(api_key="", base_url="https://openrouter.ai/api/v1")
     with patch.object(llm_api, "_openai_request") as req:
         # key comes from env-like param, but cfg.api_key is empty → no consent
         out = llm_api.chat(cfg, "sys", "hi", api_key="env-key")
@@ -210,7 +210,7 @@ def test_cloud_call_blocked_without_consent(tmp_path, monkeypatch):
 
 def test_cloud_call_allowed_with_config_key(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONSENT_PATH", tmp_path / "consent.json")
-    cfg = AutocorrectConfig(api_key="sk-configured", base_url="https://openrouter.ai/api/v1")
+    cfg = CloudConfig(api_key="sk-configured", base_url="https://openrouter.ai/api/v1")
     with patch.object(llm_api, "_openai_request", return_value="corrected") as req:
         out = llm_api.chat(cfg, "sys", "hi")
     assert out == "corrected"
@@ -222,7 +222,7 @@ def test_cloud_call_allowed_with_config_key(tmp_path, monkeypatch):
 def test_cloud_call_allowed_after_explicit_consent(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONSENT_PATH", tmp_path / "consent.json")
     consent.record_consent(source="wizard")
-    cfg = AutocorrectConfig(api_key="", base_url="https://openrouter.ai/api/v1")
+    cfg = CloudConfig(api_key="", base_url="https://openrouter.ai/api/v1")
     with patch.object(llm_api, "_openai_request", return_value="ok") as req:
         out = llm_api.chat(cfg, "sys", "hi", api_key="env-key")
     assert out == "ok"
@@ -231,7 +231,7 @@ def test_cloud_call_allowed_after_explicit_consent(tmp_path, monkeypatch):
 
 def test_local_endpoint_not_gated(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONSENT_PATH", tmp_path / "consent.json")
-    cfg = AutocorrectConfig(api_key="", base_url="http://localhost:11434/v1")
+    cfg = CloudConfig(api_key="", base_url="http://localhost:11434/v1")
     with patch.object(llm_api, "_openai_request", return_value="local") as req:
         out = llm_api.chat(cfg, "sys", "hi", api_key="ollama")
     assert out == "local"

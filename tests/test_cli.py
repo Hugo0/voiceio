@@ -55,7 +55,7 @@ def test_corrections_add_list_remove(monkeypatch, capsys):
 
 def test_config_show_redacts_secrets_and_set_writes(monkeypatch, capsys):
     config.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    config.CONFIG_PATH.write_text('[autocorrect]\napi_key = "sk-secret"\n')
+    config.CONFIG_PATH.write_text('[cloud]\napi_key = "sk-secret"\n')
     out = run(monkeypatch, capsys, "config", "show")
     assert "sk-secret" not in out and "•••" in out
     run(monkeypatch, capsys, "config", "set", "output.streaming_freeze_secs", "8")
@@ -63,7 +63,7 @@ def test_config_show_redacts_secrets_and_set_writes(monkeypatch, capsys):
     assert run(monkeypatch, capsys, "config", "get", "output.streaming_freeze_secs").strip() == "8"
     assert run(monkeypatch, capsys, "config", "get", "output.streaming").strip() == "true"
     with pytest.raises(SystemExit, match="secret"):
-        run(monkeypatch, capsys, "config", "get", "autocorrect.api_key")
+        run(monkeypatch, capsys, "config", "get", "cloud.api_key")
 
 
 def test_service_unit_runs_the_run_subcommand():

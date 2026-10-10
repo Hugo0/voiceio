@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from voiceio import llm_api
-from voiceio.config import AutocorrectConfig
+from voiceio.config import CloudConfig
 from voiceio.llm_api import chat, check_api_key, detect_provider, resolve_api_key
 
 
@@ -39,10 +39,10 @@ def _request_kwargs(conn: MagicMock) -> tuple[str, dict, dict]:
     return args[1], kwargs["headers"], json.loads(kwargs["body"])
 
 
-def _cfg(**kwargs) -> AutocorrectConfig:
+def _cfg(**kwargs) -> CloudConfig:
     defaults = {"api_key": "test-key", "model": "test-model"}
     defaults.update(kwargs)
-    return AutocorrectConfig(**defaults)
+    return CloudConfig(**defaults)
 
 
 # ── resolve_api_key ──────────────────────────────────────────────────────
