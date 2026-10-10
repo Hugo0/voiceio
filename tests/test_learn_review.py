@@ -18,3 +18,18 @@ def test_live_span_shows_the_live_decode_only_where_it_differs():
     assert live_span("We use Kalshi daily.", live) == "we use kalchi daily"
     assert live_span("We use Kalshi daily.", "so we use Kalshi daily ok") is None
     assert live_span("totally different words here", "nothing alike at all") is None
+
+
+def test_gold_review_asks_only_where_the_models_disagree_cheapest_clip_first():
+    from voiceio.learn import review
+    from voiceio.learn.store import Clip, Label, Segment
+    segs = (Segment(0, 2, "we use Kalshi daily"), Segment(2, 4, "ship it today"))
+    two = Clip("two.wav", 0, 4, "we use kalchi daily ship it to day", "")
+    one = Clip("one.wav", 0, 4, "we use kalchi daily ship it today", "")
+    agree = Clip("agree.wav", 0, 4, "we use Kalshi daily ship it today", "")
+    labels = {c.audio: Label(c.audio, segs, "teacher:x", 0) for c in (two, one, agree)}
+    items = review.queue_all([two, one, agree], labels)
+    assert [(i.clip.audio, i.index) for i in items] == [
+        ("one.wav", 0),                       # one answer completes a gold clip
+        ("two.wav", 0), ("two.wav", 1),
+    ]                                         # agree.wav: nothing to ask

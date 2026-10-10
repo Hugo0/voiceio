@@ -84,12 +84,29 @@ def live_span(segment_text: str, live: str) -> str | None:
 
 
 def queue_all(clips: list[Clip], labels: dict[str, Label]) -> list[Item]:
-    """Every segment of every unreviewed clip — for building a gold test set,
-    where a reference is only trustworthy if all of it was checked."""
-    return [Item(clip, labels[clip.audio], i, "test set")
-            for clip in clips
-            if clip.audio in labels and not labels[clip.audio].reviewed
-            for i in range(len(labels[clip.audio].segments))]
+    """Segments to check for a gold test set, cheapest clips first.
+
+    A reference is only trustworthy if all of it was checked — but where the
+    teacher and the live decode agree word for word, two independent models
+    already did; those segments are kept as they are, and only the rest are
+    asked. Clips needing the fewest answers come first, so each minute of
+    review completes as many gold clips as possible. A clip with no live
+    decode (an import) has every segment asked; one where everything agrees
+    asks nothing and stays a teacher label.
+    """
+    per_clip: list[list[Item]] = []
+    for clip in clips:
+        lab = labels.get(clip.audio)
+        if lab is None or lab.reviewed:
+            continue
+        live = metrics.words(clip.raw)
+        items = [Item(clip, lab, i, "test set: teacher and live disagree" if live else "test set")
+                 for i, seg in enumerate(lab.segments)
+                 if not live or not _contains(metrics.words(seg.text), live)]
+        if items:
+            per_clip.append(items)
+    per_clip.sort(key=len)
+    return [it for items in per_clip for it in items]
 
 
 def run(items: list[Item], *, ask: Callable[[Item], str | None],

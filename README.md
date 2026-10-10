@@ -129,7 +129,8 @@ Most dictation errors are proper nouns and jargon: `PostgreSQL` heard as `post g
 voiceio learn import DIR --source phone   # optional: add your own recordings from elsewhere
 voiceio learn label      # a stronger teacher model (large-v3-turbo) transcribes your clips
 voiceio learn review     # fix the teacher where it matters: your names and terms
-voiceio learn review --test   # once: verify the held-out clips, so eval scores against the truth
+voiceio learn review --test   # verify the held-out clips, so eval scores against the truth: it asks only
+                              #   where the teacher and your live decode disagree, quickest clips first
 voiceio learn augment    # synthesize extra examples of rare terms with local TTS
 voiceio learn build      # freeze a versioned train/dev/test dataset (the test split never trains)
 voiceio learn eval       # score the current model on your held-out clips: WER and term recall
@@ -249,7 +250,6 @@ Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
 ## Roadmap
 
 - **A landing page** — voiceio as local, open-source, private dictation that learns from you. A draft is in [`site/index.html`](site/index.html), ready for GitHub Pages.
-- **A gold test set in minutes** — `learn review --test` asks you to check the held-out clips one by one; ranking them by where the models disagree would make a useful gold set take minutes, not an hour.
 - **Unbounded vocabulary** — move to a decoder whose biasing has no token cap (see [model choice](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it)).
 - **One model everywhere** — sync your fine-tune to your phone server and laptops, peer to peer.
 
