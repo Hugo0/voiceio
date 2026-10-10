@@ -44,8 +44,9 @@ def _normalize_spacing(text: str) -> str:
     """Fix spacing around punctuation after command replacement."""
     # Remove space before closing/sentence punctuation (but not newlines)
     text = re.sub(r" +([.,;:?!)])", r"\1", text)
-    # Ensure space after punctuation before a word char (not at end, not newlines)
-    text = re.sub(r"([.,;:?!])([A-Za-z\u00C0-\u024F])", r"\1 \2", text)
+    # Ensure space after punctuation before a word char — but never after "."
+    # or ":" inside a token: "Call.com", "Print.Observer", "host:port".
+    text = re.sub(r"([,;?!])([A-Za-z\u00C0-\u024F])", r"\1 \2", text)
     # Remove space after opening ( but not quotes (hard to distinguish open/close)
     text = re.sub(r"([(])\s+", r"\1", text)
     # Quotes: remove internal padding (space after open-quote, before close-quote)
@@ -111,6 +112,7 @@ class CommandProcessor:
 
         words = text.split()
         result: list[str] = []
+        replaced = False
         i = 0
 
         while i < len(words):
@@ -129,10 +131,12 @@ class CommandProcessor:
                             _normalize_spacing(" ".join(result)), flagged_word=flagged)
                     result.append(replacement)
                     i += length
-                    matched = True
+                    matched = replaced = True
                     break
             if not matched:
                 result.append(words[i])
                 i += 1
 
+        if not replaced:
+            return ParsedCommands(text)  # no command spoken: leave the text alone
         return ParsedCommands(_normalize_spacing(" ".join(result)))

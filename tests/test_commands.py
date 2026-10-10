@@ -138,3 +138,17 @@ class TestCorrectThat:
         cp = CommandProcessor(editing=True)
         assert cp.parse("hello correct that").flagged_word == "hello"
         assert cp.parse("hello world").flagged_word is None
+
+
+class TestLeavesDictationAlone:
+    """Measured on real dictation: spacing normalisation ran on every text and
+    split domains and identifiers ("Call.com" → "Call. com")."""
+
+    def test_no_command_means_no_change(self):
+        for text in ["visit Call.com today", "the Print.Observer class",
+                     "see localhost:8080 now", "frames.ag,  double  space"]:
+            assert CommandProcessor().process(text) == text
+
+    def test_inner_dot_survives_a_command(self):
+        assert CommandProcessor().process("go to example.com period then stop") \
+            == "go to example.com. then stop"
