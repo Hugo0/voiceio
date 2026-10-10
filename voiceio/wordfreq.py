@@ -69,10 +69,14 @@ def extract_words(text: str) -> list[str]:
     return re.findall(r"[a-zA-Z\u00C0-\u024F']+", text.lower())
 
 
-def levenshtein(a: str, b: str) -> int:
-    """Edit distance between two strings."""
+def levenshtein(a: str, b: str, limit: int | None = None) -> int:
+    """Edit distance between two strings. With `limit`, gives up as soon as
+    the distance must exceed it and returns limit + 1 — most pairs are far
+    apart, so a nearest-word search is many times faster."""
     if len(a) < len(b):
         a, b = b, a
+    if limit is not None and len(a) - len(b) > limit:
+        return limit + 1
     if not b:
         return len(a)
     prev = list(range(len(b) + 1))
@@ -80,5 +84,7 @@ def levenshtein(a: str, b: str) -> int:
         curr = [i + 1]
         for j, cb in enumerate(b):
             curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + (ca != cb)))
+        if limit is not None and min(curr) > limit:
+            return limit + 1
         prev = curr
     return prev[-1]

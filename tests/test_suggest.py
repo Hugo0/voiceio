@@ -154,10 +154,6 @@ def test_find_suspicious_similar_common():
             break
 
 
-# ── cluster_variants tests ────────────────────────────────────────────────
-
-
-
 def test_find_similar_common_basic():
     common = {"configuration": 500, "cat": 100, "the": 1}
     result = _find_similar_common("configuraton", common, max_distance=2)
@@ -170,4 +166,8 @@ def test_find_similar_common_no_match():
     assert result == []
 
 
-# ── _parse_review_response tests ──────────────────────────────────────────
+
+def test_levenshtein_limit_gives_up_early_but_agrees_within_it():
+    for a, b in [("kitten", "sitting"), ("kalshi", "kalchi"), ("abc", "abc"), ("ab", "wxyz")]:
+        full = _levenshtein(a, b)
+        assert _levenshtein(a, b, 2) == (full if full <= 2 else 3)
