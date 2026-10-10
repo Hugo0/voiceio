@@ -304,6 +304,15 @@ def cmd_eval(args: argparse.Namespace) -> None:
     print(f"saved {evaluate.save(result)}")
 
 
+def _live_hotwords() -> str:
+    """The hotword string dictation prepends to every decode right now."""
+    from voiceio.core.bias import BiasProvider
+    from voiceio.transcriber import Transcriber
+    from voiceio.vocabulary import VocabularyLoader
+    model = _cfg().model
+    return BiasProvider(VocabularyLoader(model)).bias_for(Transcriber.capabilities).hotwords or ""
+
+
 def cmd_train(args: argparse.Namespace) -> None:
     _yield_cpu()
     from voiceio.learn import augment, train
@@ -313,15 +322,17 @@ def cmd_train(args: argparse.Namespace) -> None:
     real = len(store.read_split(ds, "train"))
     synth = augment.rows(max_share=args.synthetic_share, real_rows=real)
     folder = store.learn_dir() / "exports" / ds.name
-    counts = train.export(ds, folder, extra_train_rows=synth)
+    counts = train.export(ds, folder, extra_train_rows=synth, hotwords=_live_hotwords())
     print(f"exported {counts} windows ({len(synth)} synthetic) to {folder}")
     run = _models_dir() / f"{ds.name}-{args.base}-{time.strftime('%Y%m%d-%H%M')}"
     if args.remote:
         print("\n" + train.remote_recipe(folder, run, args.base))
         return
     train.require_train_deps()
+    hotwords = (folder / train.HOTWORDS_FILE).read_text(encoding="utf-8")
     hf = train.train(folder, run, train.TrainConfig(
-        base=args.base, epochs=args.epochs, decoder_only=False if args.full else None))
+        base=args.base, epochs=args.epochs, decoder_only=False if args.full else None,
+        hotwords=hotwords))
     train.convert(hf, run / "ct2")
     print(f"\ntrained {run.name}\nnext: voiceio learn eval --model {run / 'ct2'}"
           f"  (compare with the current model, then `voiceio learn promote {run.name}`)")

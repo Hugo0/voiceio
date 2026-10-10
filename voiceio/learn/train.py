@@ -59,6 +59,11 @@ class TrainConfig:
     # Share of windows trained in Whisper's timestamp mode (as Distil-Whisper
     # does): dictation decodes with timestamps, so both modes must adapt.
     timestamp_share: float = 0.5
+    # Share of windows trained behind the user's hotword prompt, exactly as
+    # faster-whisper prepends it to every live decode — so fine-tuning keeps
+    # (and learns with) the biasing channel instead of eroding it.
+    hotwords: str = ""
+    prompt_share: float = 0.5
 
 
 def require_train_deps() -> None:
@@ -75,10 +80,13 @@ def require_train_deps() -> None:
 
 # ── export ───────────────────────────────────────────────────────────────
 
-def export(dataset: Path, out: Path, *, extra_train_rows: list[dict] = ()) -> dict:
+def export(dataset: Path, out: Path, *, extra_train_rows: list[dict] = (),
+           hotwords: str = "") -> dict:
     """Cut each train/dev window to its own 16 kHz WAV under `out`, with
-    `{split}.jsonl` rows {"audio": relpath, "text"}. Returns counts."""
+    `{split}.jsonl` rows {"audio": relpath, "text"[, "parts"]} and the live
+    hotword prompt in hotwords.txt. Returns counts."""
     out.mkdir(parents=True, exist_ok=True)
+    (out / HOTWORDS_FILE).write_text(hotwords, encoding="utf-8")
     counts = {}
     cache: dict[str, np.ndarray] = {}
     for split in ("train", "dev"):
@@ -110,6 +118,7 @@ def export(dataset: Path, out: Path, *, extra_train_rows: list[dict] = ()) -> di
 
 # ── targets ──────────────────────────────────────────────────────────────
 
+HOTWORDS_FILE = "hotwords.txt"
 _TS_STEP = 0.02     # Whisper timestamp resolution
 _TS_MAX = 1500      # <|30.00|>
 
@@ -138,6 +147,28 @@ def target_ids(tokenizer, row: dict, *, timestamps: bool) -> list[int]:
         out += [ts(start), *tokenizer(" " + part.strip(), add_special_tokens=False).input_ids,
                 ts(end)]
     return out + [tokenizer.eos_token_id]
+
+
+def prompt_ids(tokenizer, hotwords: str, max_length: int = 448) -> list[int]:
+    """faster-whisper's hotword prefix: <|startofprev|> + " hotwords" (capped)."""
+    tokens = tokenizer(" " + hotwords.strip(), add_special_tokens=False).input_ids
+    if len(tokens) >= max_length // 2:
+        tokens = tokens[:max_length // 2 - 1]
+    return [tokenizer.convert_tokens_to_ids("<|startofprev|>"), *tokens]
+
+
+def decoder_batch(seqs: list[tuple[list[int], int]], pad: int):
+    """(sequence, n_prompt) pairs → (decoder_input_ids, labels) lists, right-
+    padded. A sequence is [prompt…] SOT … EOT; the model reads all but the
+    last token and is scored on predicting each next one — except the prompt
+    and the SOT that follows it, which are context, not output."""
+    inputs, labels = [], []
+    for seq, n_prompt in seqs:
+        inputs.append(seq[:-1])
+        labels.append([-100] * n_prompt + seq[n_prompt + 1:])
+    width = max(len(x) for x in inputs)
+    return ([x + [pad] * (width - len(x)) for x in inputs],
+            [y + [-100] * (width - len(y)) for y in labels])
 
 
 # ── train ────────────────────────────────────────────────────────────────
@@ -172,17 +203,18 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
             return []
         return [json.loads(line) for line in path.read_text().splitlines() if line]
 
-    ts_rng = np.random.default_rng(cfg.seed + 1)
+    mix_rng = np.random.default_rng(cfg.seed + 1)
+    prompt = prompt_ids(processor.tokenizer, cfg.hotwords) if cfg.hotwords.strip() else []
 
-    def labels_for(chunk: list[dict]):
-        start = model.config.decoder_start_token_id
+    def targets_for(chunk: list[dict]):
         seqs = []
         for r in chunk:
             ids = target_ids(processor.tokenizer, r,
-                             timestamps=ts_rng.random() < cfg.timestamp_share)
-            seqs.append(ids[1:] if ids and ids[0] == start else ids)  # model prepends SOT
-        width = max(len(q) for q in seqs)
-        return torch.tensor([q + [-100] * (width - len(q)) for q in seqs], device=device)
+                             timestamps=mix_rng.random() < cfg.timestamp_share)
+            p = prompt if prompt and mix_rng.random() < cfg.prompt_share else []
+            seqs.append((p + ids, len(p)))
+        dec_in, labels = decoder_batch(seqs, processor.tokenizer.eos_token_id)
+        return (torch.tensor(dec_in, device=device), torch.tensor(labels, device=device))
 
     def features(chunk: list[dict]):
         audio = [load_wav(folder / r["audio"]) for r in chunk]
@@ -201,11 +233,13 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
         return torch.stack([cache[r["audio"]] for r in chunk]).float()
 
     def forward(chunk: list[dict]):
+        dec_in, labels = targets_for(chunk)
         if decoder_only:
             from transformers.modeling_outputs import BaseModelOutput
             return model(encoder_outputs=BaseModelOutput(last_hidden_state=encoded(chunk)),
-                         labels=labels_for(chunk)).loss
-        return model(input_features=features(chunk), labels=labels_for(chunk)).loss
+                         decoder_input_ids=dec_in, labels=labels).loss
+        return model(input_features=features(chunk), decoder_input_ids=dec_in,
+                     labels=labels).loss
 
     train_rows, dev_rows = load_rows("train"), load_rows("dev")
     steps = -(-len(train_rows) // cfg.batch_size)
@@ -252,6 +286,7 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
     (out / "train.json").write_text(json.dumps(
         {"base": base_id, "epochs": cfg.epochs, "lr": cfg.lr, "lora_r": cfg.lora_r,
          "decoder_only": decoder_only, "timestamp_share": cfg.timestamp_share,
+         "prompt_share": cfg.prompt_share if prompt else 0.0,
          "best_dev_loss": best}, indent=2) + "\n")
     return hf_dir
 
@@ -287,8 +322,11 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--full", action="store_true", help="also adapt the encoder (GPU)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
+    hotwords_file = args.folder / HOTWORDS_FILE
+    hotwords = hotwords_file.read_text(encoding="utf-8") if hotwords_file.exists() else ""
     hf = train(args.folder, args.out, TrainConfig(base=args.base, epochs=args.epochs,
-                                                  decoder_only=False if args.full else None))
+                                                  decoder_only=False if args.full else None,
+                                                  hotwords=hotwords))
     convert(hf, args.out / "ct2")
     shutil.rmtree(args.out / "hf", ignore_errors=True)
     print(f"done: {args.out / 'ct2'}")
