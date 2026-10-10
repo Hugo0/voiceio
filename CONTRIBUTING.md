@@ -44,7 +44,7 @@ voiceio/
 ├── vocab_stats.py   # Per-term usage stats that drive the ranking
 ├── tokens.py        # Exact Whisper token counting
 ├── prompt.py        # initial_prompt from recent transcript context
-├── postprocess.py   # Rule-based cleanup; apply_pipeline() wraps core.pipeline
+├── postprocess.py   # Rule-based cleanup and filler removal (stages live in core/pipeline.py)
 ├── numbers.py       # Spoken number → digit conversion ("twenty five" → "25")
 ├── commands.py      # Voice commands: "new line", "scratch that", "correct that"
 ├── corrections.py   # Corrections dictionary (auto-replace misheard words)

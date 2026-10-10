@@ -6,7 +6,7 @@ bound and is never pruned. Selection is therefore permanent, and something has
 to decide which terms get the slots.
 
 Until now nothing could: a term's only per-term state was its line position, so
-`load_vocabulary` kept whichever terms happened to be oldest. This module gives
+A flat vocabulary list kept whichever terms happened to be oldest. This module gives
 each term a usage record — how often it actually shows up in what you dictate,
 and when it was last seen — so the budget goes to terms you use.
 

@@ -5,7 +5,7 @@ import os
 import time
 
 from voiceio.config import ModelConfig
-from voiceio.vocabulary import VocabularyLoader, add_terms, load_vocabulary
+from voiceio.vocabulary import VocabularyLoader, add_terms, load_terms
 
 
 class TestLoadVocabulary:
@@ -13,37 +13,37 @@ class TestLoadVocabulary:
         vocab_file = tmp_path / "vocabulary.txt"
         vocab_file.write_text("VoiceIO\nGNOME\nWayland\n")
         cfg = ModelConfig(vocabulary_file=str(vocab_file))
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert result == "VoiceIO, GNOME, Wayland"
 
     def test_comments_and_blanks(self, tmp_path):
         vocab_file = tmp_path / "vocabulary.txt"
         vocab_file.write_text("# My vocabulary\nVoiceIO\n\n# Another comment\nGNOME\n\n")
         cfg = ModelConfig(vocabulary_file=str(vocab_file))
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert result == "VoiceIO, GNOME"
 
     def test_missing_file_returns_empty(self):
         cfg = ModelConfig(vocabulary_file="/nonexistent/path/vocab.txt")
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert result == ""
 
     def test_empty_file_returns_empty(self, tmp_path):
         vocab_file = tmp_path / "vocabulary.txt"
         vocab_file.write_text("")
         cfg = ModelConfig(vocabulary_file=str(vocab_file))
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert result == ""
 
     def test_comments_only_returns_empty(self, tmp_path):
         vocab_file = tmp_path / "vocabulary.txt"
         vocab_file.write_text("# Just comments\n# Nothing else\n")
         cfg = ModelConfig(vocabulary_file=str(vocab_file))
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert result == ""
 
     def test_load_is_untruncated(self, tmp_path):
-        """load_vocabulary returns EVERY term — truncating here was the bug.
+        """load_terms returns EVERY term — truncating here was the bug.
 
         Budgeting moved to select_terms (token-aware, ranked). The callers that
         need the whole list — postcorrect's LLM, and the mining gate's "is this
@@ -54,7 +54,7 @@ class TestLoadVocabulary:
         terms = [f"LongTechnicalTerm{i:04d}" for i in range(100)]
         vocab_file.write_text("\n".join(terms))
         cfg = ModelConfig(vocabulary_file=str(vocab_file))
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert len(result) > 800
         assert result.count(",") == 99
 
@@ -64,20 +64,20 @@ class TestLoadVocabulary:
         vocab_file = tmp_path / "vocabulary.txt"
         vocab_file.write_text("TestTerm\n")
         cfg = ModelConfig(vocabulary_file="")
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert result == "TestTerm"
 
     def test_no_default_file_returns_empty(self, tmp_path, monkeypatch):
         monkeypatch.setattr("voiceio.config.CONFIG_DIR", tmp_path)
         cfg = ModelConfig(vocabulary_file="")
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert result == ""
 
     def test_whitespace_stripped(self, tmp_path):
         vocab_file = tmp_path / "vocabulary.txt"
         vocab_file.write_text("  VoiceIO  \n  GNOME  \n")
         cfg = ModelConfig(vocabulary_file=str(vocab_file))
-        result = load_vocabulary(cfg)
+        result = ", ".join(load_terms(cfg))
         assert result == "VoiceIO, GNOME"
 
 
@@ -159,7 +159,7 @@ class TestVocabularyLoader:
             calls["n"] += 1
             return orig(model_cfg)
 
-        # load_terms is the real read now; patching load_vocabulary would pass
+        # load_terms is the real read now; patching a joined-string helper would pass
         # vacuously since the loader no longer calls it.
         monkeypatch.setattr(vocab_mod, "load_terms", _counting)
         loader.get()

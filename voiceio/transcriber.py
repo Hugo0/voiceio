@@ -45,8 +45,6 @@ def describe_transcript(text: str) -> str:
     return f"{len(text.split())} words" if text else "(silence)"
 
 
-# Historical name, kept for callers and tests.
-TranscriptionError = DecodeError
 
 # Realtime-factor headroom for the read timeout: on an idle CPU whisper decodes
 # ~5x faster than realtime, but under load it was measured at 0.3x — 3s per
@@ -161,7 +159,7 @@ class Transcriber:
         if ready is None or ready.strip() != "READY":
             self._kill_worker()
             detail = "timed out" if ready is None else f"said {ready.strip()!r}"
-            raise TranscriptionError(
+            raise DecodeError(
                 f"worker failed to start ({detail} after {time.monotonic() - t0:.0f}s)"
             )
         elapsed = time.monotonic() - t0
@@ -210,11 +208,6 @@ class Transcriber:
 
     def close(self) -> None:
         self.shutdown()
-
-    def transcribe(self, audio: np.ndarray, final: bool = False,
-                   bias: Bias = Bias()) -> str:
-        """Convenience: `decode()` returning only the text."""
-        return self.decode(audio, final=final, bias=bias).text
 
     def decode(self, audio: np.ndarray, *, final: bool = False,
                bias: Bias = Bias()) -> DecodeResult:
@@ -273,13 +266,13 @@ class Transcriber:
                 # starve the pass that matters (the final one) behind it. The
                 # next transcribe — or the health watchdog — restarts lazily.
                 self._kill_worker()
-                raise TranscriptionError(f"decode timed out after {timeout:.0f}s")
+                raise DecodeError(f"decode timed out after {timeout:.0f}s")
 
             try:
                 result = json.loads(result_line)
             except (json.JSONDecodeError, TypeError):
                 log.warning("Invalid response from worker: %s", repr(result_line)[:100])
-                raise TranscriptionError("invalid worker response")
+                raise DecodeError("invalid worker response")
             text = result.get("text", "")
 
             elapsed = time.monotonic() - t0
@@ -290,7 +283,6 @@ class Transcriber:
                 "Transcribed %.1fs audio in %.1fs (%.1fx realtime): %s",
                 duration, elapsed, ratio, describe_transcript(text),
             )
-            log.debug("Transcript: %s", describe_transcript(text))
             # Reset restart counter on success
             self._restarts = 0
             return DecodeResult(text, tuple(result.get("segments", ())), elapsed)

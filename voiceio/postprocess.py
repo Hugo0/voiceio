@@ -2,13 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from voiceio.commands import CommandProcessor
-    from voiceio.corrections import CorrectionDict
-    from voiceio.llm import LLMProcessor
-    from voiceio.postcorrect import PostCorrector
 
 # Languages that don't use letter casing
 _NO_CASE_LANGUAGES = frozenset({"zh", "ja", "ko", "ar", "he", "th", "hi", "bn", "ka", "my"})
@@ -114,46 +107,3 @@ def cleanup(text: str, language: str = "en") -> str:
         )
 
     return text
-
-
-def apply_pipeline(
-    text: str,
-    *,
-    do_cleanup: bool = False,
-    remove_disfluencies: bool = False,
-    number_conversion: bool = False,
-    language: str = "en",
-    commands: CommandProcessor | None = None,
-    corrections: CorrectionDict | None = None,
-    postcorrect: PostCorrector | None = None,
-    llm: LLMProcessor | None = None,
-    voice_input_prefix: str = "",
-    final: bool = False,
-) -> tuple[str, bool]:
-    """One-shot form of `voiceio.core.pipeline.Pipeline` (keyword switches).
-
-    Returns (processed_text, abort). If abort is True, the caller should
-    discard the result (e.g. undo/flag command was triggered).
-    """
-    from voiceio.core import pipeline as p
-
-    stages: list = []
-    if remove_disfluencies:
-        stages.append(p.Disfluency())
-    if do_cleanup:
-        stages.append(p.Cleanup())
-    if number_conversion:
-        stages.append(p.Numbers())
-    if commands is not None:
-        stages.append(p.Commands(commands))
-    if corrections is not None:
-        stages.append(p.Corrections(corrections))
-    if postcorrect is not None:
-        stages.append(p.PostCorrect(postcorrect))
-    if llm is not None:
-        stages.append(p.LLMCleanup(llm))
-    if voice_input_prefix:
-        stages.append(p.Prefix(voice_input_prefix))
-    on_flag = corrections.flag_word if corrections is not None else None
-    result = p.Pipeline(stages, language=language, on_flag=on_flag)(text, final=final)
-    return result.text, result.abort

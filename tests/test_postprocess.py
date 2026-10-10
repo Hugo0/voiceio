@@ -1,8 +1,21 @@
 """Tests for text post-processing (punctuation, capitalization)."""
 from __future__ import annotations
 
-from voiceio.postprocess import apply_pipeline, cleanup, strip_disfluencies
+from voiceio.config import Config
+from voiceio.core.pipeline import Pipeline
+from voiceio.postprocess import cleanup, strip_disfluencies
 from voiceio.streaming import _word_match_len
+
+
+def _run(text: str, *, final: bool = False, **output) -> tuple[str, bool]:
+    """The daemon's pipeline with every optional stage off unless named."""
+    cfg = Config()
+    out = {"punctuation_cleanup": False, "number_conversion": False,
+           "remove_disfluencies": False, "voice_input_prefix": ""} | output
+    for key, value in out.items():
+        setattr(cfg.output, key, value)
+    result = Pipeline.from_config(cfg)(text, final=final)
+    return result.text, result.abort
 
 
 class TestStripDisfluencies:
@@ -72,13 +85,13 @@ class TestStripDisfluencies:
 
 class TestPipelineDisfluencies:
     def test_flag_off_keeps_fillers(self):
-        text, _ = apply_pipeline("um hello there friend", do_cleanup=True, final=True)
+        text, _ = _run("um hello there friend", punctuation_cleanup=True, final=True)
         assert "um" in text.lower().split()
 
     def test_flag_on_strips_fillers(self):
-        text, _ = apply_pipeline(
+        text, _ = _run(
             "um hello there friend",
-            do_cleanup=True, remove_disfluencies=True, final=True,
+            punctuation_cleanup=True, remove_disfluencies=True, final=True,
         )
         assert "um" not in text.lower().split()
         assert "hello there friend" in text.lower()
@@ -197,12 +210,12 @@ class TestVoiceInputPrefix:
     """The prefix marker is prepended only when configured + text is non-empty."""
 
     def test_disabled_by_default(self):
-        text, abort = apply_pipeline("hello world", final=True)
+        text, abort = _run("hello world", final=True)
         assert text == "hello world"
         assert abort is False
 
     def test_applied_when_set_final(self):
-        text, abort = apply_pipeline(
+        text, abort = _run(
             "hello world", voice_input_prefix="[voice]", final=True,
         )
         assert text == "[voice] hello world"
@@ -211,29 +224,29 @@ class TestVoiceInputPrefix:
     def test_applied_during_streaming(self):
         # Streaming passes (final=False) must also carry the prefix so the
         # marker appears from the first chunk, not only at the very end.
-        text, _ = apply_pipeline(
+        text, _ = _run(
             "partial", voice_input_prefix="[voice]", final=False,
         )
         assert text == "[voice] partial"
 
     def test_not_applied_to_empty_text(self):
-        text, abort = apply_pipeline(
+        text, abort = _run(
             "", voice_input_prefix="[voice]", final=True,
         )
         assert text == ""
         assert abort is False
 
     def test_custom_prefix(self):
-        text, _ = apply_pipeline(
+        text, _ = _run(
             "ok", voice_input_prefix="[v]", final=True,
         )
         assert text == "[v] ok"
 
     def test_with_cleanup_chain(self):
         # Cleanup capitalizes, then prefix is prepended verbatim.
-        text, _ = apply_pipeline(
+        text, _ = _run(
             "hello world",
-            do_cleanup=True,
+            punctuation_cleanup=True,
             voice_input_prefix="[voice]",
             final=True,
         )

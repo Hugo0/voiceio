@@ -209,21 +209,20 @@ def test_uses_postcorrect_model_override():
 
 
 def test_pipeline_runs_postcorrect_only_on_final():
-    from voiceio.postprocess import apply_pipeline
+    from voiceio.core.pipeline import Pipeline, PostCorrect
 
     pc = PostCorrector(_cfg())
+    pipeline = Pipeline([PostCorrect(pc)])
     with patch("voiceio.llm_api.chat", return_value="Crisp chat is the best tool"):
         # Non-final pass: postcorrect must NOT run.
-        text, abort = apply_pipeline(
-            "Chris chat is the best tool", postcorrect=pc, final=False,
-        )
+        r = pipeline("Chris chat is the best tool", final=False)
+        text, abort = r.text, r.abort
         assert text == "Chris chat is the best tool"
         assert not abort
 
         # Final pass: postcorrect runs.
-        text, abort = apply_pipeline(
-            "Chris chat is the best tool", postcorrect=pc, final=True,
-        )
+        r = pipeline("Chris chat is the best tool", final=True)
+        text, abort = r.text, r.abort
         assert text == "Crisp chat is the best tool"
         assert not abort
 

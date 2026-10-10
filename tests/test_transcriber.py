@@ -133,7 +133,7 @@ class TestRestartBudgetReset:
 
 
 class TestTimeoutRaises:
-    """Timeout/invalid response raise TranscriptionError (never fake silence)."""
+    """Timeout/invalid response raise DecodeError (never fake silence)."""
 
     def _make(self):
         from voiceio.transcriber import Transcriber
@@ -147,21 +147,21 @@ class TestTimeoutRaises:
     def test_timeout_raises(self):
         import numpy as np
         import pytest
-        from voiceio.transcriber import TranscriptionError
+        from voiceio.transcriber import DecodeError
         t, mock_proc = self._make()
         with patch.object(t, "_read_with_timeout", return_value=None), \
              patch.object(t, "_kill_worker"), patch.object(t, "_ensure_worker"):
-            with pytest.raises(TranscriptionError):
-                t.transcribe(np.zeros(16000, dtype=np.float32))
+            with pytest.raises(DecodeError):
+                t.decode(np.zeros(16000, dtype=np.float32))
 
     def test_invalid_response_raises(self):
         import numpy as np
         import pytest
-        from voiceio.transcriber import TranscriptionError
+        from voiceio.transcriber import DecodeError
         t, mock_proc = self._make()
         with patch.object(t, "_read_with_timeout", return_value="not json{"):
-            with pytest.raises(TranscriptionError):
-                t.transcribe(np.zeros(16000, dtype=np.float32))
+            with pytest.raises(DecodeError):
+                t.decode(np.zeros(16000, dtype=np.float32))
 
 
 class TestWorkerStartTimeout:
@@ -175,7 +175,7 @@ class TestWorkerStartTimeout:
 
     def test_start_raises_instead_of_hanging(self):
         import threading
-        from voiceio.transcriber import Transcriber, TranscriptionError
+        from voiceio.transcriber import Transcriber, DecodeError
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
@@ -183,21 +183,21 @@ class TestWorkerStartTimeout:
 
         with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc), \
              patch("voiceio.transcriber.WORKER_START_TIMEOUT", 0.1):
-            with pytest.raises(TranscriptionError, match="failed to start"):
+            with pytest.raises(DecodeError, match="failed to start"):
                 Transcriber(ModelConfig())
 
         # The hung process is reaped, not leaked.
         assert mock_proc.terminate.called or mock_proc.kill.called
 
     def test_start_raises_on_garbage_handshake(self):
-        from voiceio.transcriber import Transcriber, TranscriptionError
+        from voiceio.transcriber import Transcriber, DecodeError
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.stdout.readline.return_value = "Traceback: boom\n"
 
         with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
-            with pytest.raises(TranscriptionError, match="failed to start"):
+            with pytest.raises(DecodeError, match="failed to start"):
                 Transcriber(ModelConfig())
 
 
@@ -207,7 +207,7 @@ class TestDecodeTimeoutIsLazy:
 
     def test_decode_timeout_does_not_reload_inline(self):
         import numpy as np
-        from voiceio.transcriber import Transcriber, TranscriptionError
+        from voiceio.transcriber import Transcriber, DecodeError
 
         mock_proc = MagicMock()
         mock_proc.stdout.readline.return_value = "READY\n"
@@ -218,8 +218,8 @@ class TestDecodeTimeoutIsLazy:
         with patch.object(t, "_read_with_timeout", return_value=None), \
              patch.object(t, "_kill_worker") as kill, \
              patch.object(t, "_ensure_worker") as ensure:
-            with pytest.raises(TranscriptionError):
-                t.transcribe(np.zeros(16000, dtype=np.float32))
+            with pytest.raises(DecodeError):
+                t.decode(np.zeros(16000, dtype=np.float32))
 
         assert kill.called
         # Only the entry call — never a second, restarting one.

@@ -128,7 +128,6 @@ class VoiceEngine:
         # text themselves).
         self.engine = Engine.from_config(
             self.vio_cfg, lanes=self.cfg.lanes, prefix=False)
-        self.transcriber = self.engine.decoder
         self.load_secs = time.monotonic() - t0
 
         self._tts = None
@@ -169,9 +168,6 @@ class VoiceEngine:
     def record_usage(self, text: str) -> None:
         """Feed usage stats + prompt history so biasing follows real use."""
         self.engine.record_usage(text)
-
-    def postprocess(self, text: str, final: bool = True) -> str:
-        return self.engine.pipeline(text, final=final).text if text else text
 
     # ── transcription ────────────────────────────────────────────────────
     def transcribe(self, data: bytes) -> dict:
@@ -268,7 +264,7 @@ class VoiceEngine:
         tts_name = None
         if self._tts_probed and self._tts is not None:
             tts_name = self._tts.name
-        alive = self.transcriber.healthy()
+        alive = self.engine.decoder.healthy()
         return {
             "ok": alive,
             "model": self.model_cfg.name,

@@ -146,14 +146,6 @@ def select_terms(
     return selected
 
 
-def load_vocabulary(model_cfg: ModelConfig) -> str:
-    """Load vocabulary as a comma-separated string, unranked and untruncated.
-
-    Kept for callers that just want the raw list as text. The decoder path goes
-    through `select_terms` instead — this string is NOT budget-safe.
-    """
-    return ", ".join(load_terms(model_cfg))
-
 
 # A vocabulary term is a word or short phrase of letters (allowing internal
 # apostrophes/hyphens and CamelCase). Rejects punctuation-only junk, numbers,
