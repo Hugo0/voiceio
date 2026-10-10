@@ -64,7 +64,7 @@ class EvalResult:
     def wait_summary(self) -> str:
         if not self.waits:
             return ""
-        p90 = statistics.quantiles(self.waits, n=10)[-1] if len(self.waits) > 1 else self.waits[0]
+        p90 = statistics.quantiles(self.waits, n=10, method="inclusive")[-1] if len(self.waits) > 1 else self.waits[0]
         return (f"stop→text median {statistics.median(self.waits):.2f}s  p90 {p90:.2f}s  "
                 f"max {max(self.waits):.2f}s")
 

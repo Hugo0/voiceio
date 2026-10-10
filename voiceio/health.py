@@ -458,7 +458,7 @@ def usage_findings(cfg=None) -> list[tuple[bool, str, str]]:
             scope += f", all before {__version__}"
     if len(sample) >= 10:
         p50 = statistics.median(sample)
-        p90 = statistics.quantiles(sample, n=10)[-1]
+        p90 = statistics.quantiles(sample, n=10, method="inclusive")[-1]
         out.append((p90 <= 10, f"stop→text: median {p50:.1f}s, p90 {p90:.1f}s ({scope})",
                     _latency_hint(cfg or config.load())))
 

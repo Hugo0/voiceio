@@ -281,3 +281,10 @@ def test_paired_comparison_reports_direction_and_uncertainty():
     _, table = evaluate.promotion_verdict({**base, **mixed}, {**base, **cur})
     assert "may be luck" in table
     assert evaluate.paired({"per_clip": []}, cur) is None
+
+
+def test_wait_summary_p90_never_exceeds_max():
+    r = evaluate.EvalResult("d", "test", waits=[2.54, 4.63, 3.45, 3.10, 6.83, 3.07])
+    s = r.wait_summary()
+    p90 = float(s.split("p90 ")[1].split("s")[0])
+    assert p90 <= 6.83
