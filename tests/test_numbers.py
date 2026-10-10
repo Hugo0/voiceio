@@ -83,9 +83,17 @@ class TestOrdinals:
     def test_separate_numbers_are_not_summed(self):
         assert convert_numbers("twenty, thirty, forty") == "20, 30, 40"
         assert convert_numbers("I have twenty. Thirty more came") == "I have 20. 30 more came"
-        assert convert_numbers("nineteen ninety nine") == "19 99"
+        assert convert_numbers("one hundred, two hundred") == "100, 200"
         assert convert_numbers("one billion two million") == "1,002,000,000"
         assert convert_numbers("one thousand million") == "1000 million"
+
+    def test_spoken_years(self):
+        assert convert_numbers("back in nineteen ninety nine.") == "back in 1999."
+        assert convert_numbers("in twenty twenty five we") == "in 2025 we"
+        assert convert_numbers("twenty oh five") == "2005"
+        assert convert_numbers("nineteen eleven") == "1911"
+        assert convert_numbers("twenty, twenty") == "20, 20"   # punctuation: two numbers
+        assert convert_numbers("twenty people") == "20 people"
 
     def test_tenth_converts(self):
         assert convert_numbers("the tenth time") == "the 10th time"

@@ -118,6 +118,35 @@ def _is_number_word(word: str) -> bool:
 _SPELLED_OUT_BELOW = 10
 
 
+_CENTURIES = {"eighteen": 18, "nineteen": 19, "twenty": 20}
+_PUNCT = ".,;:?!"
+
+
+def _match_year(words: list[str], i: int) -> tuple[int, int] | None:
+    """A spoken year at words[i] ("nineteen ninety nine", "twenty twenty five",
+    "twenty oh five"): (year, words consumed), or None. Without this the two
+    halves read as separate numbers ("19 99")."""
+    def clean(k: int) -> str:
+        return words[k].lower().rstrip(_PUNCT) if k < len(words) else ""
+
+    def ends(k: int) -> bool:     # punctuation closes the number at word k
+        return words[k][-1:] in _PUNCT
+
+    century = _CENTURIES.get(clean(i))
+    if century is None or ends(i) or i + 1 >= len(words):
+        return None
+    nxt = clean(i + 1)
+    if nxt in ("oh", "o") and not ends(i + 1) and _ONES.get(clean(i + 2), 0) in range(1, 10):
+        return century * 100 + _ONES[clean(i + 2)], 3
+    if 10 <= _ONES.get(nxt, 0) <= 19:
+        return century * 100 + _ONES[nxt], 2
+    if nxt in _TENS:
+        if not ends(i + 1) and _ONES.get(clean(i + 2), 0) in range(1, 10):
+            return century * 100 + _TENS[nxt] + _ONES[clean(i + 2)], 3
+        return century * 100 + _TENS[nxt], 2
+    return None
+
+
 def convert_numbers(text: str, language: str = "en") -> str:
     """Replace spoken number words with digits in text.
 
@@ -136,6 +165,14 @@ def convert_numbers(text: str, language: str = "en") -> str:
     i = 0
 
     while i < len(words):
+        year = _match_year(words, i)
+        if year is not None:
+            value, used = year
+            last = words[i + used - 1]
+            result.append(f"{value}{last[len(last.rstrip(_PUNCT)):]}")
+            i += used
+            continue
+
         # Check for ordinal words (standalone like "first", "twentieth")
         low = words[i].lower().rstrip(".,;:?!")
         trailing_punct = words[i][len(low):] if len(words[i]) > len(low) else ""
