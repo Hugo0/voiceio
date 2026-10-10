@@ -4,11 +4,12 @@ from __future__ import annotations
 import logging
 
 from voiceio.backends import ProbeResult
+from voiceio.typers.base import KeystrokeTyper
 
 log = logging.getLogger(__name__)
 
 
-class PynputTyper:
+class PynputTyper(KeystrokeTyper):
     """Type text via pynput keyboard controller."""
 
     name = "pynput"
@@ -46,14 +47,10 @@ class PynputTyper:
 
         return ProbeResult(ok=True)
 
-    def type_text(self, text: str) -> None:
-        if not text:
-            return
+    def _type(self, text: str) -> None:
         self._get_controller().type(text)
 
-    def delete_chars(self, n: int) -> None:
-        if n <= 0:
-            return
+    def _delete(self, n: int) -> None:
         from pynput.keyboard import Key
         kb = self._get_controller()
         for _ in range(n):

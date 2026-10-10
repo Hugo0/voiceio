@@ -9,6 +9,7 @@ import shutil
 import subprocess
 
 from voiceio.backends import ProbeResult
+from voiceio.typers.base import KeystrokeTyper
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def _has_uinput_access() -> bool:
         return False
 
 
-class YdotoolTyper:
+class YdotoolTyper(KeystrokeTyper):
     """Type text via ydotool (Wayland, needs uinput access)."""
 
     name = "ydotool"
@@ -137,17 +138,13 @@ class YdotoolTyper:
     def __init__(self) -> None:
         self._v1 = _get_ydotool_version() >= (1,)
 
-    def type_text(self, text: str) -> None:
-        if not text:
-            return
+    def _type(self, text: str) -> None:
         subprocess.run(
             ["ydotool", "type", "--delay", "10", "--key-delay", "2", "--", text],
             check=True, capture_output=True,
         )
 
-    def delete_chars(self, n: int) -> None:
-        if n <= 0:
-            return
+    def _delete(self, n: int) -> None:
         if self._v1:
             # v1.x: raw keycode:state syntax
             args = []

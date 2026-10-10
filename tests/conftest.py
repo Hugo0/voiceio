@@ -67,6 +67,14 @@ def _quiet_desktop(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_keyboards(monkeypatch):
+    """The modifier guard reads the developer's real keyboards: holding Ctrl
+    while tests run would slow every typer test by its timeout."""
+    from voiceio.typers import modifier_guard
+    monkeypatch.setattr(modifier_guard, "_open_keyboards", lambda: [])
+
+
+@pytest.fixture(autouse=True)
 def _isolate_user_state(tmp_path, monkeypatch):
     """Keep tests out of the user's real state dir (recordings, history)."""
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))  # voiceio.learn

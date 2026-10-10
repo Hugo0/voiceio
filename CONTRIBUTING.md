@@ -93,7 +93,7 @@ NixOS module, Home Manager module).
 
 **Chain & probe** — Every backend implements `probe() → ProbeResult`. `chain.select()` picks the first working one. Runtime failures trigger automatic re-probe and fallback. A probe's `fix_cmd` is what `voiceio doctor --fix` runs; privileged ones are a single `sh -c` shown in a consent prompt (see `typers/ydotool.py`, `hotkeys/evdev.py`).
 
-**Adding a backend** — Create `voiceio/typers/my_backend.py`, implement `TyperBackend` (or `StreamingTyper` for preedit), register in `__init__.py`, add to `chain.py`, add probe test.
+**Adding a backend** — Create `voiceio/typers/my_backend.py`, implement `TyperBackend` (or `StreamingTyper` for preedit; a backend that synthesizes key events subclasses `KeystrokeTyper` and implements `_type`/`_delete`, so it waits for held modifiers first), register in `__init__.py`, add to `chain.py`, add probe test.
 
 **Hotkey deduplication** — evdev and socket both fire for the same keypress. `on_hotkey()` uses lock + 0.3s debounce.
 

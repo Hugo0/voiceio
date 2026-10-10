@@ -6,11 +6,12 @@ import shutil
 import subprocess
 
 from voiceio.backends import ProbeResult
+from voiceio.typers.base import KeystrokeTyper
 
 log = logging.getLogger(__name__)
 
 
-class WtypeTyper:
+class WtypeTyper(KeystrokeTyper):
     """Type text via wtype (wlroots-based Wayland compositors)."""
 
     name = "wtype"
@@ -37,17 +38,13 @@ class WtypeTyper:
 
         return ProbeResult(ok=True)
 
-    def type_text(self, text: str) -> None:
-        if not text:
-            return
+    def _type(self, text: str) -> None:
         subprocess.run(
             ["wtype", "--", text],
             check=True, capture_output=True,
         )
 
-    def delete_chars(self, n: int) -> None:
-        if n <= 0:
-            return
+    def _delete(self, n: int) -> None:
         # Batch all backspaces into one call: wtype -k BackSpace -k BackSpace ...
         args = []
         for _ in range(n):

@@ -8,11 +8,12 @@ import subprocess
 import sys
 
 from voiceio.backends import ProbeResult
+from voiceio.typers.base import KeystrokeTyper
 
 log = logging.getLogger(__name__)
 
 
-class ClipboardTyper:
+class ClipboardTyper(KeystrokeTyper):
     """Type text by copying to clipboard and simulating Ctrl+V / Cmd+V."""
 
     name = "clipboard"
@@ -93,9 +94,7 @@ class ClipboardTyper:
                 )
         return ProbeResult(ok=True)
 
-    def type_text(self, text: str) -> None:
-        if not text:
-            return
+    def _type(self, text: str) -> None:
         self._resolve_tools()
 
         if sys.platform == "darwin":
@@ -150,9 +149,7 @@ class ClipboardTyper:
             log.warning("Could not release modifiers after a failed ydotool "
                         "paste — if Ctrl seems stuck, tap it once to clear")
 
-    def delete_chars(self, n: int) -> None:
-        if n <= 0:
-            return
+    def _delete(self, n: int) -> None:
         self._resolve_tools()
 
         if self._delete_tool and self._delete_tool[0] == "xdotool":

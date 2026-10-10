@@ -6,11 +6,12 @@ import shutil
 import subprocess
 
 from voiceio.backends import ProbeResult
+from voiceio.typers.base import KeystrokeTyper
 
 log = logging.getLogger(__name__)
 
 
-class XdotoolTyper:
+class XdotoolTyper(KeystrokeTyper):
     """Type text via xdotool (X11)."""
 
     name = "xdotool"
@@ -29,17 +30,13 @@ class XdotoolTyper:
 
         return ProbeResult(ok=True)
 
-    def type_text(self, text: str) -> None:
-        if not text:
-            return
+    def _type(self, text: str) -> None:
         subprocess.run(
             ["xdotool", "type", "--clearmodifiers", "--delay", "12", "--", text],
             check=True, capture_output=True,
         )
 
-    def delete_chars(self, n: int) -> None:
-        if n <= 0:
-            return
+    def _delete(self, n: int) -> None:
         subprocess.run(
             ["xdotool", "key", "--clearmodifiers", "--delay", "12"] + ["BackSpace"] * n,
             check=True, capture_output=True,
