@@ -34,7 +34,8 @@ voiceio/
 ├── server/          # Headless HTTP/WebSocket server (python -m voiceio.server)
 ├── app.py           # Desktop daemon state machine (IDLE/RECORDING/FINALIZING/ERROR)
 ├── watchdog.py      # Health thread: worker recovery, audio stream, tray, resume detection
-├── streaming.py     # Real-time transcription session with word-level corrections
+├── streaming.py     # Streaming session: interim/freeze/final decode scheduling
+├── display.py       # TypedText: what the session showed, preedit or keystroke edits
 ├── audio_source.py  # Where streaming gets samples (microphone, socket, file)
 ├── recorder.py      # Microphone capture with 1s pre-buffer ring (desktop extra)
 ├── vad.py           # Voice Activity Detection (Silero ONNX / RMS fallback)

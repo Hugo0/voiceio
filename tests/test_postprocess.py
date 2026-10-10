@@ -4,7 +4,7 @@ from __future__ import annotations
 from voiceio.config import Config
 from voiceio.core.pipeline import Pipeline
 from voiceio.postprocess import cleanup, strip_disfluencies
-from voiceio.streaming import _word_match_len
+from voiceio.display import _word_match_len
 
 
 def _run(text: str, *, final: bool = False, **output) -> tuple[str, bool]:

@@ -1,4 +1,9 @@
-"""Streaming transcription with word-level append and final correction."""
+"""Streaming transcription: when to decode what, while the user speaks.
+
+Interim passes decode the un-frozen tail about once a second; long tails are
+frozen at speech pauses so stop only decodes the rest; the final pass runs
+when the user stops. What reaches the screen, and how, is display.TypedText.
+"""
 from __future__ import annotations
 
 import logging
@@ -13,7 +18,7 @@ import numpy as np
 from voiceio.core.decoders.base import Bias
 from voiceio.core.decoders.base import transcribe_timeout
 from voiceio.privacy import describe_transcript
-from voiceio.typers.base import StreamingTyper
+from voiceio.display import TypedText
 
 if TYPE_CHECKING:
     from voiceio.audio_source import AudioSource
@@ -22,7 +27,6 @@ if TYPE_CHECKING:
     from voiceio.typers.base import TyperBackend
 
 log = logging.getLogger(__name__)
-DELETE_SETTLE_SECS = 0.05  # delay between delete and type for ydotool reliability
 
 # Incremental finalization: a freeze cut is only safe at a speech pause.
 _FREEZE_SILENCE_WINDOW_SECS = 0.3
@@ -153,7 +157,7 @@ class StreamingSession:
         # Captured once per session: vocabulary/prompt changes made while this
         # recording runs apply to the next one, never halfway through this.
         self._bias = bias or Bias()
-        self._typer = typer
+        self._display = TypedText(typer)
         # Output-ownership gate: the app sets this so a superseded session (its
         # generation was overtaken by a newer recording) stops emitting ANY
         # typer output on the final path, which would otherwise corrupt the new
@@ -170,7 +174,6 @@ class StreamingSession:
         self._on_interim = on_interim
         self._typer_fail_count = 0
         self._typer_broken_signalled = False
-        self._typed_text = ""
         self._pending = threading.Event()
         self._stop_event = threading.Event()
         # The final pass runs in stop()'s thread, concurrently with whatever
@@ -211,7 +214,7 @@ class StreamingSession:
     @property
     def interim_text(self) -> str:
         """Best-so-far text (post-pipeline). Safe to read while finalizing."""
-        return self._typed_text
+        return self._display.text
 
     def set_is_current(self, is_current: Callable[[], bool]) -> None:
         """Install the output-ownership gate (see __init__).
@@ -229,8 +232,7 @@ class StreamingSession:
         Resets the typed-text tracking: the old backend's on-screen state
         (e.g. a stranded IBus preedit) no longer belongs to us.
         """
-        self._typer = typer
-        self._typed_text = ""
+        self._display = TypedText(typer)
 
     def start(self) -> None:
         """Begin streaming. Recorder must already be started by caller."""
@@ -271,8 +273,8 @@ class StreamingSession:
         if self._recorder is not None:
             self._recorder.set_on_speech_pause(None)
             self._recorder = None
-        log.debug("Streaming session stopped, typed: %s", describe_transcript(self._typed_text))
-        return self._typed_text
+        log.debug("Streaming session stopped, typed: %s", describe_transcript(self._display.text))
+        return self._display.text
 
     def _decode_past_pending_freeze(self, audio: np.ndarray | None):
         """If a freeze is decoding on the final lane, decode the audio after
@@ -308,7 +310,7 @@ class StreamingSession:
                     self._typer_broken_signalled = True
                     log.warning(
                         "Typer '%s' failed %d times in streaming, requesting re-probe",
-                        self._typer.name, self._typer_fail_count,
+                        self._display.typer.name, self._typer_fail_count,
                     )
                     if self._on_typer_broken:
                         self._on_typer_broken()
@@ -506,119 +508,29 @@ class StreamingSession:
                 # A superseded session must not touch the typer on the final
                 # path (would corrupt the newer session's output).
                 if final and not self._is_current():
-                    self._typed_text = ""
+                    self._display.text = ""
                     return
-                if isinstance(self._typer, StreamingTyper):
-                    self._typer.clear_preedit()
-                elif self._typed_text:
-                    self._typer.delete_chars(len(self._typed_text))
-                self._typed_text = ""
+                self._display.clear()
                 return
 
             if text:
-                prev = self._typed_text
+                prev = self._display.text
                 self._apply_correction(text, final=final)
-                if not final and self._on_interim and self._typed_text != prev:
+                if not final and self._on_interim and self._display.text != prev:
                     try:
-                        self._on_interim(self._typed_text)
+                        self._on_interim(self._display.text)
                     except Exception:
                         log.debug("on_interim callback failed", exc_info=True)
 
     def _commit_interim_on_final(self) -> None:
-        """Commit whatever interim text we have when the final pass yields none.
-
-        For the IBus preedit path the interim text lives only in the preedit
-        (uncommitted) — commit it so a final-pass timeout doesn't drop it. For
-        keystroke typers the interim text is already in the target app, so
-        there is nothing to do.
-        """
-        if not self._typed_text or not self._is_current():
-            return
-        if isinstance(self._typer, StreamingTyper):
-            log.warning(
-                "Final transcription empty; committing interim preedit text (%d chars)",
-                len(self._typed_text),
-            )
-            self._typer.commit_text(self._typed_text)
+        """Commit whatever interim text we have when the final pass yields none."""
+        if self._is_current():
+            self._display.commit_preview()
 
     def _apply_correction(self, new_text: str, final: bool = False) -> None:
-        """Apply correction to typed text.
-
-        With StreamingTyper (IBus): use preedit during streaming, commit on final.
-        Without: append-only via word-level matching, char-level diff on final.
-        """
-        old = self._typed_text
-
         # A superseded session must emit no typer output on the final path.
         if final and not self._is_current():
             log.debug("Final output suppressed: session superseded")
-            self._typed_text = new_text
+            self._display.text = new_text
             return
-
-        # Preedit path: trivial, just replace the preview text
-        if isinstance(self._typer, StreamingTyper):
-            if final:
-                self._typer.commit_text(new_text)
-                self._typed_text = new_text
-                log.debug("Preedit commit: %s", describe_transcript(new_text))
-            elif new_text != old:
-                self._typer.update_preedit(new_text)
-                self._typed_text = new_text
-                log.debug("Preedit update: %s", describe_transcript(new_text))
-            return
-
-        if new_text == old:
-            return
-
-        if final:
-            self._apply_final_correction(new_text)
-            return
-
-        if not old:
-            # First transcription, just type it
-            self._typer.type_text(new_text)
-            self._typed_text = new_text
-            log.debug("Initial: %s", describe_transcript(new_text))
-            return
-
-        # Short text: allow full replacement (Whisper still warming up)
-        if len(old.split()) <= 2:
-            self._typer.delete_chars(len(old))
-            time.sleep(DELETE_SETTLE_SECS)
-            self._typer.type_text(new_text)
-            self._typed_text = new_text
-            log.debug("Replaced short text: %s", describe_transcript(new_text))
-            return
-
-        # Word-level append-only
-        old_words = old.split()
-        new_words = new_text.split()
-        matched = _word_match_len(old_words, new_words)
-
-        if matched >= len(old_words) and len(new_words) > matched:
-            new_tail = " ".join(new_words[matched:])
-            to_type = " " + new_tail
-            self._typer.type_text(to_type)
-            self._typed_text = old + to_type
-            log.debug("Appended: %s", describe_transcript(to_type.strip()))
-        else:
-            log.debug(
-                "Skipping (matched %d/%d words)",
-                matched, len(old_words),
-            )
-
-    def _apply_final_correction(self, new_text: str) -> None:
-        """Final pass: char-level diff to fix accumulated drift."""
-        old = self._typed_text
-        prefix_len = _common_prefix_len(old, new_text)
-        to_delete = len(old) - prefix_len
-        to_type = new_text[prefix_len:]
-
-        if to_delete > 0:
-            log.debug("Final correction: delete %d, type %s", to_delete, describe_transcript(to_type))
-            self._typer.delete_chars(to_delete)
-            time.sleep(DELETE_SETTLE_SECS)
-        if to_type:
-            self._typer.type_text(to_type)
-
-        self._typed_text = new_text
+        self._display.apply(new_text, final=final)

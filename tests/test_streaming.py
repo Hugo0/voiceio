@@ -14,11 +14,8 @@ from voiceio.typers.base import TyperBackend
 import numpy as np
 import pytest
 
-from voiceio.streaming import (
-    StreamingSession,
-    _common_prefix_len,
-    _word_match_len,
-)
+from voiceio.display import _common_prefix_len, _word_match_len
+from voiceio.streaming import StreamingSession
 from voiceio.typers.base import StreamingTyper
 
 
@@ -87,78 +84,78 @@ class TestApplyCorrection:
         """First transcription: type everything."""
         s = self._make_session()
         s._apply_correction("Hello world")
-        s._typer.type_text.assert_called_once_with("Hello world")
-        s._typer.delete_chars.assert_not_called()
-        assert s._typed_text == "Hello world"
+        s._display.typer.type_text.assert_called_once_with("Hello world")
+        s._display.typer.delete_chars.assert_not_called()
+        assert s._display.text == "Hello world"
 
     def test_word_append(self):
         """New text extends typed words: append only new part."""
         s = self._make_session()
-        s._typed_text = "Hello world foo"  # >2 words to skip short-text path
+        s._display.text = "Hello world foo"  # >2 words to skip short-text path
         s._apply_correction("Hello, world, foo, how are you")
-        s._typer.type_text.assert_called_once_with(" how are you")
-        s._typer.delete_chars.assert_not_called()
-        assert s._typed_text == "Hello world foo how are you"
+        s._display.typer.type_text.assert_called_once_with(" how are you")
+        s._display.typer.delete_chars.assert_not_called()
+        assert s._display.text == "Hello world foo how are you"
 
     def test_punct_change_still_appends(self):
         """Whisper changes commas - word match ignores this, appends new."""
         s = self._make_session()
-        s._typed_text = "Testing, testing, testing"  # >2 words
+        s._display.text = "Testing, testing, testing"  # >2 words
         s._apply_correction("Testing testing testing hello")
-        s._typer.type_text.assert_called_once_with(" hello")
-        s._typer.delete_chars.assert_not_called()
+        s._display.typer.type_text.assert_called_once_with(" hello")
+        s._display.typer.delete_chars.assert_not_called()
 
     def test_word_mismatch_skips(self):
         """Words don't match: skip entirely (no append, no delete)."""
         s = self._make_session()
-        s._typed_text = "Hello world foo"
+        s._display.text = "Hello world foo"
         s._apply_correction("Hello world bar baz")
         # "foo" vs "bar" - mismatch at word 3 (matched 2 < 3 typed)
-        s._typer.type_text.assert_not_called()
-        s._typer.delete_chars.assert_not_called()
-        assert s._typed_text == "Hello world foo"
+        s._display.typer.type_text.assert_not_called()
+        s._display.typer.delete_chars.assert_not_called()
+        assert s._display.text == "Hello world foo"
 
     def test_no_change(self):
         """Same text: nothing happens."""
         s = self._make_session()
-        s._typed_text = "Hello"
+        s._display.text = "Hello"
         s._apply_correction("Hello")
-        s._typer.type_text.assert_not_called()
-        s._typer.delete_chars.assert_not_called()
+        s._display.typer.type_text.assert_not_called()
+        s._display.typer.delete_chars.assert_not_called()
 
     def test_shorter_text_skips(self):
         """Shorter new text: skip (no deletions during streaming)."""
         s = self._make_session()
-        s._typed_text = "Hello world how are you"
+        s._display.text = "Hello world how are you"
         s._apply_correction("Hello world")
         # All words match but no new words → skip
-        s._typer.type_text.assert_not_called()
-        s._typer.delete_chars.assert_not_called()
+        s._display.typer.type_text.assert_not_called()
+        s._display.typer.delete_chars.assert_not_called()
 
     def test_final_allows_full_correction(self):
         """Final pass: char-level diff with deletions."""
         s = self._make_session()
-        s._typed_text = "Hello, world, how"
+        s._display.text = "Hello, world, how"
         s._apply_correction("Hello world how are you", final=True)
         # prefix="Hello" (5), delete 12, type " world how are you"
-        s._typer.delete_chars.assert_called_once_with(12)
-        s._typer.type_text.assert_called_once_with(" world how are you")
-        assert s._typed_text == "Hello world how are you"
+        s._display.typer.delete_chars.assert_called_once_with(12)
+        s._display.typer.type_text.assert_called_once_with(" world how are you")
+        assert s._display.text == "Hello world how are you"
 
     def test_final_no_change_needed(self):
         """Final pass with matching text: nothing happens."""
         s = self._make_session()
-        s._typed_text = "Hello world"
+        s._display.text = "Hello world"
         s._apply_correction("Hello world", final=True)
-        s._typer.type_text.assert_not_called()
-        s._typer.delete_chars.assert_not_called()
+        s._display.typer.type_text.assert_not_called()
+        s._display.typer.delete_chars.assert_not_called()
 
     def test_no_deletions_after_warmup(self):
         """After initial warmup (>2 words), streaming never deletes."""
         s = self._make_session()
         # Simulate warmup
-        s._typed_text = "Testing testing testing"
-        s._typer.reset_mock()
+        s._display.text = "Testing testing testing"
+        s._display.typer.reset_mock()
         sequence = [
             "Testing testing testing hello hello hello",
             "Testing, testing, testing, hello, hello, hello. Testing.",
@@ -167,7 +164,7 @@ class TestApplyCorrection:
         ]
         for text in sequence:
             s._apply_correction(text)
-        s._typer.delete_chars.assert_not_called()
+        s._display.typer.delete_chars.assert_not_called()
 
 
 # --- Realistic Whisper sequences ---
@@ -183,7 +180,7 @@ class TestWhisperSequence:
             s._apply_correction(text)
         if transcriptions:
             s._apply_correction(transcriptions[-1], final=True)
-        return s._typer.method_calls, s._typed_text
+        return s._display.typer.method_calls, s._display.text
 
     def test_stable_growth(self):
         """Text grows steadily."""
@@ -252,12 +249,12 @@ def test_fixture_no_large_streaming_deletions(fixture_name):
         s._apply_correction(text)
 
     # Any streaming deletions should be small (short-text warmup only)
-    for c in s._typer.delete_chars.call_args_list:
+    for c in s._display.typer.delete_chars.call_args_list:
         assert c.args[0] <= 30, f"Large streaming deletion: {c.args[0]} chars"
 
     # Final pass
     s._apply_correction(transcriptions[-1], final=True)
-    assert s._typed_text == transcriptions[-1]
+    assert s._display.text == transcriptions[-1]
 
 
 @pytest.mark.parametrize("fixture_name", _get_fixture_names() or ["__skip__"])
@@ -280,7 +277,7 @@ def test_fixture_final_text_correct(fixture_name):
         s._apply_correction(text)
     s._apply_correction(transcriptions[-1], final=True)
 
-    assert s._typed_text == transcriptions[-1]
+    assert s._display.text == transcriptions[-1]
 
 
 @pytest.mark.parametrize("fixture_name", _get_fixture_names() or ["__skip__"])
@@ -302,7 +299,7 @@ def test_fixture_text_grows(fixture_name):
     lengths = []
     for text in transcriptions:
         s._apply_correction(text)
-        lengths.append(len(s._typed_text))
+        lengths.append(len(s._display.text))
 
     # Text should grow at some point (not all zeros after first)
     assert max(lengths) > lengths[0], "Text never grew beyond first transcription"
@@ -356,36 +353,36 @@ class TestPreeditPath:
     def test_initial_uses_preedit(self):
         s = self._make_session()
         s._apply_correction("Hello world")
-        s._typer.update_preedit.assert_called_once_with("Hello world")
-        s._typer.type_text.assert_not_called()
-        assert s._typed_text == "Hello world"
+        s._display.typer.update_preedit.assert_called_once_with("Hello world")
+        s._display.typer.type_text.assert_not_called()
+        assert s._display.text == "Hello world"
 
     def test_update_replaces_preedit(self):
         s = self._make_session()
         s._apply_correction("Hello")
         s._apply_correction("Hello world")
-        assert s._typer.update_preedit.call_count == 2
-        s._typer.update_preedit.assert_called_with("Hello world")
-        assert s._typed_text == "Hello world"
+        assert s._display.typer.update_preedit.call_count == 2
+        s._display.typer.update_preedit.assert_called_with("Hello world")
+        assert s._display.text == "Hello world"
 
     def test_final_commits(self):
         s = self._make_session()
         s._apply_correction("Hello")
         s._apply_correction("Hello world", final=True)
-        s._typer.commit_text.assert_called_once_with("Hello world")
-        assert s._typed_text == "Hello world"
+        s._display.typer.commit_text.assert_called_once_with("Hello world")
+        assert s._display.text == "Hello world"
 
     def test_no_deletions_ever(self):
         s = self._make_session()
         for text in ["Hello", "Hello world", "Hello world how", "Different text entirely"]:
             s._apply_correction(text)
-        s._typer.delete_chars.assert_not_called()
+        s._display.typer.delete_chars.assert_not_called()
 
     def test_same_text_skipped(self):
         s = self._make_session()
         s._apply_correction("Hello")
         s._apply_correction("Hello")
-        assert s._typer.update_preedit.call_count == 1
+        assert s._display.typer.update_preedit.call_count == 1
 
     def test_whisper_flipflop_trivial(self):
         """Preedit handles Whisper instability trivially - just replace text."""
@@ -399,8 +396,8 @@ class TestPreeditPath:
         for text in sequence[:-1]:
             s._apply_correction(text)
         s._apply_correction(sequence[-1], final=True)
-        assert s._typed_text == sequence[-1]
-        s._typer.delete_chars.assert_not_called()
+        assert s._display.text == sequence[-1]
+        s._display.typer.delete_chars.assert_not_called()
 
 
 # --- Output ownership gate (fix #4) ---
@@ -418,19 +415,19 @@ class TestOutputOwnershipGate:
 
     def test_superseded_final_emits_nothing(self):
         s = self._session(is_current=lambda: False)
-        s._typed_text = "Hello world"
+        s._display.text = "Hello world"
         s._apply_correction("Hello world corrected", final=True)
-        s._typer.type_text.assert_not_called()
-        s._typer.delete_chars.assert_not_called()
+        s._display.typer.type_text.assert_not_called()
+        s._display.typer.delete_chars.assert_not_called()
         # Internal state still advances so history reflects the real text.
-        assert s._typed_text == "Hello world corrected"
+        assert s._display.text == "Hello world corrected"
 
     def test_current_final_still_emits(self):
         s = self._session(is_current=lambda: True)
-        s._typed_text = "Hello"
+        s._display.text = "Hello"
         s._apply_correction("Hello world", final=True)
         # Non-streaming typer: char diff appends " world"
-        s._typer.type_text.assert_called_once_with(" world")
+        s._display.typer.type_text.assert_called_once_with(" world")
 
     def test_superseded_preedit_final_no_commit(self):
         typer = MagicMock(spec=_MockStreamingTyper)
@@ -441,7 +438,7 @@ class TestOutputOwnershipGate:
             transcriber=FakeDecoder(), typer=typer, recorder=MagicMock(),
             is_current=lambda: False,
         )
-        s._typed_text = "Hello"
+        s._display.text = "Hello"
         s._apply_correction("Hello world", final=True)
         typer.commit_text.assert_not_called()
 
@@ -469,19 +466,19 @@ class TestCommitInterimOnFinal:
 
     def test_commits_interim_preedit(self):
         s, typer = self._streaming_session()
-        s._typed_text = "hello there friend"
+        s._display.text = "hello there friend"
         s._commit_interim_on_final()
         typer.commit_text.assert_called_once_with("hello there friend")
 
     def test_no_interim_nothing_committed(self):
         s, typer = self._streaming_session()
-        s._typed_text = ""
+        s._display.text = ""
         s._commit_interim_on_final()
         typer.commit_text.assert_not_called()
 
     def test_superseded_does_not_commit(self):
         s, typer = self._streaming_session(is_current=lambda: False)
-        s._typed_text = "hello there"
+        s._display.text = "hello there"
         s._commit_interim_on_final()
         typer.commit_text.assert_not_called()
 
@@ -497,7 +494,7 @@ class TestCommitInterimOnFinal:
         recorder = MagicMock()
         recorder.sample_rate = 16000
         s = StreamingSession(transcriber, typer, recorder, is_current=lambda: True)
-        s._typed_text = "interim words here"
+        s._display.text = "interim words here"
         s._final_audio = np.ones(16000, dtype=np.float32)
         s._transcribe_and_apply(min_seconds=0.5, final=True)
         typer.commit_text.assert_called_once_with("interim words here")
@@ -512,11 +509,11 @@ class TestSetTyper:
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
-        s._typed_text = "stranded preedit"
+        s._display.text = "stranded preedit"
         new_typer = MagicMock(spec=TyperBackend)
         s.set_typer(new_typer)
-        assert s._typer is new_typer
-        assert s._typed_text == ""
+        assert s._display.typer is new_typer
+        assert s._display.text == ""
 
 
 # --- Worker loop integration ---
@@ -694,7 +691,7 @@ class TestSegmentFreeze:
         assert tr.transcribe.call_args.kwargs["final"] is True
         assert len(tr.transcribe.call_args.args[0]) == s._frozen_samples
         # Display untouched: interim text already covers this audio
-        s._typer.type_text.assert_not_called()
+        s._display.typer.type_text.assert_not_called()
 
     def test_no_freeze_when_tail_is_speech(self):
         s, tr, rec = self._make_session(freeze_secs=2.0)
@@ -722,7 +719,7 @@ class TestSegmentFreeze:
         sent_audio = tr.transcribe.call_args.args[0]
         assert len(sent_audio) == SR * 1.5  # only the un-frozen tail
         assert "hello there friend" in tr.transcribe.call_args.kwargs["context"]
-        assert s._typed_text == "hello there friend how are"
+        assert s._display.text == "hello there friend how are"
 
     def test_final_decodes_only_tail_and_merges(self):
         s, tr, rec = self._make_session(freeze_secs=2.0)
@@ -736,7 +733,7 @@ class TestSegmentFreeze:
         assert s.raw_final_text == "hello there friend how are you"
         assert s.final_latency["frozen_secs"] == 3.0
         assert s.final_latency["tail_secs"] == 2.0
-        assert s._typed_text == "hello there friend how are you"
+        assert s._display.text == "hello there friend how are you"
 
     def test_final_with_silent_tail_commits_frozen_text(self):
         s, tr, rec = self._make_session(freeze_secs=2.0)
@@ -749,7 +746,7 @@ class TestSegmentFreeze:
         s._transcribe_and_apply(min_seconds=0.5, final=True)
         tr.transcribe.assert_called_once()
         assert s.raw_final_text == "hello there friend"
-        assert s._typed_text == "hello there friend"
+        assert s._display.text == "hello there friend"
 
     def test_frozen_segments_accumulate_into_final(self):
         s, tr, rec = self._make_session(freeze_secs=2.0)
@@ -769,7 +766,7 @@ class TestSegmentFreeze:
         s, tr, rec = self._make_session(freeze_secs=2.0)
         s._frozen_raw = "hello there friend"
         s._frozen_samples = SR * 3
-        s._typed_text = "hello there friend"
+        s._display.text = "hello there friend"
         rec.get_audio_so_far.return_value = np.concatenate([_silent(3), _loud(1.5)])
         tr.transcribe.return_value = "scratch that"
         from voiceio.commands import CommandProcessor
@@ -777,7 +774,7 @@ class TestSegmentFreeze:
         s._pipeline = Pipeline([Commands(CommandProcessor(editing=True))])
         s._transcribe_and_apply()
         assert s._frozen_raw == ""
-        assert s._typed_text == ""
+        assert s._display.text == ""
         # Frozen boundary advances so the wiped audio is never re-decoded
         assert s._frozen_samples == SR * 4.5
 
@@ -835,12 +832,12 @@ class TestDecodeFailureSafety:
         s, tr, rec = self._make_session(typer_spec=StreamingTyper)
         s._frozen_raw = "hello there friend"
         s._frozen_samples = SR * 3
-        s._typed_text = "hello there friend how are you"  # shown via preedit
+        s._display.text = "hello there friend how are you"  # shown via preedit
         s._final_audio = np.concatenate([_silent(3), _loud(2)])
         tr.transcribe.side_effect = RuntimeError("decode timed out")
         s._transcribe_and_apply(min_seconds=0.5, final=True)
         # Interim text committed, not char-diffed down to frozen-only text
-        s._typer.commit_text.assert_called_once_with("hello there friend how are you")
+        s._display.typer.commit_text.assert_called_once_with("hello there friend how are you")
         assert s.final_latency.get("decode_failed") is True
 
     def test_final_decodes_sub_300ms_tail(self):
@@ -857,13 +854,13 @@ class TestDecodeFailureSafety:
         s, tr, rec = self._make_session(freeze_secs=0)
         s._frozen_raw = "hello there friend"
         s._frozen_samples = SR * 3
-        s._typed_text = "hello there friend how are"
+        s._display.text = "hello there friend how are"
         rec.get_audio_so_far.return_value = np.concatenate([_silent(3), _loud(1.5)])
         tr.transcribe.return_value = ""  # transient decoder flake
         s._transcribe_and_apply()
-        s._typer.type_text.assert_not_called()
-        s._typer.delete_chars.assert_not_called()
-        assert s._typed_text == "hello there friend how are"
+        s._display.typer.type_text.assert_not_called()
+        s._display.typer.delete_chars.assert_not_called()
+        assert s._display.text == "hello there friend how are"
 
     def test_quiet_mic_speech_finds_no_cut(self):
         from voiceio.streaming import _find_freeze_cut
@@ -949,7 +946,7 @@ class TestStaleInterimAfterStop:
             typer=MagicMock(spec=StreamingTyper),
             recorder=recorder,
         )
-        s._typed_text = "Okay."
+        s._display.text = "Okay."
         recorder.get_audio_so_far.return_value = _loud(8)
 
         def slow_then_stopped(audio, final=False, context=None):
@@ -958,8 +955,8 @@ class TestStaleInterimAfterStop:
 
         transcriber.transcribe.side_effect = slow_then_stopped
         s._transcribe_and_apply()
-        s._typer.update_preedit.assert_not_called()
-        assert s._typed_text == "Okay."  # display state untouched
+        s._display.typer.update_preedit.assert_not_called()
+        assert s._display.text == "Okay."  # display state untouched
 
 
 class TestStopDoesNotWaitForInterim:

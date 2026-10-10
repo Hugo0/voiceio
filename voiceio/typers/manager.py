@@ -157,7 +157,7 @@ class TyperManager:
 
         Defers the re-probe+upgrade to a background thread that waits
         for the state to reach IDLE. We cannot hot-swap mid-recording:
-        the streaming session tracks ``_typed_text`` in terms of the old
+        the streaming session's TypedText tracks text in terms of the old
         typer's behavior (char-level for clipboard vs preedit for ibus),
         and mid-stream swapping would leave stale or duplicated chars.
         The current recording is already broken — accept that, fix it
