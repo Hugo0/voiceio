@@ -8,7 +8,8 @@ import pytest
 
 from voiceio import config
 from voiceio.typers import clipboard as clip_mod, typer_options
-from voiceio.typers.clipboard import ClipboardTyper, parse_paste_keys, paste_command
+from voiceio.typers.clipboard import ClipboardTyper
+from voiceio.typers.paste import parse_paste_keys, paste_command
 
 
 @pytest.mark.parametrize("spec,expected", [
@@ -202,3 +203,13 @@ def test_options_reach_the_clipboard_typer(linux_wayland_gnome):
                                  paste_keys="shift+insert", restore_clipboard=True)
     assert (typer._paste_mods, typer._paste_key) == (["shift"], "insert")
     assert typer._restore_clipboard is True
+
+
+def test_terminal_focus_switches_the_default_chord(monkeypatch):
+    from voiceio import focus
+    monkeypatch.setattr(focus, "focused_window", lambda **k: focus.FocusedWindow("kitty"))
+    typer = _wayland_typer(monkeypatch, terminal_paste_keys="ctrl+shift+v")
+    with patch.object(clip_mod.subprocess, "run") as run:
+        typer.type_text("hello")
+    assert run.call_args_list[1].args[0] == \
+        ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"]

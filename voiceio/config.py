@@ -136,9 +136,14 @@ class OutputConfig:
     #   "live"  — also the best-so-far text at each streaming update and the
     #             instant recording stops (pasteable while the final decode runs)
     copy_to_clipboard: str = "final"
-    # Clipboard typer only (Linux): the paste keystroke. "ctrl+shift+v" for
-    # terminals, or "shift+insert".
+    # The paste keystroke (Linux), for the clipboard typer and for IBus when
+    # the focused app has no input method (terminals): "ctrl+v",
+    # "ctrl+shift+v" or "shift+insert".
     paste_keys: str = "ctrl+v"
+    # Used instead of a default ctrl+v while a terminal has focus, where the
+    # compositor says which app that is (Hyprland, sway, niri, X11; not GNOME
+    # or KDE on Wayland). Empty: always paste_keys.
+    terminal_paste_keys: str = "ctrl+shift+v"
     # Clipboard typer only: put back the clipboard text you had before the
     # paste. Inactive while copy_to_clipboard or notify_clipboard leave the
     # transcript on the clipboard on purpose. Text only.

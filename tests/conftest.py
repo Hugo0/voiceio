@@ -75,6 +75,33 @@ def _quiet_desktop(monkeypatch):
     monkeypatch.setattr(quiet_audio, "_run", blocked)
 
 
+_DESKTOP_TOOLS = frozenset({
+    "ydotool", "wtype", "xdotool", "xprop", "wl-copy", "wl-paste", "xclip", "xsel",
+    "hyprctl", "swaymsg", "niri",
+})
+
+
+@pytest.fixture(autouse=True)
+def _no_real_desktop_tools(monkeypatch):
+    """Nothing reaches the developer's desktop: no keystrokes, no clipboard
+    writes, no compositor queries. A test that forgot to mock the IBus
+    typer's no-focus fallback pasted into whatever window had focus. Tests
+    that patch subprocess.run themselves replace this guard."""
+    import subprocess
+
+    real = subprocess.run
+
+    def guarded(args, *a, **k):
+        argv0 = args[0] if isinstance(args, (list, tuple)) else str(args).split()[0]
+        if os.path.basename(str(argv0)) in _DESKTOP_TOOLS:
+            raise FileNotFoundError(f"tests must not run {argv0}")
+        return real(args, *a, **k)
+
+    monkeypatch.setattr(subprocess, "run", guarded)
+    from voiceio.typers import paste
+    monkeypatch.setattr(paste, "_focus_cache", (float("-inf"), False))
+
+
 @pytest.fixture(autouse=True)
 def _no_real_keyboards(monkeypatch):
     """The modifier guard reads the developer's real keyboards: holding Ctrl

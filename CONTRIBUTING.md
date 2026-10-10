@@ -63,6 +63,7 @@ voiceio/
 ├── hints.py         # Contextual CLI hints (silenceable, frequency-limited)
 ├── demo.py          # Guided tour (voiceio demo)
 ├── clipboard_read.py # Clipboard / primary-selection read/write
+├── focus.py         # Focused window's app id + title (Hyprland, sway, niri, X11)
 ├── wordfreq.py      # Word frequency lookup, edit distance
 ├── pidlock.py       # PID file locking
 ├── backends.py      # ProbeResult and shared backend types

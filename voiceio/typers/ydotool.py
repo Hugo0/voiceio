@@ -69,13 +69,15 @@ def _needs_daemon() -> bool:
     return _get_ydotool_version() >= (1,)
 
 
-def _ydotoold_running() -> bool:
+def ydotoold_running() -> bool:
     """Check if the ydotoold daemon is running."""
     try:
-        result = subprocess.run(["pgrep", "-x", "ydotoold"], capture_output=True)
+        result = subprocess.run(["pgrep", "-x", "ydotoold"], capture_output=True, timeout=2)
         return result.returncode == 0
     except FileNotFoundError:
         return True  # can't check, assume ok
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def _has_uinput_access() -> bool:
@@ -99,7 +101,7 @@ class YdotoolTyper(KeystrokeTyper):
 
         if _needs_daemon():
             # v1.x: needs ydotoold running
-            if not _ydotoold_running():
+            if not ydotoold_running():
                 ydotoold_path = shutil.which("ydotoold") or "ydotoold"
                 return ProbeResult(
                     ok=False,

@@ -6,11 +6,9 @@ mining measurable and personal fine-tuning possible later.
 """
 from __future__ import annotations
 
-import functools
 import json
 import logging
 import shutil
-import subprocess
 import time
 import wave
 from pathlib import Path
@@ -25,8 +23,6 @@ if TYPE_CHECKING:
     from voiceio.config import DataConfig
 
 log = logging.getLogger(__name__)
-
-_which = functools.lru_cache(maxsize=8)(shutil.which)
 
 
 def _free_gb(path: Path) -> float:
@@ -156,16 +152,8 @@ def save_trace(cfg: DataConfig, entry: dict) -> None:
 def active_window_title() -> str | None:
     """Best-effort title of the focused window (dictation target context).
 
-    Works on X11/XWayland via xdotool; returns None elsewhere. Never raises.
+    Compositor IPC where there is one, else X11/XWayland. Never raises.
     """
-    if not _which("xdotool"):
-        return None
-    try:
-        out = subprocess.run(
-            ["xdotool", "getactivewindow", "getwindowname"],
-            capture_output=True, text=True, timeout=1,
-        )
-        title = out.stdout.strip()
-        return title or None
-    except (subprocess.TimeoutExpired, OSError):
-        return None
+    from voiceio.focus import focused_window
+    window = focused_window(xwayland=True)
+    return (window.title or None) if window else None

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import socket
 import subprocess
@@ -9,6 +10,8 @@ import time
 
 from voiceio.backends import ProbeResult
 from voiceio.ibus import SOCKET_PATH, install
+from voiceio.typers import paste
+from voiceio.typers.ydotool import ydotoold_running
 
 log = logging.getLogger(__name__)
 PING_TIMEOUT = 2.0
@@ -18,9 +21,9 @@ class IBusTyper:
     """IBus preedit for streaming preview, IBus commit for final text.
 
     Also copies committed text to clipboard so terminal users (where IBus
-    doesn't reach) can Ctrl+Shift+V to paste.  When the IBus engine reports
-    that no client has focus (e.g. terminal emulators), we auto-paste via
-    ydotool/wtype so the user doesn't have to paste manually.
+    doesn't reach) can paste it.  When the IBus engine reports that no client
+    has focus (e.g. terminal emulators), we press the paste chord
+    (``output.paste_keys``, see typers/paste.py) via ydotool/wtype/xdotool.
     """
 
     name = "ibus"
@@ -31,10 +34,13 @@ class IBusTyper:
     # minutes. Failures are never cached — they must be re-checked immediately.
     _PROBE_CACHE_TTL = 300.0
 
-    def __init__(self, platform=None, **kwargs):
+    def __init__(self, platform=None, paste_keys: str = "ctrl+v",
+                 terminal_paste_keys: str = "", **kwargs):
         self._wl_copy = shutil.which("wl-copy")
         self._ydotool = shutil.which("ydotool")
         self._wtype = shutil.which("wtype")
+        self._xdotool = shutil.which("xdotool")
+        self._keys = paste.PasteKeys(paste_keys, terminal_paste_keys)
         self._sock: socket.socket | None = None
         self._wl_copy_proc: subprocess.Popen | None = None
         self._probe_cache: ProbeResult | None = None
@@ -175,74 +181,28 @@ class IBusTyper:
             log.warning("IBus engine not responding to focus query, assuming unfocused")
             return False
 
-    @staticmethod
-    def _ydotoold_running() -> bool:
-        """Check if ydotoold daemon is running (required for reliable ydotool)."""
-        try:
-            result = subprocess.run(
-                ["pgrep", "-x", "ydotoold"],
-                capture_output=True, timeout=2,
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
-
-    def _release_stuck_modifiers(self) -> None:
-        """Force-release modifiers a half-executed ydotool may have left down.
-
-        `ydotool key 29:1 … 29:0` emits press and release as separate uinput
-        events. If the process is killed between them — timeout, OOM, ydotoold
-        dying mid-call — Ctrl stays held at the *uinput* level: below the
-        compositor, in every application, and clearable only by the user
-        physically tapping Ctrl. That is indistinguishable from a broken
-        keyboard, so never leave it to chance.
-
-        29=LeftCtrl, 42=LeftShift, 56=LeftAlt. Releasing an already-released
-        key is a no-op, so this is always safe to call.
-        """
-        if not self._ydotool:
-            return
-        try:
-            subprocess.run([self._ydotool, "key", "29:0", "42:0", "56:0"],
-                           capture_output=True, timeout=2)
-            log.debug("Released modifiers after ydotool failure")
-        except (OSError, subprocess.TimeoutExpired):
-            log.warning("Could not release modifiers after a failed ydotool "
-                        "paste — if Ctrl seems stuck, tap it once to clear")
+    def _paste_tool(self) -> str | None:
+        if self._ydotool and ydotoold_running():
+            return "ydotool"
+        wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
+        if wayland and self._wtype:
+            return "wtype"
+        if not wayland and self._xdotool:
+            return "xdotool"
+        return None
 
     def _simulate_paste(self) -> None:
-        """Simulate Ctrl+V to paste clipboard into non-IBus apps (terminals)."""
+        """Press the paste chord for an app IBus does not reach (terminals)."""
+        tool = self._paste_tool()
+        if tool is None:
+            log.warning("No paste tool available (ydotoold not running, no wtype/xdotool)")
+            return
         try:
-            if self._ydotool and self._ydotoold_running():
-                # ydotool key scancodes: 29=LCtrl, 47=V
-                try:
-                    result = subprocess.run(
-                        [self._ydotool, "key", "29:1", "47:1", "47:0", "29:0"],
-                        capture_output=True, timeout=3,
-                    )
-                except subprocess.TimeoutExpired:
-                    # Killed mid-chord — Ctrl may be down with no release coming.
-                    self._release_stuck_modifiers()
-                    raise
-                if result.returncode != 0:
-                    log.warning("ydotool paste failed (rc=%d): %s",
-                                result.returncode, result.stderr.decode(errors="replace").strip())
-                    # A non-zero exit can still have emitted the press.
-                    self._release_stuck_modifiers()
-                else:
-                    log.debug("Pasted via ydotool")
-            elif self._wtype:
-                result = subprocess.run(
-                    [self._wtype, "-M", "ctrl", "-k", "v", "-m", "ctrl"],
-                    capture_output=True, timeout=3,
-                )
-                if result.returncode != 0:
-                    log.warning("wtype paste failed (rc=%d): %s",
-                                result.returncode, result.stderr.decode(errors="replace").strip())
-                else:
-                    log.debug("Pasted via wtype")
-            else:
-                log.warning("No paste tool available (ydotoold not running, wtype not found)")
+            paste.press(tool, *self._keys.for_focus())
+            log.debug("Pasted via %s", tool)
+        except subprocess.CalledProcessError as e:
+            log.warning("%s paste failed (rc=%d): %s", tool, e.returncode,
+                        (e.stderr or b"").decode(errors="replace").strip())
         except (subprocess.TimeoutExpired, OSError) as e:
             log.warning("Paste simulation failed: %s", e)
 

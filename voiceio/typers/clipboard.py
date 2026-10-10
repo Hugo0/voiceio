@@ -10,65 +10,31 @@ import threading
 
 from voiceio import clipboard_read
 from voiceio.backends import ProbeResult
+from voiceio.typers import paste
 from voiceio.typers.base import KeystrokeTyper
 
 log = logging.getLogger(__name__)
 
-# name: (evdev code for ydotool, wtype name, xdotool name)
-_PASTE_MODIFIERS = {
-    "ctrl": (29, "ctrl", "ctrl"),
-    "shift": (42, "shift", "shift"),
-    "alt": (56, "alt", "alt"),
-    "super": (125, "logo", "super"),
-}
-_PASTE_KEYS = {
-    "v": (47, "v", "v"),
-    "insert": (110, "Insert", "Insert"),
-}
 # Long enough for the target app to have read the clipboard after the paste
 # keystroke; each further paste of a streaming burst restarts the wait.
 RESTORE_DELAY_SECS = 0.5
 
 
-def parse_paste_keys(spec: str) -> tuple[list[str], str]:
-    """``"ctrl+shift+v"`` → (["ctrl", "shift"], "v"); ctrl+v if not understood."""
-    *mods, key = [part.strip().lower() for part in spec.split("+")]
-    if key in _PASTE_KEYS and len(set(mods)) == len(mods) \
-            and all(m in _PASTE_MODIFIERS for m in mods):
-        return mods, key
-    log.warning("output.paste_keys %r not understood (modifiers: %s; keys: %s), "
-                "using ctrl+v", spec, ", ".join(_PASTE_MODIFIERS), ", ".join(_PASTE_KEYS))
-    return ["ctrl"], "v"
-
-
-def paste_command(tool: str, mods: list[str], key: str) -> list[str]:
-    """argv that presses mods+key with ydotool, wtype or xdotool."""
-    if tool == "ydotool":
-        codes = [_PASTE_MODIFIERS[m][0] for m in mods]
-        k = _PASTE_KEYS[key][0]
-        return ["ydotool", "key", *(f"{c}:1" for c in codes), f"{k}:1", f"{k}:0",
-                *(f"{c}:0" for c in reversed(codes))]
-    if tool == "wtype":
-        names = [_PASTE_MODIFIERS[m][1] for m in mods]
-        return ["wtype", *(a for n in names for a in ("-M", n)), "-k", _PASTE_KEYS[key][1],
-                *(a for n in reversed(names) for a in ("-m", n))]
-    combo = [_PASTE_MODIFIERS[m][2] for m in mods] + [_PASTE_KEYS[key][2]]
-    return ["xdotool", "key", "--clearmodifiers", "+".join(combo)]
-
-
 class ClipboardTyper(KeystrokeTyper):
     """Type text by copying to clipboard and simulating Ctrl+V / Cmd+V.
 
-    On Linux the paste keystroke is ``paste_keys`` (terminals want
-    ctrl+shift+v). With ``restore_clipboard`` the user's clipboard text comes
-    back once the paste has been read, unless something else was copied since.
+    On Linux the paste keystroke is ``paste_keys``, or ``terminal_paste_keys``
+    while a detectable terminal has focus (see typers/paste.py). With
+    ``restore_clipboard`` the user's clipboard text comes back once the paste
+    has been read, unless something else was copied since.
     """
 
     name = "clipboard"
 
     def __init__(self, platform=None, paste_keys: str = "ctrl+v",
-                 restore_clipboard: bool = False):
-        self._paste_mods, self._paste_key = parse_paste_keys(paste_keys)
+                 terminal_paste_keys: str = "", restore_clipboard: bool = False):
+        self._keys = paste.PasteKeys(paste_keys, terminal_paste_keys)
+        self._paste_mods, self._paste_key = self._keys.mods, self._keys.key
         self._restore_clipboard = restore_clipboard
         self._restore_lock = threading.Lock()
         self._restore_timer: threading.Timer | None = None
@@ -76,7 +42,7 @@ class ClipboardTyper(KeystrokeTyper):
         self._saved: str | None = None
         self._pasted = ""
         self._copy_cmd: list[str] | None = None
-        self._paste_tool: list[str] | None = None
+        self._paste_tool: str | None = None   # "ydotool" | "wtype" | "xdotool" | "win32_pynput"
         self._delete_tool: list[str] | None = None
         self._tools_resolved = False
         self._pynput_kb = None  # cached pynput Controller for Windows
@@ -94,7 +60,7 @@ class ClipboardTyper(KeystrokeTyper):
 
         if sys.platform == "win32":
             self._copy_cmd = ["win32_pyperclip"]  # use pyperclip (ctypes Win32 API)
-            self._paste_tool = ["win32_pynput"]
+            self._paste_tool = "win32_pynput"
             self._delete_tool = ["win32_pynput"]
             log.debug("Clipboard typer: Windows mode (pyperclip + pynput)")
             return
@@ -105,13 +71,13 @@ class ClipboardTyper(KeystrokeTyper):
                 self._copy_cmd = ["wl-copy", "--"]
                 for tool in ("ydotool", "wtype"):
                     if shutil.which(tool):
-                        self._paste_tool = paste_command(tool, self._paste_mods, self._paste_key)
+                        self._paste_tool = tool
                         self._delete_tool = [tool]
                         break
         else:
             if shutil.which("xclip") and shutil.which("xdotool"):
                 self._copy_cmd = ["xclip", "-selection", "clipboard"]
-                self._paste_tool = paste_command("xdotool", self._paste_mods, self._paste_key)
+                self._paste_tool = "xdotool"
                 self._delete_tool = ["xdotool"]
 
     def _get_pynput_kb(self):
@@ -212,33 +178,7 @@ class ClipboardTyper(KeystrokeTyper):
 
         subprocess.run(self._copy_cmd, input=text.encode(), check=True, capture_output=True)
         if self._paste_tool:
-            try:
-                subprocess.run(self._paste_tool, check=True, capture_output=True,
-                               timeout=3)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                # `ydotool key 29:1 … 29:0` emits press and release as separate
-                # uinput events. Dying between them leaves Ctrl held BELOW the
-                # compositor — every app, every keystroke, until the user taps
-                # Ctrl themselves. Never let that be the failure mode.
-                self._release_stuck_modifiers()
-                raise
-
-    def _release_stuck_modifiers(self) -> None:
-        """Force-release modifiers a half-executed paste may have left down.
-
-        Releasing an already-released key is a no-op, so this is safe to call
-        on any failure path.
-        """
-        if not self._paste_tool or self._paste_tool[0] != "ydotool" or not self._paste_mods:
-            return
-        codes = [_PASTE_MODIFIERS[m][0] for m in self._paste_mods]
-        try:
-            subprocess.run(["ydotool", "key", *(f"{c}:0" for c in codes)],
-                           capture_output=True, timeout=2)
-            log.debug("Released modifiers after failed ydotool paste")
-        except (OSError, subprocess.TimeoutExpired):
-            log.warning("Could not release modifiers after a failed ydotool "
-                        "paste — if Ctrl seems stuck, tap it once to clear")
+            paste.press(self._paste_tool, *self._keys.for_focus())
 
     def _delete(self, n: int) -> None:
         self._resolve_tools()

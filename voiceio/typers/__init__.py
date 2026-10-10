@@ -13,6 +13,7 @@ def typer_options(cfg: Config) -> dict:
     """Config-driven backend options, passed through chain.select()/resolve()."""
     return {
         "paste_keys": cfg.output.paste_keys,
+        "terminal_paste_keys": cfg.output.terminal_paste_keys,
         # Never restore over a transcript put on the clipboard on purpose.
         "restore_clipboard": (cfg.output.restore_clipboard
                               and cfg.output.copy_to_clipboard == "off"

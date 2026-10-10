@@ -52,7 +52,7 @@ There is a best-effort pynput path for both (hotkeys and typing, no live preview
 | `sounddevice is not installed` | You installed without the desktop extra: `pipx install --force 'python-voiceio[desktop]'` |
 | evdev fails to build | Install a C toolchain and Python headers (see Quickstart), then reinstall |
 | Too slow | `voiceio doctor` shows your real stop→text. Turn off cloud postcorrect; use `voiceio models use small` (or a GPU with `large-v3-turbo`); or narrow the beam of the passes you keep: on the author's 44 clips `[model] beam_size = 2` matched the default 5 (WER 4.9% vs 5.4%, vocabulary 28/32 vs 29/32) while decoding faster; greedy (`1`) lost vocabulary (26/32). Measure on yours: `voiceio learn eval --beam 2` |
-| Pastes nothing in a terminal (clipboard typer) | `voiceio config set output.paste_keys ctrl+shift+v` |
+| Pastes nothing (or `^V`) in a terminal | Automatic on Hyprland, sway, niri and X11: a focused terminal gets `ctrl+shift+v` (`output.terminal_paste_keys`). GNOME and KDE on Wayland don't say which app has focus: `voiceio config set output.paste_keys ctrl+shift+v` |
 | Words come out wrong in a pattern | `voiceio learn eval --pipeline` and `voiceio corrections audit` show which stage or rule did it |
 | Start over | `voiceio uninstall`, then `voiceio setup` |
 
