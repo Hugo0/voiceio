@@ -209,13 +209,17 @@ def _levenshtein(a: str, b: str) -> int:
 
 def risky_rules(rules: dict[str, str], language: str = "en") -> list[tuple[str, str, str]]:
     """(wrong, right, why) for each rule worth reviewing, most suspicious first."""
+    language = "en" if language in ("", "auto") else language
     from difflib import SequenceMatcher
 
     from wordfreq import zipf_frequency
     out = []
     for wrong, right in rules.items():
         sim = SequenceMatcher(None, wrong.lower(), right.lower()).ratio()
-        zipf = zipf_frequency(wrong.lower(), language) if " " not in wrong else 0.0
+        try:
+            zipf = zipf_frequency(wrong.lower(), language) if " " not in wrong else 0.0
+        except LookupError:   # "auto", or a language without a word list
+            zipf = 0.0
         why = []
         if sim < _UNRELATED_BELOW:
             why.append("replacement looks unrelated")

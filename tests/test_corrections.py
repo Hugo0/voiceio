@@ -158,3 +158,8 @@ def test_risky_rules_flags_rewrites_not_typo_fixes():
     })}
     assert set(risky) == {"virtualize", "unimplemented"}
     assert "unrelated" in risky["virtualize"] and "real word" in risky["unimplemented"]
+
+
+def test_risky_rules_tolerates_auto_language():
+    from voiceio.corrections import risky_rules
+    assert risky_rules({"virtualize": "wake you"}, language="auto")
