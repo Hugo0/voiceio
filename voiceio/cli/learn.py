@@ -60,6 +60,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     e.add_argument("--lanes", type=int, default=None, help="decode lanes (default: config)")
     e.add_argument("--freeze", type=float, default=None,
                    help="streaming freeze seconds (default: config)")
+    e.add_argument("--pipeline", action="store_true",
+                   help="no decoding: score what each text stage (corrections, numbers, "
+                        "cloud postcorrect…) did to past dictations")
     e.add_argument("--speed", type=float, default=1.0,
                    help="streaming replay speed; >1 is faster but skews latency")
     e.set_defaults(func=cmd_eval)
@@ -276,6 +279,8 @@ def cmd_build(args: argparse.Namespace) -> None:
 
 
 def cmd_eval(args: argparse.Namespace) -> None:
+    if args.pipeline:
+        return _eval_pipeline()
     if not args.streaming:  # streaming measures latency: run at dictation priority
         _yield_cpu()
     from voiceio.core.bias import BiasProvider
@@ -311,6 +316,21 @@ def _live_hotwords() -> str:
     from voiceio.vocabulary import VocabularyLoader
     model = _cfg().model
     return BiasProvider(VocabularyLoader(model)).bias_for(Transcriber.capabilities).hotwords or ""
+
+
+def _eval_pipeline() -> None:
+    from voiceio.commands import CommandProcessor
+    from voiceio.core.pipeline import Pipeline
+    from voiceio.corrections import CorrectionDict
+    from voiceio.learn import evaluate
+    cfg = _cfg()
+    pipeline = Pipeline.from_config(cfg, corrections=CorrectionDict(),
+                                    commands=CommandProcessor(), prefix=False)
+    audit = evaluate.pipeline_audit(store.clips(), store.load_labels(), pipeline)
+    print(audit.summary())
+    if not any(lab.reviewed for lab in store.load_labels().values()):
+        print("References are teacher transcripts: a stage that deletes fillers on purpose "
+              "scores as \"further\".")
 
 
 def cmd_train(args: argparse.Namespace) -> None:

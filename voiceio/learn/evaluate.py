@@ -9,6 +9,10 @@ failures and speed. Two modes:
                as dictation runs it (interims, freeze cuts, tail decode at
                stop) and also measures stop→text, the wait a user feels
 
+`pipeline_audit` needs no decoding: it scores what each text stage did to
+dictations already in history — does a stage move the text toward what was
+said, or away from it?
+
 Results are saved under learn/runs/ so models can be compared over time.
 """
 from __future__ import annotations
@@ -180,3 +184,71 @@ def promotion_verdict(candidate: dict, current: dict) -> tuple[bool, str]:
           and candidate["term_recall"] >= current["term_recall"]
           and candidate["repetitions"] <= current["repetitions"])
     return ok, table
+
+
+# ── text pipeline audit ──────────────────────────────────────────────────
+
+@dataclass
+class StageScore:
+    name: str
+    errors: int = 0
+    changed: int = 0        # clips this stage altered
+    better: int = 0         # … moving the text closer to the reference
+    worse: int = 0
+
+
+@dataclass
+class PipelineAudit:
+    clips: int = 0
+    ref_words: int = 0
+    raw_errors: int = 0
+    stages: list[StageScore] = field(default_factory=list)
+    committed: StageScore = field(default_factory=lambda: StageScore("committed"))
+
+    def summary(self) -> str:
+        if not self.ref_words:
+            return "no labeled clips with a live decode yet — `voiceio learn label` first"
+        wer = lambda e: f"{e / self.ref_words:6.1%}"  # noqa: E731
+        lines = [f"{self.clips} dictations, scored against their reference labels",
+                 f"  {'decoder output':<22} WER {wer(self.raw_errors)}"]
+        for st in [*self.stages, self.committed]:
+            label = ("what was committed" if st is self.committed else f"+ {st.name}")
+            lines.append(f"  {label:<22} WER {wer(st.errors)}   changed {st.changed:>3}: "
+                         f"{st.better} closer, {st.worse} further")
+        lines.append("  (\"what was committed\" also includes stages that ran then but not "
+                     "locally now: cloud postcorrect, LLM cleanup, older versions)")
+        return "\n".join(lines)
+
+
+def pipeline_audit(clips, labels: dict, pipeline) -> PipelineAudit:
+    """Score each local stage of `pipeline` on history's raw decodes, then the
+    text that was actually committed — against the reference labels."""
+    from voiceio.core.pipeline import StageContext
+    ctx = StageContext(final=True)
+    audit = PipelineAudit(stages=[StageScore(s.name) for s in pipeline.stages])
+    for clip in clips:
+        lab = labels.get(clip.audio)
+        if lab is None or not clip.raw:
+            continue
+        ref = lab.text
+        audit.clips += 1
+        audit.ref_words += len(metrics.words(ref))
+        text, errors = clip.raw, metrics.align(ref, clip.raw).errors
+        audit.raw_errors += errors
+        for stage, score in zip(pipeline.stages, audit.stages):
+            result = stage(text, ctx)
+            new = text if result.abort else result.text
+            new_errors = metrics.align(ref, new).errors
+            _tally(score, text, new, errors, new_errors)
+            text, errors = new, new_errors
+        committed = metrics.align(ref, clip.final).errors
+        _tally(audit.committed, text, clip.final, errors, committed)
+    return audit
+
+
+def _tally(score: StageScore, before: str, after: str, e_before: int, e_after: int) -> None:
+    score.errors += e_after
+    if after.strip() != before.strip():
+        score.changed += 1
+        score.better += e_after < e_before
+        score.worse += e_after > e_before
