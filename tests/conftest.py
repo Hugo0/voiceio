@@ -35,6 +35,35 @@ def pytest_sessionstart(session):
 
 
 @pytest.fixture(autouse=True)
+def _spare_the_live_engine(monkeypatch):
+    """Engine lookup sees only processes this test run started. The real one
+    SIGTERMed the user's running IBus engine mid-dictation on every run."""
+    from voiceio import ibus
+
+    real = ibus.engine_pids
+
+    def ours() -> list[int]:
+        def parent(pid: int) -> int:
+            try:
+                stat = Path(f"/proc/{pid}/stat").read_text()
+            except OSError:
+                return -1
+            return int(stat.rsplit(")", 1)[1].split()[1])
+        return [p for p in real() if parent(p) == os.getpid()]
+
+    monkeypatch.setattr(ibus, "engine_pids", ours)
+
+
+@pytest.fixture(autouse=True)
+def _quiet_desktop(monkeypatch):
+    """No real notifications or sounds: tests drive the daemon's failure paths
+    ("microphone unavailable"), which popped up on the developer's desktop."""
+    from voiceio import feedback
+    monkeypatch.setattr(feedback, "_send_notification", lambda *a, **k: None)
+    monkeypatch.setattr(feedback, "_play", lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_user_state(tmp_path, monkeypatch):
     """Keep tests out of the user's real state dir (recordings, history)."""
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))  # voiceio.learn
