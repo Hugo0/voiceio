@@ -1,0 +1,5 @@
+# Cross-origin isolation lets the in-browser speech model use WASM threads.
+# "credentialless" keeps cross-origin fonts and the CDN working without CORP headers.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless

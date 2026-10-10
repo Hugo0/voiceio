@@ -33,7 +33,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Pixelify+Sans:wght@500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Tiny5&display=swap">
 <style>
 /* 1-bit dither on bone-white paper. The visual grammar (tokens, dither field,
    Bayer-dithered WebGL hero, typewriter, hairline bento) is borrowed, with
@@ -55,7 +55,7 @@
   --radius: 3px;
   --display: "Bricolage Grotesque", system-ui, sans-serif;
   --mono: "Spline Sans Mono", ui-monospace, monospace;
-  --pixel: "Pixelify Sans", "Spline Sans Mono", monospace;
+  --pixel: "Tiny5", "Spline Sans Mono", monospace;
   --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
@@ -89,7 +89,7 @@ code { white-space: nowrap; font-family: var(--mono); font-size: 0.95em; backgro
 .top { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid var(--line);
        background: color-mix(in oklch, var(--bg) 86%, transparent); backdrop-filter: blur(8px); }
 .top .wrap { display: flex; align-items: center; justify-content: space-between; height: 54px; gap: 16px; }
-.brand { font: 600 17px/1 var(--pixel); letter-spacing: 0.06em; display: inline-flex; align-items: center; gap: 2px; }
+.brand { font: 400 19px/1 var(--pixel); letter-spacing: 0.06em; display: inline-flex; align-items: center; gap: 2px; }
 .top nav { display: flex; gap: 22px; }
 .top nav a { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); transition: color .2s var(--ease-quart); }
 .top nav a:hover { color: var(--ink); }
@@ -136,25 +136,51 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 @keyframes tabfill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
 .hero-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 48px; align-items: start; margin-top: 30px; }
-.try { position: relative; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 16px 16px 14px;
-       background: color-mix(in oklch, var(--bg) 78%, transparent); backdrop-filter: blur(3px);
-       box-shadow: 0 18px 44px -26px color-mix(in oklch, var(--ink) 45%, transparent); }
-.try.live { border-color: var(--ink); }
-.try-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.try-slot { min-width: 0; }
+.try { position: relative; padding: 16px 16px 14px; border-radius: 16px;
+       border: 1px solid color-mix(in oklch, var(--ink) 15%, transparent);
+       background: color-mix(in oklch, var(--surface) 68%, transparent);
+       -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
+       box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.7), 0 28px 60px -34px color-mix(in oklch, var(--ink) 60%, transparent);
+       transition: border-color .35s var(--ease-quart), box-shadow .35s var(--ease-quart); }
+.try.live { border-color: color-mix(in oklch, var(--miss) 45%, transparent);
+            box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.7), 0 0 0 5px color-mix(in oklch, var(--miss) 9%, transparent), 0 28px 60px -34px color-mix(in oklch, var(--ink) 60%, transparent); }
+.try-head { display: flex; gap: 10px; align-items: center; }
+.try-head .label:first-child { color: var(--ink); margin-right: auto; }
+.try-min { display: none; width: 22px; height: 22px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: 500 14px/1 var(--mono); cursor: pointer; }
+.try-min:hover { background: var(--bg-2); color: var(--ink); }
+.try-load { margin-top: 14px; }
+.try-load[hidden] { display: none; }
+.try-load .bar { height: 5px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
+.try-load .bar i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--ink); transition: width .3s var(--ease-quart); }
+.try-load .label { margin-top: 8px; color: var(--muted); }
 .try-out { margin-top: 12px; min-height: 6.6em; max-height: 9.9em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
-           font: 400 15px/1.65 var(--mono); color: var(--ink); }
+           font: 400 15px/1.65 var(--mono); color: var(--ink); transition: min-height .4s var(--ease-quart); }
 .try-out .ph { color: var(--faint); }
 .try-out .pre { text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 4px; color: var(--muted); }
-.talk { margin-top: 12px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; touch-action: none; user-select: none;
-        -webkit-user-select: none; font: 500 12px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
-        background: var(--ink); color: var(--surface); border: 1px solid var(--ink); border-radius: var(--radius); padding: 14px; transition: background .18s; }
+.talk { position: relative; overflow: hidden; margin-top: 12px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+        touch-action: none; user-select: none; -webkit-user-select: none; font: 500 12px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
+        cursor: pointer; background: var(--ink); color: var(--surface); border: 0; border-radius: 11px; padding: 15px 14px;
+        transition: background .3s var(--ease-quart), transform .15s var(--ease-quart); }
 .talk:hover { background: color-mix(in oklch, var(--ink) 85%, var(--signal)); }
+.talk:active { transform: scale(0.985); }
+.talk > span { position: relative; }
+.talk .lvl { position: absolute; inset: 0; pointer-events: none; background: oklch(1 0 0 / 0.16); transform-origin: left; transform: scaleX(var(--lvl, 0)); transition: transform .08s linear; }
 .talk .recdot { margin: 0; background: var(--faint); animation: none; }
-.try.live .talk { background: var(--miss); border-color: var(--miss); }
+.try.live .talk { background: var(--miss); }
 .try.live .talk .recdot { background: var(--surface); animation: rec 1.2s ease-in-out infinite; }
-.talk kbd { font: 600 11px/1 var(--mono); border: 1px solid color-mix(in oklch, var(--surface) 45%, transparent); border-bottom-width: 2px;
-            border-radius: 3px; padding: 3px 6px 2px; letter-spacing: 0.08em; }
+.talk kbd { font: 600 11px/1 var(--mono); border: 1px solid oklch(1 0 0 / 0.4); border-bottom-width: 2px; border-radius: 4px; padding: 3px 6px 2px; letter-spacing: 0.08em; }
 .try-foot { margin-top: 10px; text-align: center; min-height: 1.4em; }
+/* once the hero scrolls away, the demo follows you in the corner */
+.try.docked { position: fixed; z-index: 40; right: 20px; bottom: 20px; width: min(360px, calc(100vw - 32px)); }
+.try.docked .try-min { display: inline-grid; }
+.try.docked .try-head .label:nth-child(2) { display: none; }
+.try.docked .try-out { min-height: 3.3em; max-height: 5em; font-size: 14px; }
+.try-pill { position: fixed; z-index: 40; right: 20px; bottom: 20px; display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
+            font: 500 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--surface); background: var(--ink);
+            border: 0; border-radius: 999px; padding: 12px 16px; box-shadow: 0 16px 40px -20px color-mix(in oklch, var(--ink) 70%, transparent); }
+.try-pill[hidden] { display: none; }
+.try-pill .recdot { margin: 0; background: var(--signal); animation: none; }
 .scroll-hint { display: block; position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; z-index: 2; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
@@ -179,7 +205,7 @@ h2 { font-size: clamp(30px, 5vw, 54px); max-width: 19ch; }
 .scan::after { content: ""; position: absolute; inset: 0; pointer-events: none;
   background: repeating-linear-gradient(0deg, transparent 0 2px, oklch(0 0 0 / 0.16) 2px 3px); mix-blend-mode: multiply; opacity: 0.35; }
 .cell-head { display: flex; justify-content: space-between; align-items: baseline; }
-.num { font: 500 22px/1 var(--pixel); color: var(--faint); }
+.num { font: 400 22px/1 var(--pixel); color: var(--faint); }
 .art { margin-top: 20px; height: 150px; background: var(--dark); border-radius: var(--radius); overflow: hidden; color: var(--dark-ink); }
 .art canvas { width: 100%; height: 100%; display: block; }
 .cell h3 { font-size: 22px; margin-top: 22px; }
@@ -253,7 +279,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
 
 @media (max-width: 900px) {
   .hero-row { grid-template-columns: minmax(0, 1fr); gap: 32px; }
-  .try { max-width: 460px; }
+  .try-slot { max-width: 460px; }
   .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .b-lg { grid-column: span 2; grid-row: auto; }
   .b-sm { grid-column: span 1; }
@@ -271,6 +297,8 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
   .hero .scrim { background: linear-gradient(0deg, var(--bg), transparent 30%), color-mix(in oklch, var(--bg) 62%, transparent); }
   .transcript { font-size: 15px; }
   .scroll-hint { display: none; }
+  .try.docked { left: 16px; right: 16px; bottom: 12px; width: auto; }
+  .try-pill { right: 16px; bottom: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
@@ -316,12 +344,15 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
             <button class="pill" id="handoff" type="button" title="Copies a prompt for Claude Code, Codex or any coding agent"><span class="d" aria-hidden="true">▸</span><span id="handoff-label">hand off to your agent</span></button>
           </div>
         </div>
+        <div class="try-slot" id="try-slot">
         <aside class="try rise" id="try" style="animation-delay:320ms" aria-label="Try dictation in your browser">
-          <div class="try-head"><span class="label" style="color:var(--ink)">// try it here</span><span class="label">nothing to install</span></div>
-          <div class="try-out" id="try-out" aria-live="polite"><span class="ph">Hold space and say something. Words appear as you speak.</span></div>
-          <button class="talk" id="talk" type="button"><span class="recdot" aria-hidden="true"></span><span id="talk-label">hold <kbd>space</kbd> to talk</span></button>
-          <div class="try-foot label" id="try-status">runs in this tab · 67 MB model, downloaded once</div>
+          <div class="try-head"><span class="label">// try it here</span><span class="label">nothing to install</span><button class="try-min" id="try-min" type="button" aria-label="Minimize the demo">–</button></div>
+          <div class="try-load" id="try-load" hidden><div class="bar"><i id="try-bar"></i></div><div class="label" id="try-load-text">getting the speech model…</div></div>
+          <div class="try-out" id="try-out" aria-live="polite"></div>
+          <button class="talk" id="talk" type="button"><i class="lvl" aria-hidden="true"></i><span class="recdot" aria-hidden="true"></span><span id="talk-label">hold <kbd>space</kbd> to talk</span></button>
+          <div class="try-foot label" id="try-status">runs in this tab · audio never leaves your browser</div>
         </aside>
+        </div>
       </div>
     </div>
     <a class="label scroll-hint" href="#how">↓ how it works</a>
@@ -439,6 +470,8 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
     </a>
   </section>
 </main>
+
+<button class="try-pill" id="try-pill" type="button" hidden><span class="recdot" aria-hidden="true"></span>try dictation</button>
 
 <footer>
   <div class="wrap">
@@ -620,22 +653,38 @@ void main(){
   // Worker: partial decodes show as underlined preview, the final one commits
   // on release, the way voiceio types. The mic is open only while held.
   const tryEl = document.getElementById("try");
+  const slot = document.getElementById("try-slot");
+  const pill = document.getElementById("try-pill");
   const out = document.getElementById("try-out");
   const talk = document.getElementById("talk");
+  const talkLabel = document.getElementById("talk-label");
   const statusEl = document.getElementById("try-status");
+  const loadEl = document.getElementById("try-load");
+  const bar = document.getElementById("try-bar");
+  const loadText = document.getElementById("try-load-text");
   const RATE = 16000, MAX_SECS = 20, STEP_SECS = 0.35;
   const DEBUG = new URLSearchParams(location.search).has("debug");
-  const T = { worker: null, ready: false, busy: false, want: false, live: false, session: 0,
-              chunks: [], n: 0, sent: 0, rate: RATE, pending: null, said: [], preview: "", stream: null, ctx: null, files: {} };
   const touch = matchMedia("(hover: none)").matches;
-  if (touch) document.getElementById("talk-label").textContent = "hold to talk";
-  queueMicrotask(() => render());
+  const TALK = touch ? "hold to talk" : "hold <kbd>space</kbd> to talk";
+  const TAP_URL = URL.createObjectURL(new Blob([
+    "class Tap extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('tap',Tap)",
+  ], { type: "text/javascript" }));
+  // model: idle | loading | ready | failed. `attempt` invalidates mic opens
+  // that resolve after the key was released (e.g. across a permission prompt).
+  const T = { worker: null, model: "idle", busy: false, want: false, live: false, attempt: 0, session: 0,
+              chunks: [], n: 0, sent: 0, rate: RATE, pending: null, said: [], preview: "", stream: null, ctx: null, files: {}, note: "" };
   const setStatus = (t) => (statusEl.textContent = t);
+  const setLevel = (v) => { mic.level = v; talk.style.setProperty("--lvl", v.toFixed(3)); };
 
   function render() {
     out.textContent = "";
     if (!T.said.length && !T.preview && !T.live) {
-      out.innerHTML = '<span class="ph">' + (touch ? "Hold the button" : "Hold space") + " and say something. Words appear as you speak.</span>";
+      const ph = document.createElement("span");
+      ph.className = "ph";
+      ph.textContent = T.model === "loading"
+        ? "Getting the model ready. You can already talk; it transcribes as soon as it's in."
+        : (touch ? "Hold the button" : "Hold space") + " and say something. Words appear as you speak.";
+      out.appendChild(ph);
       return;
     }
     const p = document.createElement("div");
@@ -646,14 +695,30 @@ void main(){
     out.appendChild(p);
   }
 
-  async function ensureModel() {
+  function showLoad(text, frac) {
+    loadEl.hidden = false;
+    loadText.textContent = text;
+    bar.style.width = (frac == null ? 8 : Math.max(8, frac * 100)) + "%";
+  }
+
+  function ensureModel() {
     if (T.worker) return;
+    T.model = "loading";
     T.worker = new Worker("asr-worker.js", { type: "module" });
     T.worker.onmessage = onWorker;
-    T.worker.onerror = () => setStatus("this browser couldn't run the model");
-    const webgpu = !!(navigator.gpu && (await navigator.gpu.requestAdapter().catch(() => null)));
-    T.worker.postMessage({ type: "load", webgpu });
-    setStatus("loading the speech model…");
+    T.worker.onerror = (e) => fail(e.message || "the speech model's script didn't load");
+    T.worker.postMessage({ type: "load" });
+    showLoad("getting the speech model…", null);
+    talkLabel.innerHTML = touch ? "hold to talk · model loading" : TALK;
+    render();
+  }
+  function fail(why) {
+    console.error("voiceio demo:", why);
+    T.model = "failed";
+    loadEl.hidden = true;
+    setStatus("couldn't run the model here: " + String(why).slice(0, 90));
+    talkLabel.innerHTML = TALK;
+    render();
   }
 
   // Everything is kept at the mic's own rate and resampled per decode.
@@ -663,52 +728,60 @@ void main(){
     for (const c of T.chunks) { raw.set(c, o); o += c.length; }
     const ratio = T.rate / RATE;
     if (ratio === 1) return raw;
-    const outA = new Float32Array(Math.floor(raw.length / ratio));
-    for (let i = 0; i < outA.length; i++) {
+    const res = new Float32Array(Math.floor(raw.length / ratio));
+    for (let i = 0; i < res.length; i++) {
       const a = Math.floor(i * ratio), b = Math.min(raw.length, Math.floor((i + 1) * ratio));
       let sum = 0;
       for (let j = a; j < b; j++) sum += raw[j];
-      outA[i] = sum / Math.max(1, b - a);
+      res[i] = sum / Math.max(1, b - a);
     }
-    return outA;
+    return res;
   }
   const secs = () => T.n / T.rate;
+  const ready = () => T.model === "ready";
 
   function tick() {
-    if (!T.ready || T.busy || !T.live || secs() - T.sent < STEP_SECS) return;
+    if (!ready() || T.busy || !T.live || secs() - T.sent < STEP_SECS) return;
     T.busy = true;
     T.sent = secs();
     T.worker.postMessage({ type: "decode", id: T.session, final: false, audio: audio16k() });
   }
   function flush() {
-    if (!T.ready || T.busy || !T.pending) return;
+    if (!ready() || T.busy || !T.pending) return;
     T.busy = true;
     T.worker.postMessage({ type: "decode", id: T.pending.id, final: true, audio: T.pending.audio });
     T.pending = null;
-    setStatus("finishing…");
+    if (!T.live) setStatus("finishing…");
   }
 
   function onWorker({ data }) {
-    if (data.type === "progress") {
+    if (data.type === "log") {
+      console.warn("voiceio demo:", data.message);
+    } else if (data.type === "progress") {
       T.files[data.file] = data;
       const all = Object.values(T.files);
+      const got = all.reduce((n, f) => n + (f.loaded || 0), 0), total = all.reduce((n, f) => n + (f.total || 0), 0);
       const mb = (x) => (x / 1e6).toFixed(0);
-      setStatus("downloading model · " + mb(all.reduce((n, f) => n + (f.loaded || 0), 0)) + " / " +
-        mb(all.reduce((n, f) => n + (f.total || 0), 0)) + " MB · once, then cached");
+      if (got >= total) showLoad("preparing the model…", 1);
+      else showLoad("downloading the speech model · " + mb(got) + " / " + mb(total) + " MB · once, then cached", got / total);
+      if (touch) talkLabel.textContent = "hold to talk · " + Math.round((100 * got) / Math.max(1, total)) + "%";
     } else if (data.type === "ready") {
-      T.ready = true;
-      T.modelNote = data.model + " · " + data.device + " · audio never leaves your browser";
-      setStatus(T.live ? "listening… release to finish" : T.modelNote);
+      T.model = "ready";
+      loadEl.hidden = true;
+      talkLabel.innerHTML = TALK;
+      T.note = data.model + " · in this tab · audio never leaves your browser";
+      setStatus(T.live ? "listening… release to finish" : T.note);
+      render();
       flush(); tick();
     } else if (data.type === "error") {
-      setStatus("this browser couldn't run the model");
+      fail(data.message);
     } else if (data.type === "text") {
       T.busy = false;
-      if (DEBUG) console.log("asr", data.final ? "final" : "partial", Math.round(data.ms) + "ms", secs().toFixed(1) + "s", mic.level.toFixed(3), JSON.stringify(data.text));
+      if (DEBUG) console.log("asr", data.final ? "final" : "partial", Math.round(data.ms) + "ms", JSON.stringify(data.text));
       if (data.final) {
         if (data.text) T.said.push(data.text);
         T.preview = "";
-        setStatus(T.live ? "listening… release to finish" : T.modelNote);
+        setStatus(T.live ? "listening… release to finish" : T.note);
       } else if (data.id === T.session && T.live) {
         T.preview = data.text;
       }
@@ -717,77 +790,109 @@ void main(){
     }
   }
 
-  const TAP = "class Tap extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('tap',Tap)";
   async function start() {
     if (T.want) return;
     T.want = true;
-    ensureModel();
+    const attempt = ++T.attempt;
+    const stale = () => attempt !== T.attempt || !T.want;
+    if (T.model === "idle" || T.model === "failed") { T.worker = null; ensureModel(); }
+    let stream, ctx;
     try {
-      T.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     } catch {
-      T.want = false;
-      setStatus("microphone blocked · allow it in the address bar");
+      if (attempt === T.attempt) { T.want = false; setStatus("microphone blocked · allow it in the address bar"); }
       return;
     }
-    if (!T.want) { closeMic(); setStatus("mic ready · hold again to talk"); return; }  // released during the permission prompt
-    T.ctx = new AudioContext();
-    T.rate = T.ctx.sampleRate;
-    await T.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP], { type: "text/javascript" })));
-    const node = new AudioWorkletNode(T.ctx, "tap");
+    if (stale()) {
+      stream.getTracks().forEach((t) => t.stop());
+      if (!T.want && !T.live) setStatus("microphone ready · hold again to talk");
+      return;
+    }
+    ctx = new AudioContext();
+    await ctx.resume().catch(() => {});
+    await ctx.audioWorklet.addModule(TAP_URL);
+    if (stale()) { stream.getTracks().forEach((t) => t.stop()); ctx.close(); return; }
+    const session = ++T.session;
+    const node = new AudioWorkletNode(ctx, "tap");
     node.port.onmessage = ({ data }) => {
-      if (!T.live) return;
+      if (!T.live || session !== T.session) return;
       T.chunks.push(data);
       T.n += data.length;
       let e = 0;
       for (let i = 0; i < data.length; i++) e += data[i] * data[i];
-      mic.level = Math.min(1, Math.sqrt(e / data.length) * 9);
+      setLevel(Math.min(1, Math.sqrt(e / data.length) * 9));
       if (secs() >= MAX_SECS) stop();
       else tick();
     };
-    T.ctx.createMediaStreamSource(T.stream).connect(node);
-    T.session++;
-    T.chunks = []; T.n = 0; T.sent = 0; T.preview = "";
-    T.live = true;
+    ctx.createMediaStreamSource(stream).connect(node);
+    Object.assign(T, { stream, ctx, rate: ctx.sampleRate, chunks: [], n: 0, sent: 0, preview: "", live: true });
     tryEl.classList.add("live");
     mic.wake();
-    setStatus(T.ready ? "listening… release to finish" : statusEl.textContent);
+    setStatus(ready() ? "listening… release to finish" : "listening · it transcribes once the model is in");
     render();
-    if (!T.want) stop();
-  }
-  function closeMic() {
-    T.stream?.getTracks().forEach((t) => t.stop());
-    T.ctx?.close();
-    T.stream = T.ctx = null;
   }
   function stop() {
     T.want = false;
+    T.attempt++;
+    setLevel(0);
     if (!T.live) return;
     T.live = false;
     tryEl.classList.remove("live");
-    closeMic();
-    mic.level = 0;
-    if (secs() >= 0.3) { T.pending = { id: T.session, audio: audio16k() }; setStatus(T.ready ? "finishing…" : statusEl.textContent); flush(); }
-    else T.preview = "";
+    T.stream.getTracks().forEach((t) => t.stop());
+    T.ctx.close();
+    T.stream = T.ctx = null;
+    if (secs() >= 0.3) {
+      T.pending = { id: T.session, audio: audio16k() };
+      setStatus(ready() ? "finishing…" : "got it · transcribing once the model is in");
+      flush();
+    } else {
+      T.preview = "";
+      setStatus(ready() ? T.note : "hold a little longer");
+    }
     render();
   }
 
-  // Space is push-to-talk while the demo is on screen; elsewhere it scrolls.
-  let tryVisible = false;
-  new IntersectionObserver(([e]) => (tryVisible = e.isIntersecting), { threshold: 0.3 }).observe(tryEl);
+  // Once the hero scrolls away the card docks in the corner (it glides there),
+  // and can be minimized to a pill. Space is push-to-talk only while it shows.
+  let inHero = true, minimized = false;
+  function glide(change) {
+    const a = tryEl.getBoundingClientRect();
+    change();
+    const b = tryEl.getBoundingClientRect();
+    if (still) return;
+    tryEl.animate([{ transform: `translate(${a.left - b.left}px, ${a.top - b.top}px)`, width: a.width + "px" },
+                   { transform: "none", width: b.width + "px" }], { duration: 520, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+  }
+  function layout() {
+    const docked = !inHero && !minimized;
+    pill.hidden = inHero || !minimized;
+    tryEl.style.visibility = !inHero && minimized ? "hidden" : "";
+    if (tryEl.classList.contains("docked") === docked) return;
+    slot.style.minHeight = docked ? slot.offsetHeight + "px" : "";
+    glide(() => tryEl.classList.toggle("docked", docked));
+  }
+  new IntersectionObserver(([e]) => { inHero = e.isIntersecting; layout(); }, { threshold: 0 }).observe(slot);
+  document.getElementById("try-min").addEventListener("click", () => { stop(); minimized = true; layout(); });
+  pill.addEventListener("click", () => { minimized = false; layout(); });
+  const pttActive = () => inHero ? slot.getBoundingClientRect().top < innerHeight : !minimized;
+
   addEventListener("keydown", (e) => {
-    if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey || !tryVisible) return;
-    if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]")) return;
+    if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey || !pttActive()) return;
+    if (e.target.closest && e.target.closest("input, textarea, select, button:not(#talk), [contenteditable]")) return;
     e.preventDefault();
     if (!e.repeat) start();
   });
   addEventListener("keyup", (e) => { if (e.code === "Space" && (T.want || T.live)) { e.preventDefault(); stop(); } });
   addEventListener("blur", stop);
+  document.addEventListener("visibilitychange", () => document.hidden && stop());
   talk.addEventListener("pointerdown", (e) => { e.preventDefault(); talk.setPointerCapture(e.pointerId); start(); });
   ["pointerup", "pointercancel"].forEach((ev) => talk.addEventListener(ev, stop));
   talk.addEventListener("keydown", (e) => e.code === "Enter" && e.preventDefault());
   // Fetch the model as soon as someone shows interest, not on every visit.
   tryEl.addEventListener("pointerenter", ensureModel, { once: true });
   talk.addEventListener("focus", ensureModel, { once: true });
+  talkLabel.innerHTML = TALK;
+  render();
 
   // ----------------------------------------------------- 2D halftone dither art
   function hash(x, y) { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); }
