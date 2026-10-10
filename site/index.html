@@ -3,388 +3,678 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>voiceio</title>
-<meta name="description" content="Local, open-source voice dictation for Linux that fine-tunes itself on your own voice.">
+<title>voiceio — dictation that learns you</title>
+<meta name="description" content="Local, open-source voice dictation for Linux that fine-tunes itself on your voice, overnight, on your own machine.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%2384cc3a'/%3E%3Cpath d='M3 7h2v2H3zM6 4h2v8H6zM9 6h2v4H9zM12 7h1v2h-1z' fill='%23151820'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&family=Pixelify+Sans:wght@500;600&display=swap">
 <style>
-  :root {
-    --bg: #F3F5F8;
-    --surface: #FFFFFF;
-    --ink: #15181F;
-    --muted: #5A6070;
-    --rule: #D8DCE4;
-    --mark: #C8285E;        /* proofreader's correction */
-    --learned: #1C7A52;     /* a word the model learned */
-    --learned-bg: #E3F3EB;
-    --code-bg: #E9ECF2;
-    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
-    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --bg: #0F1116; --surface: #171A21; --ink: #E7EAF1; --muted: #9AA1B1;
-      --rule: #2A2F3A; --mark: #F2668F; --learned: #57CC92; --learned-bg: #15301F;
-      --code-bg: #1C2029;
-    }
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #0F1116; --surface: #171A21; --ink: #E7EAF1; --muted: #9AA1B1;
-    --rule: #2A2F3A; --mark: #F2668F; --learned: #57CC92; --learned-bg: #15301F;
-    --code-bg: #1C2029;
-  }
+/* 1-bit dither on bone-white paper. The visual grammar (tokens, dither field,
+   Bayer-dithered WebGL hero, typewriter, hairline bento) is borrowed, with
+   thanks, from Romario Kavin's KOLlateral: github.com/RomarioKavin1/kollateral */
+:root {
+  --bg: oklch(0.975 0.001 250);
+  --bg-2: oklch(0.955 0.0015 250);
+  --surface: oklch(0.995 0.0005 250);
+  --line: oklch(0.88 0.003 250);
+  --line-strong: oklch(0.74 0.005 250);
+  --ink: oklch(0.20 0.012 265);
+  --muted: oklch(0.46 0.009 265);
+  --faint: oklch(0.62 0.006 265);
+  --miss: oklch(0.53 0.20 26);
+  --gain: oklch(0.52 0.15 152);
+  --signal: oklch(0.80 0.20 132);
+  --dark: oklch(0.17 0.01 265);
+  --dark-ink: oklch(0.96 0.003 250);
+  --radius: 3px;
+  --display: "Bricolage Grotesque", system-ui, sans-serif;
+  --mono: "Spline Sans Mono", ui-monospace, monospace;
+  --pixel: "Pixelify Sans", "Spline Sans Mono", monospace;
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-quart: cubic-bezier(0.25, 1, 0.5, 1);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 14px/1.6 var(--mono);
+  -webkit-font-smoothing: antialiased;
+  background-image: radial-gradient(oklch(0 0 0 / 0.028) 0.5px, transparent 0.6px);
+  background-size: 3px 3px;
+  overflow-x: hidden;
+}
+h1, h2, h3 { font-family: var(--display); font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; text-wrap: balance; margin: 0; }
+p { margin: 0; }
+a { color: inherit; text-decoration: none; }
+code { white-space: nowrap; font-family: var(--mono); font-size: 0.95em; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 5px; }
+::selection { background: var(--signal); color: var(--dark); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-  * { box-sizing: border-box; }
-  body {
-    background: var(--bg); color: var(--ink);
-    font: 400 17px/1.6 var(--body);
-    margin: 0;
-    padding-inline: 20px;
-  }
-  .wrap { max-width: 1080px; margin: 0 auto; }
-  a { color: inherit; text-decoration-color: var(--mark); text-underline-offset: 3px; }
-  a:focus-visible, button:focus-visible { outline: 2px solid var(--mark); outline-offset: 3px; border-radius: 4px; }
-  h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
-  p { margin: 0; max-width: 62ch; }
-  code, kbd, .mono { font-family: var(--mono); font-size: 0.9em; }
-  kbd { border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); }
+.wrap { max-width: 1152px; margin: 0 auto; padding: 0 24px; }
+.label { font: 400 10px/1.4 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+.pixel { font-family: var(--pixel); }
+.io { background: var(--signal); color: var(--dark); padding: 0 0.14em; border-radius: 2px; }
+.app-dither { position: fixed; inset: 0; z-index: -1; opacity: 0.11; pointer-events: none; color: var(--ink); }
+.app-dither canvas { width: 100%; height: 100%; display: block; }
 
-  /* top bar */
-  .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px;
-         padding-block: 22px; }
-  .wordmark { font: 800 22px/1 var(--display); letter-spacing: -0.02em; text-decoration: none; }
-  .wordmark span { color: var(--mark); }
-  .bar nav { display: flex; gap: 20px; font-size: 15px; color: var(--muted); flex-wrap: wrap; }
-  .bar nav a { text-decoration: none; }
-  .bar nav a:hover { color: var(--ink); }
+/* ---- header ---- */
+.top { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid var(--line);
+       background: color-mix(in oklch, var(--bg) 86%, transparent); backdrop-filter: blur(8px); }
+.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 54px; gap: 16px; }
+.brand { font: 600 17px/1 var(--pixel); letter-spacing: 0.06em; display: inline-flex; align-items: center; gap: 2px; }
+.top nav { display: flex; gap: 22px; }
+.top nav a { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); transition: color .2s var(--ease-quart); }
+.top nav a:hover { color: var(--ink); }
+.gh { font: 500 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; background: var(--ink); color: var(--surface);
+      padding: 9px 13px; border-radius: var(--radius); display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }
+.gh:hover { background: color-mix(in oklch, var(--ink) 85%, var(--signal)); }
 
-  /* hero */
-  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center;
-          padding-block: 40px 72px; }
-  .eyebrow { font: 500 13px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.12em;
-             color: var(--muted); margin-bottom: 18px; }
-  .hero h1 { font-size: clamp(42px, 6.2vw, 76px); line-height: 0.98; font-weight: 800; }
-  .hero h1 em { font-style: normal; color: var(--learned); }
-  .hero .lede { margin-top: 22px; font-size: 19px; color: var(--muted); }
-  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; align-items: center; }
-  .btn { font: 600 15px/1 var(--body); padding: 13px 18px; border-radius: 8px; text-decoration: none;
-         border: 1px solid var(--ink); background: var(--ink); color: var(--bg); cursor: pointer; }
-  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
+/* ---- hero ---- */
+.hero { position: relative; overflow: hidden; min-height: min(92vh, 900px); border-bottom: 1px solid var(--line); }
+.hero canvas.gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hero .veil { position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, oklch(0 0 0 / 0.16) 2px 3px); mix-blend-mode: multiply; opacity: 0.3; }
+.hero .scrim { position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--bg) 86%, transparent) 0%, color-mix(in oklch, var(--bg) 48%, transparent) 36%, transparent 66%),
+    linear-gradient(0deg, var(--bg), transparent 24%),
+    linear-gradient(180deg, color-mix(in oklch, var(--bg) 45%, transparent), transparent 14%); }
+.hero-in { position: relative; z-index: 2; min-height: min(92vh, 900px); display: flex; flex-direction: column; justify-content: center; padding-block: 72px 96px; }
+.hero h1 { font-size: clamp(44px, 8.6vw, 112px); line-height: 0.94; margin-top: 18px; max-width: 13ch; min-height: 1.88em; font-weight: 800; }
+.hero h1 .pre { text-decoration: underline; text-decoration-thickness: 0.05em; text-underline-offset: 0.1em; text-decoration-color: var(--faint); color: color-mix(in oklch, var(--ink) 72%, var(--bg)); }
+.lede { max-width: 52ch; margin-top: 22px; min-height: 5em; font-size: 15px; color: var(--muted); transition: color .2s var(--ease-quart); }
+.lede.on { color: var(--ink); }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px; align-items: center; }
+.pill { display: inline-flex; align-items: center; gap: 9px; padding: 8px 14px 8px 12px; border: 1px solid var(--line-strong); border-radius: 999px;
+        font-size: 12px; color: var(--muted); background: color-mix(in oklch, var(--bg) 70%, transparent); transition: color .2s var(--ease-quart), border-color .2s var(--ease-quart); }
+.pill:hover { color: var(--ink); border-color: var(--ink); }
+.pill.solid { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.pill.solid:hover { color: var(--surface); background: color-mix(in oklch, var(--ink) 85%, var(--signal)); }
+.pill .d { color: var(--signal); }
+.tenets { margin-top: 34px; }
+.tenets .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.tenet { font: 500 11px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); background: transparent;
+         border: 1px solid var(--line); border-radius: 999px; padding: 8px 13px; cursor: pointer; transition: color .18s, border-color .18s, background .18s; }
+.tenet:hover, .tenet:focus-visible, .tenet[aria-pressed="true"] { color: var(--dark); background: var(--signal); border-color: var(--signal); }
+.scroll-hint { display: block; position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; z-index: 2; }
 
-  /* the dictation pane: the page's one bold object */
-  .pane { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
-          box-shadow: 0 18px 40px -24px rgb(20 24 32 / 0.35); overflow: hidden; }
-  .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-               padding: 12px 16px; border-bottom: 1px solid var(--rule); font: 500 13px/1 var(--mono);
-               color: var(--muted); flex-wrap: wrap; }
-  .rec { display: inline-flex; align-items: center; gap: 8px; }
-  .rec::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--mark);
-                 animation: pulse 1.4s ease-in-out infinite; }
-  .toggle { display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; padding: 3px; }
-  .toggle button { font: 500 12px/1 var(--mono); border: 0; background: transparent; color: var(--muted);
-                   padding: 7px 10px; border-radius: 999px; cursor: pointer; }
-  .toggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
-  .transcript { padding: 26px 22px 30px; font: 400 19px/1.75 var(--mono); min-height: 8.5em; }
-  .preedit { text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 5px; }
-  .miss { color: var(--mark); text-decoration: line-through; text-decoration-thickness: 2px; }
-  .fix { color: var(--learned); background: var(--learned-bg); border-radius: 3px; padding: 0 2px; }
-  .caret { display: inline-block; width: 2px; height: 1.1em; background: var(--ink); vertical-align: -0.2em;
-           margin-left: 1px; animation: blink 1s steps(1) infinite; }
-  .pane-foot { padding: 12px 16px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--muted); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes swap { from { opacity: 0; transform: translateY(9px); filter: blur(3px); } to { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes blink { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
+@keyframes flick { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes rec { 0%, 100% { box-shadow: 0 0 0 3px color-mix(in oklch, var(--miss) 24%, transparent); } 50% { box-shadow: 0 0 0 6px color-mix(in oklch, var(--miss) 6%, transparent); } }
+.rise { animation: rise .7s var(--ease-expo) both; }
+.swap { display: inline-block; animation: swap .42s var(--ease-quart) both; }
+.flick { animation: flick 1.4s steps(2) infinite; }
+.caret { display: inline-block; width: 0.07em; min-width: 3px; height: 0.74em; margin-left: 0.06em; vertical-align: -0.04em; background: currentColor; animation: blink .9s steps(1) infinite; }
 
-  @keyframes pulse { 50% { opacity: 0.35; } }
-  @keyframes blink { 50% { opacity: 0; } }
+/* ---- sections ---- */
+section.block { padding-top: clamp(64px, 11vw, 132px); }
+section.block:last-of-type { padding-bottom: clamp(64px, 10vw, 120px); }
+.kicker { margin-bottom: 10px; }
+h2 { font-size: clamp(30px, 5vw, 54px); max-width: 19ch; }
+.sub { margin-top: 16px; max-width: 58ch; color: var(--muted); font-size: 14px; }
 
-  /* sections */
-  section { padding-block: 64px; border-top: 1px solid var(--rule); }
-  .section-head { display: grid; grid-template-columns: 1fr 1.4fr; gap: 40px; margin-bottom: 36px; }
-  .section-head h2 { font-size: clamp(30px, 3.6vw, 44px); line-height: 1.05; font-weight: 700; }
-  .section-head p { color: var(--muted); }
+.grid3 { margin-top: 52px; display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); background: var(--line); border: 1px solid var(--line); }
+.cell { min-width: 0; position: relative; background: var(--bg); padding: 28px 26px 32px; display: flex; flex-direction: column; }
+.scan::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, oklch(0 0 0 / 0.16) 2px 3px); mix-blend-mode: multiply; opacity: 0.35; }
+.cell-head { display: flex; justify-content: space-between; align-items: baseline; }
+.num { font: 500 22px/1 var(--pixel); color: var(--faint); }
+.art { margin-top: 20px; height: 150px; background: var(--dark); border-radius: var(--radius); overflow: hidden; color: var(--dark-ink); }
+.art canvas { width: 100%; height: 100%; display: block; }
+.cell h3 { font-size: 22px; margin-top: 22px; }
+.cell p { margin-top: 12px; color: var(--muted); font-size: 13.5px; line-height: 1.7; }
 
-  /* the learning loop is a real sequence, so it is numbered */
-  .loop { list-style: none; margin: 0; padding: 0; display: grid; gap: 0;
-          grid-template-columns: repeat(5, 1fr); counter-reset: step; }
-  .loop li { counter-increment: step; padding: 18px 18px 18px 0; border-top: 2px solid var(--ink); }
-  .loop li + li { padding-left: 18px; }
-  .loop li::before { content: counter(step); display: block; font: 500 13px/1 var(--mono);
-                     color: var(--mark); margin-bottom: 14px; }
-  .loop h3 { font-size: 19px; font-weight: 700; margin-bottom: 8px; }
-  .loop p { font-size: 15px; color: var(--muted); }
-  .loop code { font-size: 13px; }
+.bento { margin-top: 52px; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.b-lg { grid-column: span 4; grid-row: span 2; }
+.b-sm { grid-column: span 2; }
+.b-wide { grid-column: span 6; }
 
-  /* the measured result */
-  .result { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
-  .figure { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 26px; }
-  .bars { display: grid; gap: 18px; }
-  .row-label { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 7px;
-               font-variant-numeric: tabular-nums; }
-  .row-label b { font: 600 15px/1 var(--mono); }
-  .track { height: 14px; background: var(--code-bg); border-radius: 4px; overflow: hidden; }
-  .fill { height: 100%; border-radius: 4px; }
-  .fill.stock { background: var(--muted); }
-  .fill.tuned { background: var(--learned); }
-  .figure figcaption { margin-top: 18px; font-size: 14px; color: var(--muted); }
-  .facts { display: grid; gap: 20px; }
-  .facts div { border-left: 2px solid var(--rule); padding-left: 16px; }
-  .facts h3 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-  .facts p { font-size: 15px; color: var(--muted); }
+/* the dictation pane */
+.pane { margin-top: 22px; flex: 1; background: var(--dark); color: var(--dark-ink); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
+.pane-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px;
+             border-bottom: 1px solid color-mix(in oklch, var(--dark-ink) 14%, transparent); }
+.pane .label { color: color-mix(in oklch, var(--dark-ink) 60%, transparent); }
+.recdot { display: inline-block; width: 7px; height: 7px; border-radius: 999px; background: var(--miss); margin-right: 8px; vertical-align: 1px; animation: rec 1.6s ease-in-out infinite; }
+.seg { display: inline-flex; border: 1px solid color-mix(in oklch, var(--dark-ink) 22%, transparent); border-radius: 999px; overflow: hidden; }
+.seg button { font: 500 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; border: 0; background: transparent;
+              color: color-mix(in oklch, var(--dark-ink) 62%, transparent); padding: 8px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid color-mix(in oklch, var(--dark-ink) 22%, transparent); }
+.seg button[aria-pressed="true"] { background: var(--signal); color: var(--dark); }
+.transcript { min-height: 5.8em; padding: 22px 20px; font: 400 17px/1.8 var(--mono); }
+.transcript .pre { text-decoration: underline; text-decoration-color: color-mix(in oklch, var(--dark-ink) 45%, transparent); text-underline-offset: 5px; }
+.transcript .miss { color: oklch(0.70 0.18 26); text-decoration: line-through; text-decoration-thickness: 2px; }
+.transcript .fix { background: var(--signal); color: var(--dark); border-radius: 2px; padding: 0 2px; }
+.pane-wave { flex: 1; min-height: 90px; color: var(--dark-ink); opacity: 0.85; }
+.pane-wave canvas { width: 100%; height: 100%; display: block; }
+.pane-foot { padding: 11px 14px; border-top: 1px solid color-mix(in oklch, var(--dark-ink) 14%, transparent); font-size: 12px; color: color-mix(in oklch, var(--dark-ink) 66%, transparent); }
 
-  /* privacy ledger */
-  .ledger { width: 100%; border-collapse: collapse; font-size: 15px; }
-  .ledger th, .ledger td { text-align: left; padding: 12px 14px 12px 0; border-bottom: 1px solid var(--rule);
-                           vertical-align: top; }
-  .ledger th { font: 500 12px/1.2 var(--mono); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
-  .ledger td:first-child { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
-  .pill { display: inline-block; font: 500 12px/1 var(--mono); padding: 5px 8px; border-radius: 999px;
-          border: 1px solid var(--rule); white-space: nowrap; }
-  .pill.on { color: var(--learned); border-color: var(--learned); }
-  .pill.off { color: var(--muted); }
-  .table-scroll { overflow-x: auto; }
+/* measured result */
+.meter { margin-top: 18px; display: grid; gap: 14px; }
+.meter .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.meter .row b { color: var(--ink); font-weight: 600; }
+.track { height: 9px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
+.fill { height: 100%; border-radius: 999px; width: 0; transition: width 1.2s var(--ease-expo); }
+.fill.stock { background: repeating-linear-gradient(90deg, var(--muted) 0 3px, transparent 3px 5px); }
+.fill.tuned { background: var(--gain); }
+.big { font: 800 clamp(44px, 6vw, 64px)/1 var(--display); letter-spacing: -0.03em; margin-top: 18px; }
+.big small { font: 400 12px/1.4 var(--mono); letter-spacing: 0; color: var(--muted); display: block; margin-top: 8px; }
+.fine { margin-top: auto; padding-top: 18px; font-size: 11px; color: var(--faint); line-height: 1.6; }
 
-  /* install */
-  .install { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-  .cmd { background: var(--code-bg); border-radius: 10px; padding: 18px; position: relative; }
-  .cmd h3 { font: 600 15px/1 var(--body); margin-bottom: 12px; }
-  .cmd pre { margin: 0; font: 400 14px/1.7 var(--mono); overflow-x: auto; white-space: pre; }
-  .cmd pre .c { color: var(--muted); }
-  .copy { position: absolute; top: 12px; right: 12px; font: 500 12px/1 var(--mono); border: 1px solid var(--rule);
-          background: var(--surface); color: var(--ink); border-radius: 6px; padding: 7px 9px; cursor: pointer; }
-  .distros { margin-top: 24px; color: var(--muted); font-size: 15px; }
+/* privacy ledger */
+.ledger { width: 100%; min-width: 560px; border-collapse: collapse; margin-top: 18px; font-size: 13px; }
+.ledger th, .ledger td { text-align: left; padding: 11px 14px 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ledger th { font: 400 10px/1.4 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); font-weight: 400; }
+.ledger tr:last-child td { border-bottom: 0; }
+.ledger td:first-child { color: var(--ink); white-space: nowrap; font-weight: 500; }
+.ledger td:nth-child(2) { color: var(--muted); }
+.chip { font: 400 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; white-space: nowrap; color: var(--muted); display: inline-block; }
+.chip.on { border-color: color-mix(in oklch, var(--gain) 50%, var(--line)); color: var(--gain); background: color-mix(in oklch, var(--gain) 8%, var(--surface)); }
+.table-scroll { overflow-x: auto; }
 
-  footer { border-top: 1px solid var(--rule); padding-block: 32px 48px; display: flex; gap: 24px;
-           justify-content: space-between; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+/* install */
+.cmds { margin-top: 52px; display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); background: var(--line); border: 1px solid var(--line); }
+.cmd { background: var(--bg); padding: 22px 22px 24px; position: relative; }
+.cmd pre { margin: 16px 0 0; font: 400 13px/1.75 var(--mono); overflow-x: auto; background: var(--dark); color: var(--dark-ink); padding: 16px 18px; border-radius: var(--radius); }
+.cmd pre .c { color: color-mix(in oklch, var(--dark-ink) 50%, transparent); }
+.cmd pre .p { color: var(--signal); }
+.copy { position: absolute; top: 18px; right: 18px; font: 500 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
+        border: 1px solid var(--line-strong); background: transparent; color: var(--muted); border-radius: var(--radius); padding: 7px 11px; cursor: pointer; transition: color .18s, border-color .18s; }
+.copy:hover { color: var(--ink); border-color: var(--ink); }
+.after { margin-top: 18px; color: var(--muted); font-size: 13px; }
+.after a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
 
-  @media (max-width: 860px) {
-    .hero, .section-head, .result, .install { grid-template-columns: 1fr; gap: 28px; }
-    .loop { grid-template-columns: 1fr; }
-    .loop li, .loop li + li { padding: 16px 0; }
-    .transcript { font-size: 17px; min-height: 9em; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .rec::before, .caret { animation: none; }
-  }
+.banner { margin-top: clamp(56px, 8vw, 90px); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+          padding: 18px 22px; border: 1px solid var(--line); border-radius: var(--radius); position: relative; transition: border-color .2s; }
+.banner:hover { border-color: var(--ink); }
+footer { border-top: 1px solid var(--line); margin-top: 40px; }
+footer .wrap { padding-block: 28px 48px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+footer a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+
+@media (max-width: 900px) {
+  .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .b-lg { grid-column: span 2; grid-row: auto; }
+  .b-sm { grid-column: span 1; }
+  .b-wide { grid-column: span 2; }
+  .top nav { display: none; }
+}
+@media (max-width: 600px) {
+  .wrap { padding: 0 16px; }
+  .bento { grid-template-columns: minmax(0, 1fr); }
+  .hero, .hero-in { min-height: 0; }
+  .hero-in { padding-block: 56px 72px; }
+  .b-lg, .b-sm, .b-wide { grid-column: span 1; }
+  .hero .scrim { background: linear-gradient(0deg, var(--bg), transparent 30%), color-mix(in oklch, var(--bg) 62%, transparent); }
+  .transcript { font-size: 15px; }
+  .scroll-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  html { scroll-behavior: auto; }
+}
 </style>
 </head>
 <body>
+<div class="app-dither" aria-hidden="true"><canvas data-shape="field" data-gap="5"></canvas></div>
 
-<div class="wrap">
-  <header class="bar">
-    <a class="wordmark" href="#top" aria-label="voiceio home">voice<span>io</span></a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
     <nav aria-label="Sections">
-      <a href="#learns">How it learns</a>
-      <a href="#private">Private</a>
+      <a href="#how">How it works</a>
+      <a href="#proof">Proof</a>
+      <a href="#private">Privacy</a>
       <a href="#install">Install</a>
-      <a href="https://github.com/Hugo0/voiceio">GitHub</a>
     </nav>
-  </header>
+    <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
 
-  <main id="top">
-    <div class="hero">
-      <div>
-        <p class="eyebrow">Linux · open source · MIT</p>
-        <h1>Dictation that <em>learns you.</em></h1>
-        <p class="lede">Press a hotkey, speak, and the words stream into whatever app has focus. Everything runs on your machine — and overnight, voiceio trains a model on your own voice, so the names and jargon you say most stop coming out wrong.</p>
-        <div class="cta">
-          <a class="btn" href="#install">Install voiceio</a>
-          <a class="btn ghost" href="https://github.com/Hugo0/voiceio">Read the code</a>
+<main id="top">
+  <section class="hero" aria-label="voiceio">
+    <canvas class="gl" aria-hidden="true"></canvas>
+    <div class="veil" aria-hidden="true"></div>
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="wrap hero-in">
+      <div class="label rise"><span class="recdot" aria-hidden="true"></span>ctrl+alt+v · listening</div>
+      <h1 class="rise" style="animation-delay:80ms" aria-live="polite"><span id="h1">DICTATION THAT LEARNS YOU.</span><span class="caret" aria-hidden="true"></span></h1>
+      <p class="lede rise" style="animation-delay:180ms"><span id="lede" class="swap"></span></p>
+      <div class="cta rise" style="animation-delay:250ms">
+        <a class="pill solid" href="#install"><span class="d" aria-hidden="true">◇</span>pipx install python-voiceio</a>
+        <a class="pill" href="https://github.com/Hugo0/voiceio">read the source <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="tenets rise" style="animation-delay:360ms">
+        <div class="label" id="tenet-label">// hover a promise</div>
+        <div class="row" role="group" aria-labelledby="tenet-label">
+          <button class="tenet" type="button" data-k="local">local</button>
+          <button class="tenet" type="button" data-k="private">private</button>
+          <button class="tenet" type="button" data-k="learns">self-improving</button>
+          <button class="tenet" type="button" data-k="open">open source</button>
+          <button class="tenet" type="button" data-k="linux">linux</button>
         </div>
       </div>
-
-      <figure class="pane" aria-label="A dictation, as typed by the stock model and by your fine-tuned one">
-        <div class="pane-head">
-          <span class="rec">Ctrl+Alt+V · listening</span>
-          <span class="toggle" role="group" aria-label="Model">
-            <button type="button" id="m-stock" aria-pressed="false">stock model</button>
-            <button type="button" id="m-tuned" aria-pressed="true">tuned on you</button>
-          </span>
-        </div>
-        <div class="transcript" id="transcript" aria-live="polite"></div>
-        <div class="pane-foot" id="pane-note">The underline is the live preview; it commits when you stop.</div>
-      </figure>
     </div>
+    <a class="label scroll-hint" href="#how">↓ how it works</a>
+  </section>
 
-    <section id="learns">
-      <div class="section-head">
-        <h2>It gets better at your words the longer you use it.</h2>
-        <p>Speech models stumble on exactly what you say most: colleagues' names, your project, your stack. A vocabulary helps right away. Fine-tuning fixes it for good — on your laptop's CPU, while you sleep, with nothing uploaded.</p>
-      </div>
-      <ol class="loop">
-        <li><h3>You dictate</h3><p>If you opt in, each recording is kept on your disk, next to its transcript.</p></li>
-        <li><h3>A teacher listens</h3><p>A bigger Whisper model re-transcribes your clips at idle priority.</p></li>
-        <li><h3>A model trains</h3><p>A small LoRA fine-tune on your voice, on CPU. No GPU required.</p></li>
-        <li><h3>It's tested</h3><p>Scored on clips it never saw, clip by clip, with a confidence interval.</p></li>
-        <li><h3>You decide</h3><p>A notification if it wins. <code>voiceio learn promote</code> switches; rollback is one command.</p></li>
-      </ol>
-      <p class="distros" style="margin-top:22px">Turn it on once: <code>voiceio learn schedule on</code>. It runs nightly and never switches models by itself.</p>
-    </section>
+  <section class="block wrap" id="how">
+    <div class="label kicker">// how it works</div>
+    <h2>Speak. It types. Tonight, it learns.</h2>
+    <div class="grid3">
+      <article class="cell scan">
+        <div class="cell-head"><span class="num">01</span><span class="label">speak</span></div>
+        <div class="art"><canvas data-shape="wave" data-gap="4"></canvas></div>
+        <h3>Words land where you type.</h3>
+        <p>Press <code>Ctrl+Alt+V</code> and talk. Text streams into the focused app — editor, browser, terminal — and commits the moment you stop.</p>
+      </article>
+      <article class="cell scan">
+        <div class="cell-head"><span class="num">02</span><span class="label">learn</span></div>
+        <div class="art"><canvas data-shape="loop" data-gap="4"></canvas></div>
+        <h3>It trains while you sleep.</h3>
+        <p>Overnight, on your CPU, voiceio fine-tunes Whisper on your own recordings. The names and jargon you say most stop coming out wrong.</p>
+      </article>
+      <article class="cell scan">
+        <div class="cell-head"><span class="num">03</span><span class="label">prove</span></div>
+        <div class="art"><canvas data-shape="signal" data-gap="4"></canvas></div>
+        <h3>It only switches when it wins.</h3>
+        <p>Each new model is scored on clips it never trained on. It goes live only if it beats yours. Rollback is one command.</p>
+      </article>
+    </div>
+  </section>
 
-    <section>
-      <div class="result">
-        <figure class="figure" style="margin:0">
-          <div class="bars">
-            <div>
-              <div class="row-label"><span>Word errors, stock model</span><b>12.1%</b></div>
-              <div class="track"><div class="fill stock" style="width:60.5%"></div></div>
-            </div>
-            <div>
-              <div class="row-label"><span>Word errors, after one night</span><b>5.0%</b></div>
-              <div class="track"><div class="fill tuned" style="width:25%"></div></div>
-            </div>
+  <section class="block wrap" id="proof">
+    <div class="label kicker">// proof</div>
+    <h2>One night of training. 60% fewer errors.</h2>
+    <div class="bento">
+      <div class="cell b-lg scan">
+        <div class="cell-head"><span class="num">01</span><span class="label">same sentence, two models</span></div>
+        <figure class="pane" style="margin:22px 0 0" aria-label="One dictation, decoded by stock Whisper and by a model tuned on the speaker">
+          <div class="pane-head">
+            <span class="label"><span class="recdot" aria-hidden="true"></span>dictating</span>
+            <span class="seg" role="group" aria-label="Model">
+              <button type="button" data-m="stock" aria-pressed="false">stock whisper</button>
+              <button type="button" data-m="tuned" aria-pressed="true">tuned on you</button>
+            </span>
           </div>
-          <figcaption>The author's dictation: 44 held-out clips (50 minutes) the model never trained on, after one overnight run on a laptop CPU. Same speed. Bars run from 0 to 20%.</figcaption>
+          <div class="transcript" id="transcript" aria-live="polite"></div>
+          <div class="pane-wave" aria-hidden="true"><canvas data-shape="wave" data-gap="3"></canvas></div>
+          <div class="pane-foot" id="pane-note">Underlined text is the live preview; it commits when you stop.</div>
         </figure>
-        <div class="facts">
-          <div><h3>Measured, not promised</h3><p><code>voiceio learn eval</code> scores any model on your clips — word error rate, how often your terms come out right, and how long you wait after you stop.</p></div>
-          <div><h3>Promotion has to win</h3><p>A fine-tune replaces your model only when it beats it on everything; <code>promote</code> refuses otherwise and tells you why.</p></div>
-          <div><h3>Your phone too</h3><p>Run the same stack headless on a home server and dictate from your phone with your vocabulary, corrections and model.</p></div>
+        <h3 style="font-size:26px;margin-top:24px">Your names stop coming out wrong.</h3>
+        <p style="max-width:52ch">Stock models stumble on exactly the words you say most: people, products, your stack. A vocabulary helps on day one. Fine-tuning fixes them for good.</p>
+      </div>
+      <div class="cell b-sm scan">
+        <div class="cell-head"><span class="num">02</span><span class="label">word error rate</span></div>
+        <div class="meter" id="meter">
+          <div><div class="row"><span>stock whisper-small</span><b>12.1%</b></div><div class="track"><div class="fill stock" data-w="60.5"></div></div></div>
+          <div><div class="row"><span>after one night</span><b>4.9%</b></div><div class="track"><div class="fill tuned" data-w="24.5"></div></div></div>
+        </div>
+        <div class="big">4.6×<small>faster than realtime, on a laptop CPU — quicker than stock (3.6×).</small></div>
+        <p class="fine">44 held-out clips, 50 minutes of the author's dictation, scored against a larger Whisper's transcripts.</p>
+      </div>
+      <div class="cell b-sm scan">
+        <div class="cell-head"><span class="num">03</span><span class="label">measured, not promised</span></div>
+        <h3 style="font-size:21px;margin-top:20px">Run the numbers on your voice.</h3>
+        <p><code>voiceio learn eval</code> scores any model on your own clips: word errors, how often your terms come out right, and how long you wait after you stop.</p>
+        <p class="fine">Promotion needs a paired, clip-by-clip win, not a lucky average.</p>
+      </div>
+      <div class="cell b-wide scan" id="private">
+        <div class="cell-head"><span class="num">04</span><span class="label">private by construction</span></div>
+        <h3 style="font-size:24px;margin-top:20px">What it keeps, and where. All of it on your disk.</h3>
+        <p style="max-width:64ch">No account. No server. No telemetry. Logs record sizes and timings, never your words. Everything that holds your voice is off until you turn it on.</p>
+        <div class="table-scroll">
+          <table class="ledger">
+            <thead><tr><th>File</th><th>What it holds</th><th>Default</th></tr></thead>
+            <tbody>
+              <tr><td>vocabulary.txt</td><td>Your names and terms, ranked by how often you say them</td><td><span class="chip on">yours to edit</span></td></tr>
+              <tr><td>history.jsonl</td><td>Recent dictations, so context can guide the next one</td><td><span class="chip on">on · capped</span></td></tr>
+              <tr><td>recordings/*.wav</td><td>The audio fine-tuning learns from</td><td><span class="chip">off · setup asks</span></td></tr>
+              <tr><td>learn/models/</td><td>Your fine-tuned models</td><td><span class="chip">only if you train</span></td></tr>
+              <tr><td>[cloud]</td><td>An optional cleanup pass that sends text, never audio</td><td><span class="chip">off</span></td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section id="private">
-      <div class="section-head">
-        <h2>Private by construction.</h2>
-        <p>Speech is decoded on your machine. There is no telemetry. Logs record sizes and timings, never your words. What voiceio keeps is plain files you can read and delete — and the things that hold your voice are off until you choose.</p>
+  <section class="block wrap" id="install">
+    <div class="label kicker">// install</div>
+    <h2>Two commands to your first sentence.</h2>
+    <p class="sub">Wayland and X11 — GNOME, KDE, Hyprland, sway, i3. voiceio probes your desktop and picks what works; <code>voiceio doctor --fix</code> repairs the rest.</p>
+    <div class="cmds">
+      <div class="cmd">
+        <span class="label">debian / ubuntu</span>
+        <button type="button" class="copy" data-copy="c1">copy</button>
+<pre id="c1"><span class="c"># system packages, then voiceio</span>
+<span class="p">$</span> sudo apt install pipx build-essential python3-dev \
+    portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi
+<span class="p">$</span> pipx install 'python-voiceio[desktop]'
+<span class="p">$</span> voiceio setup</pre>
       </div>
-      <div class="table-scroll">
-        <table class="ledger">
-          <thead><tr><th>File</th><th>What it holds</th><th>Default</th></tr></thead>
-          <tbody>
-            <tr><td>vocabulary.txt</td><td>Your names and terms, ranked by how often you say them</td><td><span class="pill on">yours to edit</span></td></tr>
-            <tr><td>history.jsonl</td><td>What you dictated, so recent text can guide the next one</td><td><span class="pill on">on · capped</span></td></tr>
-            <tr><td>recordings/*.wav</td><td>The audio fine-tuning learns from</td><td><span class="pill off">off · setup asks</span></td></tr>
-            <tr><td>learn/models/</td><td>Your fine-tuned models</td><td><span class="pill off">only if you train</span></td></tr>
-            <tr><td>[postcorrect]</td><td>An optional cloud pass that sends text, never audio</td><td><span class="pill off">off</span></td></tr>
-          </tbody>
-        </table>
+      <div class="cmd">
+        <span class="label">then</span>
+        <button type="button" class="copy" data-copy="c2">copy</button>
+<pre id="c2"><span class="c"># ctrl+alt+v, speak, ctrl+alt+v</span>
+<span class="p">$</span> voiceio vocab add Kalshi     <span class="c"># a name, right away</span>
+<span class="p">$</span> voiceio learn schedule on    <span class="c"># learn every night</span>
+<span class="p">$</span> voiceio doctor               <span class="c"># what works, what doesn't</span></pre>
       </div>
-    </section>
+    </div>
+    <p class="after">Fedora, Arch and NixOS: see the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>. Python 3.11+. MIT licensed.</p>
 
-    <section id="install">
-      <div class="section-head">
-        <h2>From install to your first sentence.</h2>
-        <p>Wayland and X11, GNOME, KDE, Hyprland, sway and i3. voiceio probes what works on your desktop and picks the backends itself; <code>voiceio doctor --fix</code> repairs what it can.</p>
-      </div>
-      <div class="install">
-        <div class="cmd">
-          <h3>Debian / Ubuntu</h3>
-          <button type="button" class="copy" data-copy="ubuntu">Copy</button>
-          <pre id="ubuntu"><span class="c"># system packages, then voiceio</span>
-sudo apt install pipx build-essential python3-dev \
-  portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi
-pipx install 'python-voiceio[desktop]'
-voiceio setup</pre>
-        </div>
-        <div class="cmd">
-          <h3>Then</h3>
-          <button type="button" class="copy" data-copy="then">Copy</button>
-          <pre id="then"><span class="c"># press Ctrl+Alt+V, speak, press it again</span>
-voiceio doctor            <span class="c"># what works, what doesn't</span>
-voiceio vocab add Kalshi  <span class="c"># a name, right away</span>
-voiceio learn schedule on <span class="c"># learn every night</span></pre>
-        </div>
-      </div>
-      <p class="distros">Fedora, Arch and NixOS instructions are in the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>. Python 3.11+.</p>
-    </section>
-  </main>
+    <a class="banner scan" href="https://github.com/Hugo0/voiceio">
+      <span class="label" style="color:var(--ink)">◇ star voiceio on github · issues and ideas welcome</span>
+      <span class="label">open ↗</span>
+    </a>
+  </section>
+</main>
 
-  <footer>
-    <span>voiceio — MIT licensed. Built on <a href="https://github.com/SYSTRAN/faster-whisper">faster-whisper</a>.</span>
-    <span><a href="https://github.com/Hugo0/voiceio">GitHub</a> · <a href="https://pypi.org/project/python-voiceio/">PyPI</a> · <a href="https://github.com/Hugo0/voiceio/releases">Releases</a></span>
-  </footer>
-</div>
+<footer>
+  <div class="wrap">
+    <span class="brand" style="color:var(--faint);font-size:14px">VOICE<span class="io">IO</span></span>
+    <span class="label">local · private · learns you · built on <a href="https://github.com/SYSTRAN/faster-whisper">faster-whisper</a> · design after <a href="https://github.com/RomarioKavin1/kollateral">kollateral</a></span>
+  </div>
+</footer>
 
 <script>
 (() => {
-  // The same dictation, decoded two ways. Each part: [text, kind] where kind
-  // marks a term the stock model misses and the tuned model learned.
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------------------------------------------------------------- hero copy
+  const COPY = {
+    default: ["DICTATION THAT LEARNS YOU.",
+      "Press a hotkey, speak, and your words appear in any Linux app. It runs entirely on your machine — and every night it trains on your voice, so it gets your names right."],
+    local: ["NOTHING LEAVES THIS MACHINE.",
+      "Whisper runs on your own CPU. No account, no server, no upload — it works on a plane."],
+    private: ["YOUR VOICE STAYS YOURS.",
+      "No telemetry. Logs keep timings, never words. Recordings are off until you choose, and they're plain files you can read and delete."],
+    learns: ["IT TRAINS WHILE YOU SLEEP.",
+      "A nightly fine-tune on your own dictation. It replaces your model only when it wins on clips it never saw."],
+    open: ["READ EVERY LINE.",
+      "MIT licensed Python on GitHub and PyPI. The training, the eval, the privacy rules — all in the open."],
+    linux: ["BUILT FOR LINUX FIRST.",
+      "Wayland and X11, GNOME to sway. Streams through IBus into any app, with a live preview as you speak."],
+  };
+  const h1 = document.getElementById("h1");
+  const lede = document.getElementById("lede");
+  const tenets = [...document.querySelectorAll(".tenet")];
+  let typing = 0, current = "default";
+
+  // Types the heading like a dictation: underlined preview, then commit.
+  function say(key) {
+    if (key === current) return;
+    current = key;
+    const [head, body] = COPY[key];
+    tenets.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === key)));
+    lede.parentElement.classList.toggle("on", key !== "default");
+    lede.classList.remove("swap"); void lede.offsetWidth; lede.classList.add("swap");
+    lede.textContent = body;
+    clearInterval(typing);
+    if (still) { h1.textContent = head; return; }
+    let i = 0;
+    typing = setInterval(() => {
+      i += 1 + (Math.random() < 0.35);
+      if (i >= head.length) { clearInterval(typing); h1.textContent = head; return; }
+      h1.innerHTML = "";
+      const pre = document.createElement("span");
+      pre.className = "pre";
+      pre.textContent = head.slice(0, i);
+      h1.appendChild(pre);
+    }, 34);
+  }
+  lede.textContent = COPY.default[1];
+  tenets.forEach((b) => {
+    b.addEventListener("mouseenter", () => say(b.dataset.k));
+    b.addEventListener("focus", () => say(b.dataset.k));
+    b.addEventListener("click", () => say(b.dataset.k));
+  });
+  if (matchMedia("(hover: none)").matches) document.getElementById("tenet-label").textContent = "// tap a promise";
+  document.querySelector(".tenets .row").addEventListener("mouseleave", () => say("default"));
+
+  // ------------------------------------------------- hero: dithered sound wave
+  // A speech waveform (syllable bursts over a carrier, plus orbiting ribbons)
+  // quantized with an 8x8 Bayer ordered dither. The pointer is a voice: the
+  // wave swells and the grain sharpens around it.
+  const FRAG = `
+precision highp float;
+uniform vec2 uRes; uniform float uTime; uniform vec2 uMouse; uniform float uMouseOn;
+float hash(vec2 p){ p = fract(p*vec2(123.34, 345.45)); p += dot(p, p+34.345); return fract(p.x*p.y); }
+float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(hash(i), hash(i+vec2(1,0)), u.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y); }
+float fbm(vec2 p){ float s = 0.0, a = 0.5; for(int i=0;i<4;i++){ s += a*vnoise(p); p *= 2.03; a *= 0.5; } return s; }
+float bayer2(vec2 a){ a = floor(a); return fract(a.x*0.5 + a.y*a.y*0.75); }
+float bayer4(vec2 a){ return bayer2(0.5*a)*0.25 + bayer2(a); }
+float bayer8(vec2 a){ return bayer4(0.5*a)*0.25 + bayer2(a); }
+void main(){
+  vec2 frag = gl_FragCoord.xy, uv = frag/uRes;
+  float asp = uRes.x/uRes.y;
+  vec2 p = vec2(uv.x*asp, uv.y);
+  float t = uTime;
+  vec2 m = vec2(uMouse.x*asp, uMouse.y);
+  float lens = uMouseOn * smoothstep(0.45, 0.0, length(p - m));
+  float cy = 0.5 + 0.03*sin(t*0.3);
+  // syllables inside phrases, flowing left to right
+  float syl = smoothstep(0.32, 0.85, vnoise(vec2(p.x*3.2 - t*1.1, 1.7)));
+  float phr = smoothstep(0.2, 0.7, vnoise(vec2(p.x*0.7 - t*0.32, 9.1)));
+  float env = syl*phr*0.9 + 0.06 + lens*0.55;
+  float carrier = 0.55 + 0.45*abs(sin(p.x*46.0 - t*7.0) * sin(p.x*13.0 + t*2.3));
+  float amp = env*carrier*0.4;
+  float d = abs(uv.y - cy);
+  float body = smoothstep(amp, amp*0.15, d) * (0.55 + 0.45*(1.0 - d/max(amp, 1e-3)));
+  float rib = 0.0;
+  for (int i = 0; i < 4; i++) {
+    float fi = float(i);
+    float y = cy + (0.10 + 0.05*fi)*(0.35 + env)*sin(p.x*(2.2 + 0.9*fi) - t*(0.7 + 0.25*fi) + fi*1.9);
+    rib += smoothstep(0.012 + 0.004*fi, 0.0, abs(uv.y - y)) * (0.55 - 0.1*fi);
+  }
+  float haze = fbm(p*2.2 + vec2(-t*0.08, t*0.05)) * smoothstep(0.5, 0.0, d) * 0.45;
+  float field = max(body, rib) + haze*0.6;
+  float fadeIn = asp > 1.1 ? smoothstep(0.28, 0.72, uv.x) : 0.55;
+  field *= fadeIn * smoothstep(1.0, 0.86, uv.x);
+  field += lens*0.12;
+  field = clamp(field*1.35 - 0.06, 0.0, 1.0);
+  float cell = mix(1.0, 0.5, lens);
+  float q = floor(field*4.0 + bayer8(frag/cell)) / 4.0;
+  vec3 paper = vec3(0.965, 0.965, 0.972), ink = vec3(0.135, 0.145, 0.165);
+  vec3 col = mix(paper, ink, q);
+  col = mix(col, vec3(0.62, 0.80, 0.28), q*(1.0 - q)*0.22);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+  function hero() {
+    const canvas = document.querySelector(".hero canvas.gl");
+    const gl = canvas.getContext("webgl", { antialias: false, alpha: false });
+    if (!gl) return;
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : (console.error(gl.getShaderInfoLog(s)), null); };
+    const vs = sh(gl.VERTEX_SHADER, "attribute vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }");
+    const fs = sh(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) return;
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog); gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const a = gl.getAttribLocation(prog, "a");
+    gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+    const U = (n) => gl.getUniformLocation(prog, n);
+    const uRes = U("uRes"), uTime = U("uTime"), uMouse = U("uMouse"), uOn = U("uMouseOn");
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const mouse = { x: 0.7, y: 0.5, on: 0 };
+    let on = 0, visible = true, raf = 0;
+    const start = performance.now();
+    function resize() {
+      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr)), h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      gl.viewport(0, 0, w, h); gl.uniform2f(uRes, w, h);
+    }
+    addEventListener("pointermove", (e) => {
+      const r = canvas.getBoundingClientRect();
+      const nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+      mouse.x = nx; mouse.y = 1 - ny; mouse.on = nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1 ? 1 : 0;
+    });
+    function draw(now) {
+      resize();
+      on += (mouse.on - on) * 0.08;
+      gl.uniform1f(uTime, (now - start) / 1000);
+      gl.uniform2f(uMouse, mouse.x, mouse.y);
+      gl.uniform1f(uOn, on);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    const loop = (now) => { draw(now); raf = visible ? requestAnimationFrame(loop) : 0; };
+    draw(start + 4000);
+    if (still) return;
+    new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) raf = requestAnimationFrame(loop); }).observe(canvas);
+  }
+  hero();
+
+  // ----------------------------------------------------- 2D halftone dither art
+  function hash(x, y) { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); }
+  function vnoise(x, y) {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    return hash(ix, iy) * (1 - ux) * (1 - uy) + hash(ix + 1, iy) * ux * (1 - uy) + hash(ix, iy + 1) * (1 - ux) * uy + hash(ix + 1, iy + 1) * ux * uy;
+  }
+  const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const SHAPES = {
+    // speech bars streaming past: syllable envelope, mirrored around the midline
+    wave(cx, cy, t) {
+      const col = Math.floor(cx * 34);
+      const fx = cx * 34 - col;
+      if (fx > 0.62) return 0;
+      const env = ss(0.3, 0.85, vnoise(col * 0.21 - t * 2.4, 3.3)) * ss(0.15, 0.6, vnoise(col * 0.05 - t * 0.6, 8.8));
+      const h = 0.04 + env * 0.36;
+      return ss(h, h - 0.05, Math.abs(cy - 0.5)) * (0.7 + 0.3 * vnoise(cx * 40, cy * 40 + t));
+    },
+    // the nightly loop: a ring with a bright comet head going around
+    loop(cx, cy, t) {
+      const dx = cx - 0.5, dy = cy - 0.5;
+      const ring = ss(0.05, 0, Math.abs(Math.hypot(dx, dy) - 0.27));
+      const ang = Math.atan2(dy, dx);
+      const head = ss(1.4, 0, Math.abs(((ang - t * 1.1 + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
+      return ring * (0.35 + 0.65 * head) * (0.75 + 0.25 * vnoise(cx * 40, cy * 40 + t));
+    },
+    // noisy speech condensing into one clean disc: the model that won
+    signal(cx, cy, t) {
+      const disc = (1 - ss(0.06, 0.24 + 0.015 * Math.sin(t * 1.2), Math.hypot(cx - 0.74, cy - 0.5))) * (0.85 + 0.15 * vnoise(cx * 44, cy * 44 + t));
+      const grain = ss(0.58, 0.84, vnoise(cx * 16 - t * 2.2, cy * 16)) * (1 - ss(0.16, 0.6, cx)) * 0.75;
+      const guide = ss(0.12, 0, Math.abs(cy - 0.5)) * ss(0.16, 0.34, cx) * (1 - ss(0.58, 0.76, cx)) * (0.35 + 0.65 * vnoise(cx * 46 - t * 4.5, cy * 46)) * 0.4;
+      return Math.max(disc, grain, guide);
+    },
+    field(cx, cy, t) { return ss(0.5, 0.95, vnoise(cx * 3.2 + t * 0.25, cy * 3.2 - t * 0.18)) * 0.7; },
+  };
+  function dither(canvas) {
+    const ctx = canvas.getContext("2d");
+    const shape = SHAPES[canvas.dataset.shape];
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const cell = (+canvas.dataset.gap || 5) * dpr;
+    const color = getComputedStyle(canvas.parentElement).color;
+    const fps = canvas.dataset.shape === "field" ? 20 : 40;
+    let visible = true, raf = 0, last = 0;
+    const start = performance.now();
+    function draw(t) {
+      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr)), h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      const asp = w / h;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = color;
+      for (let gy = cell / 2; gy < h; gy += cell) {
+        for (let gx = cell / 2; gx < w; gx += cell) {
+          const c = shape((gx / w - 0.5) * asp + 0.5, gy / h, t);
+          if (c <= 0.04) continue;
+          const j = (hash(gx, gy) - 0.5) * cell * 0.35;
+          ctx.globalAlpha = Math.min(1, 0.35 + c);
+          ctx.beginPath();
+          ctx.arc(gx + j, gy + j, Math.min(cell * 0.52, cell * 0.16 + c * cell * 0.42), 0, 6.2832);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+    const loop = (now) => {
+      if (now - last > 1000 / fps) { last = now; draw((now - start) / 1000); }
+      raf = visible ? requestAnimationFrame(loop) : 0;
+    };
+    draw(2);
+    if (still) return;
+    new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) raf = requestAnimationFrame(loop); }).observe(canvas);
+  }
+  document.querySelectorAll("canvas[data-shape]").forEach(dither);
+
+  // -------------------------------------------- stock vs tuned dictation pane
   const SENTENCE = [
-    ["Ship the ", ""], ["PostgreSQL|post grass", "term"], [" migration, fix the ", ""],
-    ["Grafana|graph Ana", "term"], [" alert, rerun the ", ""], ["Kalshi|kalchi", "term"],
-    [" backtest on ", ""], ["Hetzner|Hertzner", "term"], [".", ""],
+    ["Ship the ", ""], ["PostgreSQL|post grass", "t"], [" migration, fix the ", ""], ["Grafana|graph Ana", "t"],
+    [" alert, and rerun the ", ""], ["Kalshi|kalchi", "t"], [" backtest on ", ""], ["Hetzner|Hertzner", "t"], [".", ""],
   ];
   const NOTES = {
-    tuned: "Tuned on you: every name comes out right, from the first word.",
+    tuned: "Tuned on you: every name right, first try.",
     stock: "Stock Whisper: close — and wrong on every name you care about.",
   };
   const pane = document.getElementById("transcript");
   const note = document.getElementById("pane-note");
-  const buttons = { stock: document.getElementById("m-stock"), tuned: document.getElementById("m-tuned") };
-  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let mode = "tuned", timer = null;
-
-  function words(m) {
-    return SENTENCE.map(([t, kind]) => {
-      if (kind !== "term") return { text: t, kind: "" };
-      const [right, wrong] = t.split("|");
-      return m === "tuned" ? { text: right, kind: "fix" } : { text: wrong, kind: "miss" };
-    });
-  }
-
-  function paint(parts, upto, committed) {
+  const seg = [...document.querySelectorAll(".seg button")];
+  let mode = "tuned", timer = 0;
+  const parts = (m) => SENTENCE.map(([t, k]) => {
+    if (!k) return { text: t, cls: "" };
+    const [right, wrong] = t.split("|");
+    return m === "tuned" ? { text: right, cls: "fix" } : { text: wrong, cls: "miss" };
+  });
+  function paint(ps, upto, committed) {
     pane.textContent = "";
     let left = upto;
-    for (const p of parts) {
+    for (const p of ps) {
       if (left <= 0) break;
-      const span = document.createElement("span");
-      span.textContent = p.text.slice(0, left);
+      const s = document.createElement("span");
+      s.textContent = p.text.slice(0, left);
       left -= p.text.length;
-      if (p.kind && left >= 0) span.className = p.kind;
-      if (!committed) span.classList.add("preedit");
-      pane.appendChild(span);
+      if (p.cls && left >= 0) s.className = p.cls;
+      if (!committed) s.classList.add("pre");
+      pane.appendChild(s);
     }
-    if (!committed) {
-      const caret = document.createElement("span");
-      caret.className = "caret";
-      pane.appendChild(caret);
-    }
+    if (!committed) { const c = document.createElement("span"); c.className = "caret"; pane.appendChild(c); }
   }
-
   function play(m) {
     clearTimeout(timer);
     mode = m;
-    for (const [k, b] of Object.entries(buttons)) b.setAttribute("aria-pressed", String(k === m));
+    seg.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
     note.textContent = NOTES[m];
-    const parts = words(m);
-    const total = parts.reduce((n, p) => n + p.text.length, 0);
-    if (still) { paint(parts, total, true); return; }
+    const ps = parts(m), total = ps.reduce((n, p) => n + p.text.length, 0);
+    if (still) { paint(ps, total, true); return; }
     let i = 0;
     const step = () => {
       i = Math.min(total, i + 2 + Math.floor(Math.random() * 3));
-      paint(parts, i, false);
+      paint(ps, i, false);
       timer = i < total ? setTimeout(step, 55) : setTimeout(() => {
-        paint(parts, total, true);
-        timer = setTimeout(() => play(mode === "tuned" ? "stock" : "tuned"), 3800);
-      }, 650);
+        paint(ps, total, true);
+        timer = setTimeout(() => play(mode === "tuned" ? "stock" : "tuned"), 3600);
+      }, 600);
     };
     step();
   }
+  seg.forEach((b) => b.addEventListener("click", () => play(b.dataset.m)));
+  paint(parts("tuned"), Infinity, true);
+  new IntersectionObserver(([e], o) => { if (e.isIntersecting) { o.disconnect(); setTimeout(() => play("stock"), 500); } }, { threshold: 0.4 }).observe(pane);
 
-  buttons.stock.addEventListener("click", () => play("stock"));
-  buttons.tuned.addEventListener("click", () => play("tuned"));
-  paint(words("tuned"), Infinity, true);   // readable at rest, before any animation
-  setTimeout(() => play("stock"), 1200);
+  // bars fill when they scroll into view
+  new IntersectionObserver(([e], o) => {
+    if (!e.isIntersecting) return;
+    o.disconnect();
+    document.querySelectorAll(".fill").forEach((f) => (f.style.width = f.dataset.w + "%"));
+  }, { threshold: 0.5 }).observe(document.getElementById("meter"));
 
-  document.querySelectorAll(".copy").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const pre = document.getElementById(btn.dataset.copy);
-      const text = [...pre.childNodes].filter((n) => !(n.classList && n.classList.contains("c")))
-        .map((n) => n.textContent).join("").replace(/[ \t]+$/gm, "").trim();
-      try {
-        await navigator.clipboard.writeText(text);
-        btn.textContent = "Copied";
-      } catch {
-        const r = document.createRange(); r.selectNodeContents(pre);
-        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
-        btn.textContent = "Selected";
-      }
-      setTimeout(() => (btn.textContent = "Copy"), 1600);
-    });
-  });
+  // copy buttons copy the commands, not the prompts or comments
+  document.querySelectorAll(".copy").forEach((btn) => btn.addEventListener("click", async () => {
+    const pre = document.getElementById(btn.dataset.copy);
+    const text = [...pre.childNodes].filter((n) => !(n.classList && (n.classList.contains("c") || n.classList.contains("p"))))
+      .map((n) => n.textContent).join("").replace(/^ /gm, "").replace(/[ \t]+$/gm, "").trim();
+    try { await navigator.clipboard.writeText(text); btn.textContent = "copied"; }
+    catch { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = "selected"; }
+    setTimeout(() => (btn.textContent = "copy"), 1600);
+  }));
 })();
 </script>
 </body>
