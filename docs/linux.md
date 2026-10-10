@@ -1,0 +1,59 @@
+# Linux support and troubleshooting
+
+## Linux support
+
+| | Text injection | Streaming preview | Hotkey | Status |
+|---|---|---|---|---|
+| GNOME (Wayland) | IBus, ydotool fallback | Yes (IBus preedit) | evdev, or a GNOME shortcut set up by `setup` | Tested daily |
+| GNOME (X11) | IBus, xdotool fallback | Yes | evdev, pynput | Supported |
+| KDE Plasma (Wayland) | IBus, ydotool fallback | Yes with IBus | evdev | Should work |
+| Hyprland, incl. Omarchy | IBus, else wtype → ydotool | Yes with IBus; with fcitx5 (Omarchy's default), words are typed as you speak, without the in-place preview | evdev, or `bind = CTRL ALT, V, exec, voiceio toggle` | Should work |
+| sway | IBus, else wtype → ydotool | As Hyprland | evdev, or `bindsym` + `voiceio toggle` | Should work |
+| i3 / other X11 | IBus, xdotool | Yes with IBus | pynput, evdev | Should work |
+| NixOS | as above | as above | evdev via the flake's udev rule | Flake provided, unbuilt ([NixOS](#nixos)) |
+
+**Input methods.** IBus is the only way to get a live, underlined preview that is corrected in place on Wayland. voiceio installs its own IBus engine and only activates it while you dictate. If fcitx5 is your input method, voiceio leaves it alone and types the final text with wtype or ydotool. Terminals that ignore input methods get the clipboard.
+
+**Hotkeys without the `input` group.** The evdev backend reads keyboards from `/dev/input`. `voiceio doctor --fix` installs a udev rule, `/etc/udev/rules.d/60-voiceio-uaccess.rules`, that grants the logged-in user access to keyboard devices. It works immediately, without logging out. The old route still works as a fallback: `sudo usermod -aG input $USER`, then log out and back in. You can also skip evdev and bind `voiceio toggle` in your compositor.
+
+**ydotool** needs write access to `/dev/uinput`; `voiceio doctor --fix` installs a uaccess rule for that too.
+
+### NixOS
+
+The repository is a flake. **It has not been built yet**; please report fixes.
+
+```nix
+# flake inputs: voiceio.url = "github:Hugo0/voiceio";
+# NixOS: package, uinput, and the keyboard uaccess rule
+imports = [ voiceio.nixosModules.default ];
+programs.voiceio.enable = true;
+
+# Home Manager: config.toml from Nix + a systemd user service
+imports = [ voiceio.homeManagerModules.default ];
+services.voiceio = {
+  enable = true;
+  settings.model.name = "small";
+};
+```
+
+For the streaming preview, enable IBus as your input method: `i18n.inputMethod = { enable = true; type = "ibus"; };`.
+
+### Windows and macOS
+
+There is a best-effort pynput path for both (hotkeys and typing, no live preview). It is untested and unmaintained, with no installers or CI. Patches are welcome; bug reports will likely sit.
+
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Nothing is typed | `voiceio doctor --fix`; usually the IBus component or the GNOME input source |
+| Hotkey does nothing on Wayland | `voiceio doctor --fix` installs the keyboard udev rule, or bind `voiceio toggle` in your compositor |
+| `sounddevice is not installed` | You installed without the desktop extra: `pipx install --force 'python-voiceio[desktop]'` |
+| evdev fails to build | Install a C toolchain and Python headers (see Quickstart), then reinstall |
+| Too slow | `voiceio doctor` shows your real stop→text. Turn off cloud postcorrect; use `voiceio models use small` (or a GPU with `large-v3-turbo`); or narrow the beam of the passes you keep: on the author's 44 clips `[model] beam_size = 2` matched the default 5 (WER 4.9% vs 5.4%, vocabulary 28/32 vs 29/32) while decoding faster; greedy (`1`) lost vocabulary (26/32). Measure on yours: `voiceio learn eval --beam 2` |
+| Pastes nothing in a terminal (clipboard typer) | `voiceio config set output.paste_keys ctrl+shift+v` |
+| Words come out wrong in a pattern | `voiceio learn eval --pipeline` and `voiceio corrections audit` show which stage or rule did it |
+| Start over | `voiceio uninstall`, then `voiceio setup` |
+
+Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
