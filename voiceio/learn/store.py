@@ -199,21 +199,31 @@ def split_of(audio: str, test_frac: float = 0.1, dev_frac: float = 0.1) -> str:
 MAX_WINDOW_SECS = 28.0
 
 
-def windows(segments: tuple[Segment, ...], max_secs: float = MAX_WINDOW_SECS) -> list[Segment]:
+def window_groups(segments: tuple[Segment, ...],
+                  max_secs: float = MAX_WINDOW_SECS) -> list[list[Segment]]:
     """Group consecutive segments into training windows of at most `max_secs`.
     A single over-long segment is dropped (its text can't be split safely)."""
-    out: list[Segment] = []
+    out: list[list[Segment]] = []
     cur: list[Segment] = []
     for seg in segments:
         if seg.end - seg.start > max_secs:
             continue
         if cur and seg.end - cur[0].start > max_secs:
-            out.append(Segment(cur[0].start, cur[-1].end, " ".join(s.text.strip() for s in cur)))
+            out.append(cur)
             cur = []
         cur.append(seg)
     if cur:
-        out.append(Segment(cur[0].start, cur[-1].end, " ".join(s.text.strip() for s in cur)))
-    return [w for w in out if w.text.strip()]
+        out.append(cur)
+    return [g for g in out if any(s.text.strip() for s in g)]
+
+
+def _merge(group: list[Segment]) -> Segment:
+    return Segment(group[0].start, group[-1].end, " ".join(s.text.strip() for s in group))
+
+
+def windows(segments: tuple[Segment, ...], max_secs: float = MAX_WINDOW_SECS) -> list[Segment]:
+    """Each window as one segment spanning its parts."""
+    return [_merge(g) for g in window_groups(segments, max_secs)]
 
 
 # Faster than anyone talks: the label doesn't belong to this audio.
@@ -236,7 +246,7 @@ def _suspect_segment(seg: Segment) -> str | None:
     return None
 
 
-def _train_windows(lab: Label, dropped: dict[str, int]) -> list[Segment]:
+def _train_windows(lab: Label, dropped: dict[str, int]) -> list[list[Segment]]:
     """Windows to train on. Suspect teacher segments are dropped *before*
     windowing, so their audio ends up outside a window or inside one with no
     text — i.e. it teaches silence. Human-reviewed labels are trusted."""
@@ -250,7 +260,7 @@ def _train_windows(lab: Label, dropped: dict[str, int]) -> list[Segment]:
             drop(reason)
         else:
             segments.append(seg)
-    return windows(tuple(segments))
+    return window_groups(tuple(segments))
 
 
 def build_dataset(*, reviewed_only: bool = False) -> Path:
@@ -273,8 +283,14 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
             rows[split].append({**base, "start": 0.0, "end": clip.duration,
                                 "text": lab.text, "raw": clip.raw})
             continue
-        for w in _train_windows(lab, dropped):
-            rows[split].append({**base, "start": w.start, "end": w.end, "text": w.text})
+        for group in _train_windows(lab, dropped):
+            w = _merge(group)
+            # Segment times relative to the window: training can then target
+            # Whisper's timestamp mode, which is how dictation decodes.
+            parts = [[round(p.start - w.start, 2), round(p.end - w.start, 2), p.text.strip()]
+                     for p in group if p.text.strip()]
+            rows[split].append({**base, "start": w.start, "end": w.end, "text": w.text,
+                                "parts": parts})
     root = learn_dir() / "datasets"
     root.mkdir(parents=True, exist_ok=True)
     existing = sorted(p.name for p in root.glob("v[0-9]*"))

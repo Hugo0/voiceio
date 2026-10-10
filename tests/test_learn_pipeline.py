@@ -163,10 +163,11 @@ def test_build_drops_suspect_teacher_segments_but_trusts_humans():
     store.add_label("h.wav", [Segment(0, 5, "ship it"), Segment(5, 6, "Thank you.")], "human")
     dropped: dict[str, int] = {}
     kept = store._train_windows(store.load_labels()["t.wav"], dropped)
-    assert [w.text for w in kept] == ["ship the Kalshi bot"]
+    assert [store._merge(g).text for g in kept] == ["ship the Kalshi bot"]
     assert dropped == {"filler hallucination": 1, "too many words for the audio": 1}
     teacher = store.Label("t.wav", (Segment(0, 5, "ship the Kalshi bot"),
                                     Segment(5, 6, "Thank you.")), "teacher:fake", 0)
-    assert [w.text for w in store._train_windows(teacher, {})] == ["ship the Kalshi bot"]
+    assert [store._merge(g).text for g in store._train_windows(teacher, {})] \
+        == ["ship the Kalshi bot"]
     human = store._train_windows(store.load_labels()["h.wav"], {})
-    assert [w.text for w in human] == ["ship it Thank you."]
+    assert [store._merge(g).text for g in human] == ["ship it Thank you."]

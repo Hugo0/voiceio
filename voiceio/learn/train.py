@@ -56,6 +56,9 @@ class TrainConfig:
     language: str = "en"
     seed: int = 0
     decoder_only: bool | None = None    # None: decoder-only on CPU, full on GPU
+    # Share of windows trained in Whisper's timestamp mode (as Distil-Whisper
+    # does): dictation decodes with timestamps, so both modes must adapt.
+    timestamp_share: float = 0.5
 
 
 def require_train_deps() -> None:
@@ -96,10 +99,45 @@ def export(dataset: Path, out: Path, *, extra_train_rows: list[dict] = ()) -> di
                 w.setsampwidth(2)
                 w.setframerate(16000)
                 w.writeframes((np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes())
-            lines.append(json.dumps({"audio": rel, "text": row["text"]}, ensure_ascii=False))
+            out_row = {"audio": rel, "text": row["text"]}
+            if row.get("parts"):
+                out_row["parts"] = row["parts"]
+            lines.append(json.dumps(out_row, ensure_ascii=False))
         (out / f"{split}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
         counts[split] = len(lines)
     return counts
+
+
+# ── targets ──────────────────────────────────────────────────────────────
+
+_TS_STEP = 0.02     # Whisper timestamp resolution
+_TS_MAX = 1500      # <|30.00|>
+
+
+def target_ids(tokenizer, row: dict, *, timestamps: bool) -> list[int]:
+    """Decoder target for one window, as Whisper itself would emit it.
+
+    Text gets a leading space: Whisper's output always starts with one, and
+    "hello" without it tokenizes differently ("he"+"llo"), so the model would
+    be trained on sequences it never produces. With `timestamps` (and segment
+    `parts` available) the target interleaves <|t|> tokens around each part —
+    the format dictation decodes in — instead of <|notimestamps|> + text.
+    """
+    text = " " + row["text"].strip()
+    ids = tokenizer(text).input_ids     # [SOT, lang, task, <|notimestamps|>, …, EOT]
+    parts = row.get("parts")
+    if not timestamps or not parts:
+        return ids
+    no_ts = tokenizer.convert_tokens_to_ids("<|notimestamps|>")
+    out = ids[:ids.index(no_ts)]
+
+    def ts(t: float) -> int:
+        return no_ts + 1 + min(_TS_MAX, max(0, round(t / _TS_STEP)))
+
+    for start, end, part in parts:
+        out += [ts(start), *tokenizer(" " + part.strip(), add_special_tokens=False).input_ids,
+                ts(end)]
+    return out + [tokenizer.eos_token_id]
 
 
 # ── train ────────────────────────────────────────────────────────────────
@@ -134,13 +172,17 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
             return []
         return [json.loads(line) for line in path.read_text().splitlines() if line]
 
+    ts_rng = np.random.default_rng(cfg.seed + 1)
+
     def labels_for(chunk: list[dict]):
-        labels = processor.tokenizer([r["text"] for r in chunk], padding=True, return_tensors="pt")
-        ids = labels.input_ids.masked_fill(labels.attention_mask.eq(0), -100)
-        # The model prepends the decoder start token itself.
-        if (ids[:, 0] == model.config.decoder_start_token_id).all():
-            ids = ids[:, 1:]
-        return ids.to(device)
+        start = model.config.decoder_start_token_id
+        seqs = []
+        for r in chunk:
+            ids = target_ids(processor.tokenizer, r,
+                             timestamps=ts_rng.random() < cfg.timestamp_share)
+            seqs.append(ids[1:] if ids and ids[0] == start else ids)  # model prepends SOT
+        width = max(len(q) for q in seqs)
+        return torch.tensor([q + [-100] * (width - len(q)) for q in seqs], device=device)
 
     def features(chunk: list[dict]):
         audio = [load_wav(folder / r["audio"]) for r in chunk]
@@ -209,7 +251,8 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
     processor.feature_extractor.save_pretrained(hf_dir)
     (out / "train.json").write_text(json.dumps(
         {"base": base_id, "epochs": cfg.epochs, "lr": cfg.lr, "lora_r": cfg.lora_r,
-         "decoder_only": decoder_only, "best_dev_loss": best}, indent=2) + "\n")
+         "decoder_only": decoder_only, "timestamp_share": cfg.timestamp_share,
+         "best_dev_loss": best}, indent=2) + "\n")
     return hf_dir
 
 
