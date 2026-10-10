@@ -12,7 +12,7 @@ Linux only; needs a microphone, a graphical session and sudo for one step.
    - Arch: `sudo pacman -S --noconfirm python-pipx base-devel portaudio ibus python-gobject`
    - NixOS: use the flake, `github:Hugo0/voiceio` (see README).
 2. `pipx install 'python-voiceio[desktop]' && pipx ensurepath` (the base package without `[desktop]` is headless: no mic or hotkeys).
-3. Ask the user which hotkey they want, and whether voiceio may keep their recordings (needed for fine-tuning; off by default). Then configure without prompts:
+3. Ask the user which hotkey they want, and whether to keep their recordings on their own computer (needed for fine-tuning; off by default; nothing is ever uploaded). Then configure without prompts:
    `voiceio setup --answers '{"hotkey":"<their choice>","install_service":true}'`
    It prints `[voiceio-setup] step=... status=...` lines and ends with `step=done status=ok`.
 4. Verify: `voiceio doctor` exits 0; `voiceio service status` says running.

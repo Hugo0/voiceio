@@ -147,7 +147,15 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 .try.live { border-color: color-mix(in oklch, var(--miss) 45%, transparent);
             box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.7), 0 0 0 5px color-mix(in oklch, var(--miss) 9%, transparent), 0 28px 60px -34px color-mix(in oklch, var(--ink) 60%, transparent); }
 .try-head { display: flex; gap: 10px; align-items: center; }
-.try-head .label { color: var(--ink); }
+.try-head .label { color: var(--ink); margin-right: auto; }
+.try-tools { display: inline-flex; gap: 4px; }
+.try-tools[hidden] { display: none; }
+.try-head .label { white-space: nowrap; }
+.try.has-text .opt { display: none; }
+.try-tool { font: 500 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); background: transparent;
+            border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px; cursor: pointer; transition: color .18s, border-color .18s, background .18s; }
+.try-tool:hover { color: var(--ink); border-color: var(--ink); }
+.try-tool.done { color: var(--gain); border-color: var(--gain); }
 .try-min { display: none; flex: none; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: 500 14px/1 var(--mono); cursor: pointer; }
 .try-min:hover { background: var(--bg-2); color: var(--ink); }
 .try-out { display: block; margin: 10px -8px 0; padding: 6px 8px; min-height: 3.6em; max-height: 9.9em; overflow-y: auto; border-radius: 8px;
@@ -363,7 +371,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
         </div>
         <div class="try-slot" id="try-slot">
         <aside class="try rise" id="try" style="animation-delay:320ms" aria-label="Try dictation in your browser">
-          <div class="try-head"><span class="label">// try it here · nothing to install</span></div>
+          <div class="try-head"><span class="label">// try it here<span class="opt"> · nothing to install</span></span><span class="try-tools" id="try-tools" hidden><button type="button" class="try-tool" id="try-copy">copy</button><button type="button" class="try-tool" id="try-clear">clear</button></span></div>
           <div class="try-out" id="try-out" contenteditable="plaintext-only" role="textbox" aria-multiline="true" aria-label="Dictated text" spellcheck="false" data-ph="Hold space and talk. Words appear where your cursor is."></div>
           <button class="talk" id="talk" type="button"><i class="lvl" aria-hidden="true"></i><span class="recdot" aria-hidden="true"></span><span id="talk-label">hold <kbd>space</kbd> to talk</span></button>
           <button class="try-min" id="try-min" type="button" aria-label="Hide the demo">×</button>
@@ -468,7 +476,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
       <div class="cmd">
         <span class="label">prompt</span>
         <button type="button" class="copy" data-copy="agent-prompt">copy</button>
-<pre id="agent-prompt" class="prompt">Install voiceio, local voice dictation for Linux, on this machine. Follow the agent runbook at https://voiceio-site.voiceio-v1.workers.dev/llms.txt: detect my distro, install the system packages, install python-voiceio[desktop] with pipx, and run the non-interactive setup. Before setup, ask me which hotkey I want and whether voiceio may keep my recordings so it can learn my voice. Finish with voiceio doctor and fix whatever it reports. Afterwards, offer to post a short install report (distro, desktop, what broke, what you fixed) to the public feedback board described in llms.txt.</pre>
+<pre id="agent-prompt" class="prompt">Install voiceio, local voice dictation for Linux, on this machine. Follow the agent runbook at https://voiceio-site.voiceio-v1.workers.dev/llms.txt: detect my distro, install the system packages, install python-voiceio[desktop] with pipx, and run the non-interactive setup. Before setup, ask me which hotkey I want, and whether to keep my recordings on this computer so voiceio can learn my voice (they never leave my machine). Finish with voiceio doctor and fix whatever it reports. Afterwards, offer to post a short install report (distro, desktop, what broke, what you fixed) to the public feedback board described in llms.txt.</pre>
       </div>
     </div>
     <div class="cmds" data-panel="hand" hidden>
@@ -848,7 +856,6 @@ void main(){
       const got = all.reduce((n, f) => n + (f.loaded || 0), 0), total = all.reduce((n, f) => n + (f.total || 0), 0);
       const frac = total ? got / total : 0;
       progress(Math.max(0.02, frac), got >= total ? "preparing the model…" : "loading the model · " + Math.round(frac * 100) + "%");
-      setStatus("downloads once (" + (total / 1e6).toFixed(0) + " MB), then it's cached");
     } else if (data.type === "ready") {
       T.model = "ready";
       setLevel(0);
@@ -978,6 +985,24 @@ void main(){
   talk.addEventListener("keydown", (e) => e.code === "Enter" && e.preventDefault());
   box.addEventListener("focus", label);
   box.addEventListener("blur", label);
+  // Copy / clear, once there is something to copy. Copy skips a live preview.
+  const tools = document.getElementById("try-tools");
+  const committedText = () => { const c = box.cloneNode(true); c.querySelectorAll(".pre").forEach((n) => n.remove()); return c.textContent.trim(); };
+  const syncTools = () => tryEl.classList.toggle("has-text", !(tools.hidden = !committedText()));
+  new MutationObserver(syncTools).observe(box, { childList: true, characterData: true, subtree: true });
+  document.getElementById("try-copy").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    try { await navigator.clipboard.writeText(committedText()); btn.textContent = "copied"; }
+    catch { const r = document.createRange(); r.selectNodeContents(box); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); btn.textContent = "selected"; }
+    btn.classList.add("done");
+    setTimeout(() => { btn.textContent = "copy"; btn.classList.remove("done"); }, 1500);
+  });
+  document.getElementById("try-clear").addEventListener("click", () => {
+    box.querySelectorAll(":scope > :not(.pre)").forEach((n) => n.remove());
+    [...box.childNodes].forEach((n) => n.nodeType === 3 && n.remove());
+    box.focus();
+  });
+  [document.getElementById("try-copy"), document.getElementById("try-clear")].forEach((b) => b.addEventListener("mousedown", (e) => e.preventDefault()));
   // Fetch the model as soon as someone shows interest, not on every visit.
   tryEl.addEventListener("pointerenter", ensureModel, { once: true });
   talk.addEventListener("focus", ensureModel, { once: true });
