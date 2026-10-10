@@ -31,6 +31,10 @@ log = logging.getLogger("voiceio")
 
 ENGINE_NAME = "voiceio"
 _GSCHEMA = "org.gnome.desktop.input-sources"
+# The engine imports GObject under the system Python; on a saturated CPU that
+# took 26s. Until its socket first appears it is starting, not a zombie —
+# reaping it then restarts the slow start and loops.
+_STARTUP_GRACE_SECS = 120.0
 
 
 def _ibus_env() -> dict[str, str]:
@@ -288,6 +292,7 @@ class IBusSession:
         self._prev_engine: str | None = None
         # Consecutive missed pings: one miss on a busy system isn't a zombie.
         self._ping_fails = 0
+        self._started_at = 0.0
         # Engine stderr goes to a file, never a pipe (see _spawn).
         self._stderr_file = None
         self._stderr_path = None
@@ -464,6 +469,7 @@ class IBusSession:
         except OSError:
             self._stderr_path = None
         try:
+            self._started_at = time.monotonic()
             self._proc = subprocess.Popen(
                 [str(LAUNCHER_PATH)],
                 stdout=subprocess.DEVNULL, stderr=stderr_target,
@@ -484,7 +490,8 @@ class IBusSession:
                 log.error("IBus engine crashed (rc=%d): %s",
                           self._proc.returncode, self.stderr_tail())
             else:
-                log.warning("IBus engine started but socket not found, commands may fail")
+                log.warning("IBus engine still starting after 4s (busy system?); "
+                            "it gets %.0fs before the watchdog intervenes", _STARTUP_GRACE_SECS)
             return
 
         if not activate:
@@ -534,6 +541,13 @@ class IBusSession:
         from voiceio.ibus import ping_engine
         return ping_engine(timeout=2.0)
 
+    def starting(self) -> bool:
+        """Launched, alive, and its socket not up yet (within the grace)."""
+        from voiceio.ibus import SOCKET_PATH
+        return (self._proc is not None and self._proc.poll() is None
+                and not SOCKET_PATH.exists()
+                and time.monotonic() - self._started_at < _STARTUP_GRACE_SECS)
+
     def health_tick(self, idle: bool) -> None:
         """Watchdog: keep the engine resident; never touch the source.
 
@@ -567,6 +581,8 @@ class IBusSession:
                     log.exception("IBus engine recovery failed")
             return
         if not idle:
+            return
+        if self.starting():
             return
         # Zombie check: process alive but socket stolen / listener dead
         # silently drops every preedit. Require two consecutive misses.

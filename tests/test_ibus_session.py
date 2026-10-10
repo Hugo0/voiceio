@@ -393,6 +393,20 @@ class TestEngineLifecycle:
         proc.kill.assert_not_called()
         assert s._ping_fails == 1
 
+    def test_slow_starting_engine_is_not_a_zombie(self):
+        """Under load the engine took 26s to open its socket; reaping it as a
+        zombie restarted the slow start every 25s, in a loop."""
+        s, proc = self._with_proc(proc_poll=None)
+        s._started_at = time.monotonic() - 30
+        with patch("voiceio.ibus.SOCKET_PATH") as sock, \
+             patch.object(s, "ping", return_value=False), \
+             patch.object(s, "ensure_engine") as ensure:
+            sock.exists.return_value = False
+            for _ in range(3):
+                s.health_tick(idle=True)
+        ensure.assert_not_called()
+        proc.kill.assert_not_called()
+
     def test_two_missed_pings_restart_zombie(self):
         s, proc = self._with_proc(proc_poll=None)
         with patch.object(s, "ping", return_value=False), \
