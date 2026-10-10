@@ -9,7 +9,7 @@ from wordfreq import zipf_frequency
 # zipf 2.0 ≈ top ~30K words. Real Whisper errors score 0.0.
 _ZIPF_KNOWN_THRESHOLD = 2.0
 
-# Zipf frequency for "common" words (top ~5K). Used by autocorrect to find
+# Zipf frequency for "common" words (top ~5K). Used by vocab suggest to find
 # plausible corrections — only common words are suggested as replacements.
 _ZIPF_COMMON_THRESHOLD = 3.5
 
@@ -67,3 +67,18 @@ def is_known(word: str, language: str = "en") -> bool:
 def extract_words(text: str) -> list[str]:
     """Extract individual words from text, stripping punctuation."""
     return re.findall(r"[a-zA-Z\u00C0-\u024F']+", text.lower())
+
+
+def levenshtein(a: str, b: str) -> int:
+    """Edit distance between two strings."""
+    if len(a) < len(b):
+        a, b = b, a
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        curr = [i + 1]
+        for j, cb in enumerate(b):
+            curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + (ca != cb)))
+        prev = curr
+    return prev[-1]

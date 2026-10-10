@@ -154,19 +154,6 @@ _VALID_TERM = re.compile(r"^[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ'\-]*"
                          r"(?: [A-Za-zÀ-ɏ][A-Za-zÀ-ɏ'\-]*)*$")
 
 
-def _levenshtein(a: str, b: str) -> int:
-    if len(a) < len(b):
-        return _levenshtein(b, a)
-    if not b:
-        return len(a)
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a):
-        curr = [i + 1]
-        for j, cb in enumerate(b):
-            cost = 0 if ca == cb else 1
-            curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + cost))
-        prev = curr
-    return prev[-1]
 
 
 def _is_sane_term(term: str, existing_lower: set[str]) -> str | None:
@@ -184,6 +171,7 @@ def _is_sane_term(term: str, existing_lower: set[str]) -> str | None:
     tl = t.lower()
     if tl in existing_lower:
         return "already present"
+    from voiceio.wordfreq import levenshtein
     for other in existing_lower:
         # Only compare single tokens of similar length — phrases legitimately
         # share many characters, and short words trivially fall within 2 edits.
@@ -191,7 +179,7 @@ def _is_sane_term(term: str, existing_lower: set[str]) -> str | None:
             continue
         if abs(len(other) - len(tl)) > 2 or len(tl) < 4:
             continue
-        d = _levenshtein(tl, other)
+        d = levenshtein(tl, other)
         if 1 <= d <= 2:
             return f'looks like a misspelling of existing "{other}"'
     return None

@@ -47,9 +47,8 @@ voiceio/
 ├── postprocess.py   # Rule-based cleanup and filler removal (stages live in core/pipeline.py)
 ├── numbers.py       # Spoken number → digit conversion ("twenty five" → "25")
 ├── commands.py      # Voice commands: "new line", "scratch that", "correct that"
-├── corrections.py   # Corrections dictionary (auto-replace misheard words)
-├── autocorrect.py   # Offline: unusual words in history (`vocab suggest`), correction safety gate
-├── snapshots.py     # Corrections/vocabulary snapshots
+├── corrections.py   # Corrections dictionary, plus rule_warnings() and the evidence audit
+├── suggest.py       # Offline: unusual words in history (`vocab suggest`)
 ├── postcorrect.py   # Constrained final-pass LLM rewrite of misheard words (cloud, opt-in)
 ├── consent.py       # Explicit consent record for cloud LLM calls
 ├── retention.py     # Per-utterance audio + context storage, size caps
@@ -64,7 +63,7 @@ voiceio/
 ├── hints.py         # Contextual CLI hints (silenceable, frequency-limited)
 ├── demo.py          # Guided tour (voiceio demo)
 ├── clipboard_read.py # Clipboard / primary-selection read/write
-├── wordfreq.py      # Word frequency lookup
+├── wordfreq.py      # Word frequency lookup, edit distance
 ├── pidlock.py       # PID file locking
 ├── backends.py      # ProbeResult and shared backend types
 ├── setup/           # `voiceio setup`: wizard steps over a shared SetupState + non-interactive mode

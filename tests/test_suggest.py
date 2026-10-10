@@ -1,12 +1,9 @@
-"""Tests for voiceio.autocorrect — offline suspicious-word finder and rule gate."""
+"""`vocab suggest`'s offline finder, edit distance, and the rule-safety check."""
 from __future__ import annotations
 
-
-from voiceio.autocorrect import (
-    _find_similar_common,
-    _levenshtein,
-    find_suspicious_words,
-)
+from voiceio.corrections import rule_warnings
+from voiceio.suggest import _find_similar_common, find_suspicious_words
+from voiceio.wordfreq import levenshtein as _levenshtein
 
 
 # ── Levenshtein distance tests ────────────────────────────────────────────
@@ -104,29 +101,33 @@ def test_find_suspicious_skips_dismissed():
 
 def test_gate_blocks_real_word_as_wrong():
     """A common real word must never become a correction source."""
-    from voiceio.autocorrect import gate_correction
-    reason = gate_correction("their", "there")
-    assert reason is not None
+    assert any("real word" in w for w in rule_warnings("their", "there"))
 
 
 def test_gate_blocks_junk_target():
     """A non-word target that isn't in vocabulary is rejected."""
-    from voiceio.autocorrect import gate_correction
-    reason = gate_correction("manteka", "wordall")
-    assert reason is not None
+    assert rule_warnings("manteka", "wordall", vocabulary=set())
 
 
 def test_gate_passes_nonword_to_common():
     """Non-word wrong + common right passes cleanly."""
-    from voiceio.autocorrect import gate_correction
-    assert gate_correction("configuraton", "configuration") is None
+    assert rule_warnings("configuraton", "configuration", vocabulary=set()) == []
 
 
 def test_gate_passes_target_in_vocabulary():
     """A non-common target that's in the user's vocabulary is allowed."""
-    from voiceio.autocorrect import gate_correction
-    assert gate_correction("olamma", "Ollama", vocabulary={"Ollama"}) is None
-    assert gate_correction("olamma", "Ollama") is not None
+    assert rule_warnings("olamma", "Ollama", vocabulary={"Ollama"}) == []
+    assert rule_warnings("olamma", "Ollama", vocabulary=set())
+
+
+def test_protected_language_word_is_flagged():
+    """A bilingual user's Spanish "harina" must not be rewritten."""
+    assert any('"es"' in w for w in rule_warnings("harina", "Herena",
+                                                   protect_languages=["es"]))
+
+
+def test_typo_fix_of_a_real_word_is_fine():
+    assert not any("real word" in w for w in rule_warnings("andd", "and"))
 
 
 def test_find_suspicious_counts():

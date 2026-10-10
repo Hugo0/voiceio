@@ -159,41 +159,75 @@ class CorrectionDict:
         self._regex = re.compile(rf"\b(?:{combined})\b", re.IGNORECASE)
 
 
-# A rule worth a second look: its replacement shares little with what it
-# replaces (a mined rule that learned a context, not a mishearing), or what
-# it replaces is a real word you may actually say. Both were common among
-# rules mined by the old cloud loop ("virtualize" → "wake you").
+# What makes a correction rule worth a second look. Rules mined by the old
+# cloud loop often learned a context instead of a mishearing ("virtualize" →
+# "wake you"), or rewrote a real word the user may actually say.
 _UNRELATED_BELOW = 0.4
 _REAL_WORD_ZIPF = 1.5
+# A real word in a bilingual user's other language ("harina") is protected
+# only when reasonably common there, so a rare cognate can't block a fix.
+_PROTECT_ZIPF = 3.0
 
 
-def _levenshtein(a: str, b: str) -> int:
-    from voiceio.vocabulary import _levenshtein as lev
-    return lev(a, b)
+def rule_warnings(
+    wrong: str, right: str, *,
+    language: str = "en",
+    protect_languages: tuple[str, ...] | list[str] = (),
+    vocabulary: set[str] | None = None,
+) -> list[str]:
+    """Why `wrong → right` might rewrite the wrong words; empty when it looks safe.
+
+    One edit away is a typo fix ("andd" → "and"); a real word rewritten
+    further is a different word ("debugged" → "debuted"). With `vocabulary`,
+    a single-word target must also be a common word or one of your terms, so
+    one misspelling can't be cemented into another.
+    """
+    from difflib import SequenceMatcher
+
+    from wordfreq import zipf_frequency
+
+    from voiceio.wordfreq import is_common, levenshtein
+    language = "en" if language in ("", "auto") else language
+    w, r = wrong.strip().lower(), right.strip().lower()
+    if not w or not r:
+        return ["empty term"]
+
+    def zipf(lang: str) -> float:
+        try:
+            return zipf_frequency(w, lang) if " " not in w else 0.0
+        except LookupError:   # a language without a word list
+            return 0.0
+
+    why = []
+    if SequenceMatcher(None, w, r).ratio() < _UNRELATED_BELOW:
+        why.append("replacement looks unrelated")
+    if zipf(language) >= _REAL_WORD_ZIPF and levenshtein(w, r) > 1:
+        why.append(f'"{wrong}" is a real word')
+    why += [f'"{wrong}" is a real word in "{pl}"' for pl in protect_languages
+            if pl != language and zipf(pl) >= _PROTECT_ZIPF]
+    if (vocabulary is not None and " " not in r and not is_common(right, language)
+            and r not in {v.lower() for v in vocabulary}):
+        why.append(f'"{right}" is neither a common word nor in your vocabulary')
+    return why
 
 
 def risky_rules(rules: dict[str, str], language: str = "en") -> list[tuple[str, str, str]]:
     """(wrong, right, why) for each rule worth reviewing, most suspicious first."""
-    language = "en" if language in ("", "auto") else language
     from difflib import SequenceMatcher
 
     from wordfreq import zipf_frequency
+    language = "en" if language in ("", "auto") else language
     out = []
     for wrong, right in rules.items():
+        why = rule_warnings(wrong, right, language=language)
+        if not why:
+            continue
         sim = SequenceMatcher(None, wrong.lower(), right.lower()).ratio()
         try:
             zipf = zipf_frequency(wrong.lower(), language) if " " not in wrong else 0.0
-        except LookupError:   # "auto", or a language without a word list
+        except LookupError:
             zipf = 0.0
-        why = []
-        if sim < _UNRELATED_BELOW:
-            why.append("replacement looks unrelated")
-        # One edit away is a typo fix ("andd" → "and"); a real word rewritten
-        # further is a different word ("debugged" → "debuted").
-        if zipf >= _REAL_WORD_ZIPF and _levenshtein(wrong.lower(), right.lower()) > 1:
-            why.append(f'"{wrong}" is a real word')
-        if why:
-            out.append((sim - zipf / 10, wrong, right, ", ".join(why)))
+        out.append((sim - zipf / 10, wrong, right, ", ".join(why)))
     return [(w, r, why) for _, w, r, why in sorted(out)]
 
 

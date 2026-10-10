@@ -79,7 +79,7 @@ def cmd_suggest(args: argparse.Namespace) -> None:
     """Offline: words absent from the language's frequency list, ranked by
     how often you said them. Nothing leaves the machine."""
     from voiceio import history
-    from voiceio.autocorrect import find_suspicious_words
+    from voiceio.suggest import find_suspicious_words
     from voiceio.config import load
     from voiceio.corrections import CorrectionDict
     from voiceio.vocabulary import load_terms
