@@ -290,7 +290,7 @@ class Transcriber:
                 "Transcribed %.1fs audio in %.1fs (%.1fx realtime): %s",
                 duration, elapsed, ratio, describe_transcript(text),
             )
-            log.debug("Transcript: %s", text)
+            log.debug("Transcript: %s", describe_transcript(text))
             # Reset restart counter on success
             self._restarts = 0
             return DecodeResult(text, tuple(result.get("segments", ())), elapsed)

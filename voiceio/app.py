@@ -555,7 +555,6 @@ class VoiceIO:
                 "passes": list(session.trace),
             })
         log.info("Streaming done (%.1fs): %s", elapsed, describe_transcript(final_text))
-        log.debug("Final text: %r", final_text)
         self._warn_if_nothing_captured(final_text, gen)
         # Release the IBus input source now that the final commit is done.
         # A no-op if a newer recording has claimed it since.
@@ -610,7 +609,6 @@ class VoiceIO:
                         extra=extra,
                     )
                     log.info("Typed: %s", describe_transcript(text))
-                    log.debug("Typed text: %r", text)
         except Exception:
             log.exception("Processing failed")
         finally:

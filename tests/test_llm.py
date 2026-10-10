@@ -39,6 +39,13 @@ class TestProcess:
         assert result == "The sky is blue."
 
     @patch("urllib.request.urlopen")
+    def test_log_never_contains_the_words(self, mock_urlopen, caplog):
+        mock_urlopen.return_value = _mock_response({"response": "My secret plan."})
+        with caplog.at_level("DEBUG", logger="voiceio.llm"):
+            assert _make_processor().process("my secrit plan") == "My secret plan."
+        assert "secr" not in caplog.text and "chars" in caplog.text
+
+    @patch("urllib.request.urlopen")
     def test_timeout_returns_original(self, mock_urlopen):
         mock_urlopen.side_effect = urllib.error.URLError("timed out")
         proc = _make_processor()

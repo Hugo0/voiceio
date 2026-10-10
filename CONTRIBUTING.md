@@ -115,6 +115,9 @@ NixOS module, Home Manager module).
 - DRY: reuse existing utilities and patterns before writing new code
 - Only validate at system boundaries, trust internal code
 - Comments only where logic isn't self-evident
+- Never log what the user said — at any level: the daemon writes DEBUG to
+  `~/.local/state/voiceio/voiceio.log`, and under systemd INFO is the journal.
+  Use `transcriber.describe_transcript()` (a word count) instead.
 
 ## Testing
 

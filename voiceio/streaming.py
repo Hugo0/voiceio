@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Callable
 import numpy as np
 
 from voiceio.core.decoders.base import Bias
-from voiceio.transcriber import transcribe_timeout
+from voiceio.transcriber import describe_transcript, transcribe_timeout
 from voiceio.typers.base import StreamingTyper
 
 if TYPE_CHECKING:
@@ -270,7 +270,7 @@ class StreamingSession:
         if self._recorder is not None:
             self._recorder.set_on_speech_pause(None)
             self._recorder = None
-        log.debug("Streaming session stopped, typed: '%s'", self._typed_text)
+        log.debug("Streaming session stopped, typed: %s", describe_transcript(self._typed_text))
         return self._typed_text
 
     def _decode_past_pending_freeze(self, audio: np.ndarray | None):
@@ -559,11 +559,11 @@ class StreamingSession:
             if final:
                 self._typer.commit_text(new_text)
                 self._typed_text = new_text
-                log.debug("Preedit commit: '%s'", new_text[:60])
+                log.debug("Preedit commit: %s", describe_transcript(new_text))
             elif new_text != old:
                 self._typer.update_preedit(new_text)
                 self._typed_text = new_text
-                log.debug("Preedit update: '%s'", new_text[:60])
+                log.debug("Preedit update: %s", describe_transcript(new_text))
             return
 
         if new_text == old:
@@ -577,7 +577,7 @@ class StreamingSession:
             # First transcription, just type it
             self._typer.type_text(new_text)
             self._typed_text = new_text
-            log.debug("Initial: '%s'", new_text)
+            log.debug("Initial: %s", describe_transcript(new_text))
             return
 
         # Short text: allow full replacement (Whisper still warming up)
@@ -586,7 +586,7 @@ class StreamingSession:
             time.sleep(DELETE_SETTLE_SECS)
             self._typer.type_text(new_text)
             self._typed_text = new_text
-            log.debug("Replaced short text: '%s'", new_text)
+            log.debug("Replaced short text: %s", describe_transcript(new_text))
             return
 
         # Word-level append-only
@@ -599,7 +599,7 @@ class StreamingSession:
             to_type = " " + new_tail
             self._typer.type_text(to_type)
             self._typed_text = old + to_type
-            log.debug("Appended: '%s'", to_type.strip())
+            log.debug("Appended: %s", describe_transcript(to_type.strip()))
         else:
             log.debug(
                 "Skipping (matched %d/%d words)",
@@ -614,7 +614,7 @@ class StreamingSession:
         to_type = new_text[prefix_len:]
 
         if to_delete > 0:
-            log.debug("Final correction: delete %d, type '%s'", to_delete, to_type)
+            log.debug("Final correction: delete %d, type %s", to_delete, describe_transcript(to_type))
             self._typer.delete_chars(to_delete)
             time.sleep(DELETE_SETTLE_SECS)
         if to_type:

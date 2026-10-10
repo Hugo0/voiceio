@@ -218,8 +218,7 @@ class LLMProcessor:
 
         elapsed = time.monotonic() - t0
         if result != text:
-            log.info("LLM processed in %.2fs: '%s' -> '%s'",
-                     elapsed, text[:60], result[:60])
+            log.info("LLM rewrote %d → %d chars in %.2fs", len(text), len(result), elapsed)
         else:
             log.debug("LLM returned unchanged text in %.2fs", elapsed)
         return result

@@ -356,7 +356,7 @@ class PostCorrector:
             self._record(text, corrected, f"rejected_{reject_reason}")
             return text
 
-        log.debug("PostCorrector fixed: %s", ", ".join(_changed_words(text, corrected)))
+        log.debug("PostCorrector fixed %d word(s)", len(_changed_words(text, corrected)))
         self._record(text, corrected, "applied")
         return corrected
 

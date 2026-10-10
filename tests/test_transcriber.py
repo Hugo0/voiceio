@@ -277,3 +277,17 @@ def test_promptless_distil_models_take_no_bias():
     assert Transcriber(ModelConfig(name="distil-small.en")).capabilities.bias == BiasMode.NONE
     assert Transcriber(ModelConfig(name="distil-large-v3")).capabilities.bias != BiasMode.NONE
     assert Transcriber(ModelConfig(name="small")).capabilities.bias != BiasMode.NONE
+
+
+def test_no_log_call_formats_the_transcript_itself():
+    """The daemon writes DEBUG to ~/.local/state/voiceio/voiceio.log, so even
+    debug lines must not carry the user's words."""
+    import re
+    from pathlib import Path
+
+    import voiceio
+    leaky = re.compile(r"log\.\w+\(.*%[sr].*,\s*(text|new_text|final_text|to_type|"
+                       r"self\._typed_text|result)(\[[^]]*\])?\)")
+    hits = [f"{p.name}:{i}" for p in Path(voiceio.__file__).parent.rglob("*.py")
+            for i, line in enumerate(p.read_text().splitlines(), 1) if leaky.search(line)]
+    assert not hits, hits
