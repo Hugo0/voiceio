@@ -12,14 +12,15 @@ log = logging.getLogger(__name__)
 _TIMEOUT = 2
 
 
-def _run(cmd: list[str]) -> str | None:
-    """Run a command and return stripped stdout, or None on failure."""
+def _run(cmd: list[str], strip: bool = True) -> str | None:
+    """Run a command and return its stdout (stripped unless ``strip`` is
+    False), or None on failure or blank output."""
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=_TIMEOUT,
         )
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
+            return result.stdout.strip() if strip else result.stdout
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
     return None
@@ -66,6 +67,35 @@ def read_text() -> str | None:
             return _run(["xsel", "-o", "--clipboard"])
 
     log.debug("No clipboard tool found")
+    return None
+
+
+def read_clipboard() -> str | None:
+    """The CLIPBOARD selection's text exactly as held (never PRIMARY), or None
+    when it is empty, not text, or unreadable."""
+    p = detect()
+
+    if p.is_windows:
+        try:
+            import pyperclip
+            return pyperclip.paste() or None
+        except Exception:
+            log.debug("pyperclip not available for clipboard read")
+            return None
+
+    if p.is_mac:
+        return _run(["pbpaste"], strip=False)
+
+    # On Wayland too, xclip first: wl-paste can steal focus on GNOME, the
+    # same reason copy_text() prefers it.
+    if shutil.which("xclip"):
+        text = _run(["xclip", "-o", "-selection", "clipboard"], strip=False)
+        if text is not None or not p.is_wayland:
+            return text
+    if p.is_wayland and shutil.which("wl-paste"):
+        return _run(["wl-paste", "--no-newline"], strip=False)
+    if not p.is_wayland and shutil.which("xsel"):
+        return _run(["xsel", "-o", "--clipboard"], strip=False)
     return None
 
 

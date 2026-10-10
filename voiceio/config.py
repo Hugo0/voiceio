@@ -131,6 +131,13 @@ class OutputConfig:
     #   "live"  — also the best-so-far text at each streaming update and the
     #             instant recording stops (pasteable while the final decode runs)
     copy_to_clipboard: str = "final"
+    # Clipboard typer only (Linux): the paste keystroke. "ctrl+shift+v" for
+    # terminals, or "shift+insert".
+    paste_keys: str = "ctrl+v"
+    # Clipboard typer only: put back the clipboard text you had before the
+    # paste. Inactive while copy_to_clipboard or notify_clipboard leave the
+    # transcript on the clipboard on purpose. Text only.
+    restore_clipboard: bool = True
 
 
 @dataclass

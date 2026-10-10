@@ -171,3 +171,35 @@ def test_copy_text_wayland_falls_back_to_wl_copy():
         from voiceio.clipboard_read import copy_text
         assert copy_text("hello") is True
     assert calls == ["xclip", "wl-copy"]
+
+
+def test_read_clipboard_keeps_text_exact_and_skips_primary():
+    """Restoring needs the clipboard byte for byte, never the mouse selection."""
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="x11")), \
+         patch("shutil.which", return_value="/usr/bin/xclip"), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="  two lines\nhere\n")
+        from voiceio.clipboard_read import read_clipboard
+        assert read_clipboard() == "  two lines\nhere\n"
+        assert mock_run.call_args[0][0] == ["xclip", "-o", "-selection", "clipboard"]
+
+
+def test_read_clipboard_wayland_falls_back_to_wl_paste():
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="wayland")), \
+         patch("shutil.which", return_value="/usr/bin/tool"), \
+         patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stdout=""),
+            MagicMock(returncode=0, stdout="wayland text"),
+        ]
+        from voiceio.clipboard_read import read_clipboard
+        assert read_clipboard() == "wayland text"
+        assert mock_run.call_args[0][0] == ["wl-paste", "--no-newline"]
+
+
+def test_read_clipboard_empty_is_none():
+    with patch("voiceio.clipboard_read.detect", return_value=_mock_platform(display_server="x11")), \
+         patch("shutil.which", return_value="/usr/bin/xclip"), \
+         patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="")):
+        from voiceio.clipboard_read import read_clipboard
+        assert read_clipboard() is None

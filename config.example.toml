@@ -42,6 +42,9 @@ remove_disfluencies = true    # drop "um", "uh" and duplicated sentences
 voice_input_prefix = ""       # e.g. "[voice]" to mark dictated text
 streaming_freeze_secs = 8.0   # finalize long dictations in chunks; 0 = all at stop
 copy_to_clipboard = "final"   # off | final | live
+paste_keys = "ctrl+v"         # clipboard typer, Linux: ctrl+shift+v for terminals, or shift+insert
+restore_clipboard = true      # clipboard typer: give back your clipboard text after pasting
+                              # (only with copy_to_clipboard = "off"; text only, not images)
 
 [commands]
 enabled = true                # "new line", "period", "comma"…

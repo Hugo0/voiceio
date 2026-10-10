@@ -19,7 +19,7 @@ from voiceio.recorder import AudioRecorder
 from voiceio.streaming import StreamingSession
 from voiceio.core.decoders import build_decoder
 from voiceio.privacy import describe_transcript
-from voiceio.typers import chain as typer_chain
+from voiceio.typers import chain as typer_chain, typer_options
 from voiceio.typers.manager import TyperManager
 from voiceio.vad import load_vad
 from voiceio.watchdog import Watchdog
@@ -72,7 +72,7 @@ class VoiceIO:
 
         # Select backends
         self._hotkey = hotkey_chain.select(platform, cfg.hotkey.backend)
-        typer = typer_chain.select(platform, cfg.output.method)
+        typer = typer_chain.select(platform, cfg.output.method, **typer_options(cfg))
 
         # Socket backend runs alongside native hotkey for extra robustness
         self._socket: SocketHotkey | None = None
@@ -204,6 +204,7 @@ class VoiceIO:
             is_idle=lambda: self._is_idle() and not self._outputs,
             state=lambda: self._state,
             shutdown=self._shutdown,
+            options=typer_options(cfg),
         )
         self._watchdog = Watchdog(
             cfg,

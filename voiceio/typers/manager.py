@@ -37,6 +37,7 @@ class TyperManager:
         is_idle: Callable[[], bool],
         state: Callable[[], object],
         shutdown: threading.Event,
+        options: dict | None = None,
     ):
         self.platform = platform
         self.typer = typer
@@ -47,6 +48,7 @@ class TyperManager:
         self._is_idle = is_idle
         self._state = state
         self._shutdown = shutdown
+        self._options = options or {}   # typers.typer_options(cfg)
 
     # ── Daemon start ────────────────────────────────────────────────────
 
@@ -95,7 +97,7 @@ class TyperManager:
             from voiceio.ibus.install import refresh_stale_launcher
             refresh_stale_launcher()
             try:
-                typer = typer_chain.select(self.platform, self._method)
+                typer = typer_chain.select(self.platform, self._method, **self._options)
                 if typer.name == "ibus":
                     self._ibus.ensure_engine(activate=False)
                     return typer
@@ -134,7 +136,7 @@ class TyperManager:
             if not probe.ok:
                 log.warning("Typer '%s' no longer works: %s", self.typer.name, probe.reason)
             try:
-                new = typer_chain.select(self.platform)   # probes: outside the lock
+                new = typer_chain.select(self.platform, **self._options)   # probes: outside the lock
             except RuntimeError:
                 log.error("No working typer backend available")
                 return
@@ -147,7 +149,7 @@ class TyperManager:
         """A clipboard typer for the current platform, or None if unavailable."""
         try:
             from voiceio.typers.clipboard import ClipboardTyper
-            return ClipboardTyper(self.platform)
+            return ClipboardTyper(self.platform, **self._options)
         except Exception:
             log.debug("Could not build clipboard fallback typer", exc_info=True)
             return None
@@ -261,7 +263,7 @@ class TyperManager:
 
         # Log all probe results so we can diagnose why upgrade failed
         try:
-            results = typer_chain.resolve(self.platform, self._method)
+            results = typer_chain.resolve(self.platform, self._method, **self._options)
         except Exception:
             log.exception("Upgrade (%s): typer resolve failed", reason)
             return False
@@ -270,7 +272,7 @@ class TyperManager:
             log.info("Upgrade (%s): probe %s -> %s", reason, name, status)
 
         try:
-            new_typer = typer_chain.select(self.platform, self._method)
+            new_typer = typer_chain.select(self.platform, self._method, **self._options)
         except RuntimeError as e:
             log.warning("Upgrade (%s) select failed: %s", reason, e)
             return False

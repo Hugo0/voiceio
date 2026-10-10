@@ -4,8 +4,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from voiceio.config import Config
     from voiceio.platform import Platform
     from voiceio.typers.base import TyperBackend
+
+
+def typer_options(cfg: Config) -> dict:
+    """Config-driven backend options, passed through chain.select()/resolve()."""
+    return {
+        "paste_keys": cfg.output.paste_keys,
+        # Never restore over a transcript put on the clipboard on purpose.
+        "restore_clipboard": (cfg.output.restore_clipboard
+                              and cfg.output.copy_to_clipboard == "off"
+                              and not cfg.feedback.notify_clipboard),
+    }
 
 
 def create_typer_backend(name: str, platform: Platform, **kwargs) -> TyperBackend:
@@ -21,7 +33,7 @@ def create_typer_backend(name: str, platform: Platform, **kwargs) -> TyperBacken
         return WtypeTyper()
     if name == "clipboard":
         from voiceio.typers.clipboard import ClipboardTyper
-        return ClipboardTyper()
+        return ClipboardTyper(platform, **kwargs)
     if name == "pynput":
         from voiceio.typers.pynput_type import PynputTyper
         return PynputTyper()
