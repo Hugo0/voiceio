@@ -30,6 +30,11 @@ log = logging.getLogger(__name__)
 _SOUNDS_DIR = Path(__file__).parent / "sounds"
 _which = functools.lru_cache(maxsize=16)(shutil.which)
 
+# Output buffer of the cue stream. PortAudio's default ("high", ~35 ms on
+# PipeWire/Pulse) underruns under heavy CPU load — an audible glitch in the
+# chime; cue_secs() accounts for it.
+CUE_LATENCY_SECS = 0.08
+
 _stream: sd.OutputStream | None = None
 _stream_lock = threading.Lock()
 _sounds: dict[str, np.ndarray] = {}
@@ -37,6 +42,7 @@ _sounds: dict[str, np.ndarray] = {}
 
 def open_output_stream(
     samplerate: int = 44100, channels: int = 1, dtype: str = "int16",
+    latency: float | str = "high",
 ) -> sd.OutputStream | None:
     """Open an output stream, trying 'pulse' first on Linux.
 
@@ -50,10 +56,11 @@ def open_output_stream(
         try:
             stream = sd.OutputStream(
                 samplerate=samplerate, channels=channels, dtype=dtype,
-                device=device,
+                device=device, latency=latency,
             )
             label = device or "default"
-            log.info("Audio output stream open (device=%s, sr=%d)", label, samplerate)
+            log.info("Audio output stream open (device=%s, sr=%d, latency=%.0f ms)",
+                     label, samplerate, stream.latency * 1000)
             return stream
         except Exception:
             label = device or "default"
@@ -77,7 +84,7 @@ def warm_up() -> None:
         pad = np.zeros(int(rate * 0.1), dtype=np.int16)
         _sounds[name] = np.concatenate([data, pad]).reshape(-1, 1)
 
-    _stream = open_output_stream(samplerate=44100)
+    _stream = open_output_stream(samplerate=44100, latency=CUE_LATENCY_SECS)
     if _stream:
         _stream.start()
     else:
