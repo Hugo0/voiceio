@@ -275,6 +275,9 @@ def cmd_review(args: argparse.Namespace) -> None:
         seg = it.label.segments[it.index]
         print(f"── {it.clip.audio} {seg.start:.1f}-{seg.end:.1f}s  ({it.reason})")
         print(f"   teacher: {seg.text}")
+        live = review.live_span(seg.text, it.clip.raw) if it.clip.raw else None
+        if live:
+            print(f"   live:    {live}")
         while True:
             if player is not None:
                 if it.clip.audio not in audio_cache:

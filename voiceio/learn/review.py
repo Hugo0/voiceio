@@ -61,6 +61,28 @@ def queue(clips: list[Clip], labels: dict[str, Label], terms: list[str]) -> list
     return vocab + disagree
 
 
+def live_span(segment_text: str, live: str) -> str | None:
+    """The stretch of the live decode that corresponds to a teacher segment,
+    or None when it matches word for word (or can't be located). Seeing both
+    versions side by side is the quickest way to judge which one is right."""
+    import difflib
+    live_raw = live.split()
+    seg_n, live_n = metrics.words(segment_text), [metrics.words(w) for w in live_raw]
+    flat = [w[0] if w else "" for w in live_n]
+    if not seg_n or not flat:
+        return None
+    m = difflib.SequenceMatcher(a=flat, b=seg_n, autojunk=False)
+    blocks = [b for b in m.get_matching_blocks() if b.size]
+    if not blocks or sum(b.size for b in blocks) < len(seg_n) / 3:
+        return None
+    start = max(0, blocks[0].a - blocks[0].b)
+    end = min(len(flat), blocks[-1].a + blocks[-1].size + (len(seg_n) - blocks[-1].b - blocks[-1].size))
+    span = flat[start:end]
+    if span == seg_n:
+        return None
+    return " ".join(live_raw[start:end])
+
+
 def queue_all(clips: list[Clip], labels: dict[str, Label]) -> list[Item]:
     """Every segment of every unreviewed clip — for building a gold test set,
     where a reference is only trustworthy if all of it was checked."""
