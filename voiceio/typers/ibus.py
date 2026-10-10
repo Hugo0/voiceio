@@ -10,6 +10,7 @@ import time
 
 from voiceio.backends import ProbeResult
 from voiceio.ibus import SOCKET_PATH, install
+from voiceio.ibus.textlimit import commit_secs
 from voiceio.typers import paste
 from voiceio.typers.ydotool import ydotoold_running
 
@@ -123,10 +124,7 @@ class IBusTyper:
     def type_text(self, text: str) -> None:
         if not text:
             return
-        self._send(f"commit:{text}")
-        self._copy_to_clipboard(text)
-        if not self._engine_has_focus():
-            self._simulate_paste()
+        self._commit(text)
 
     def delete_chars(self, n: int) -> None:
         pass  # Not needed: preedit handles corrections atomically
@@ -140,10 +138,17 @@ class IBusTyper:
             self._send("clear")
             return
         log.debug("Committing via IBus (%d chars)", len(text))
+        self._commit(text)
+
+    def _commit(self, text: str) -> None:
         self._send(f"commit:{text}")
         self._copy_to_clipboard(text)
         if not self._engine_has_focus():
             self._simulate_paste()
+            return
+        # A long note goes out in timed chunks; returning early would let the
+        # caller restore the input source while the tail is still pending.
+        time.sleep(commit_secs(text))
 
     def clear_preedit(self) -> None:
         self._send("clear")

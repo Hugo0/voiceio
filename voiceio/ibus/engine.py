@@ -30,7 +30,7 @@ from voiceio.ibus import (
     acquire_singleton_lock,
 )
 from voiceio.ibus.pending import PendingBuffer
-from voiceio.ibus.textlimit import split_utf8, tail_utf8
+from voiceio.ibus.textlimit import COMMIT_GAP_MS, split_utf8, tail_utf8
 
 log = logging.getLogger(__name__)
 
@@ -44,9 +44,6 @@ COMPONENT_NAME = "org.voiceio.ibus"
 # largest datagram a sender can produce (SO_SNDBUF, ~208K by default) so that
 # cannot happen.
 RECV_BYTES = 262144
-# Between commit chunks: long enough for the compositor to flush the previous
-# one to the app, short enough that a 10KB note lands in a blink.
-COMMIT_GAP_MS = 40
 
 
 class VoiceIOEngine(IBus.Engine):

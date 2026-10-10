@@ -92,3 +92,30 @@ def test_preedit_tail_survives_multibyte_text():
     shown = tail_utf8(text)
     assert _nbytes(shown) <= MAX_TEXT_BYTES
     assert shown == TRUNCATION_MARK + "é" * ((MAX_TEXT_BYTES - _nbytes(TRUNCATION_MARK)) // 2)
+
+
+def test_commit_secs_zero_for_one_chunk():
+    from voiceio.ibus.textlimit import commit_secs
+    assert commit_secs("short note") == 0.0
+
+
+def test_commit_secs_covers_every_chunk_gap(long_note):
+    from voiceio.ibus.textlimit import COMMIT_GAP_MS, commit_secs
+    n = len(split_utf8(long_note))
+    assert n > 1
+    assert commit_secs(long_note) == n * COMMIT_GAP_MS / 1000
+
+
+def test_ibus_typer_holds_a_chunked_commit_until_delivered(long_note, monkeypatch):
+    """Returning early let the input source be restored while tail chunks
+    were still pending, so a long note lost its end."""
+    from voiceio.typers import ibus as ibus_typer
+    t = ibus_typer.IBusTyper.__new__(ibus_typer.IBusTyper)
+    sent, slept = [], []
+    monkeypatch.setattr(t, "_send", sent.append, raising=False)
+    monkeypatch.setattr(t, "_copy_to_clipboard", lambda _t: None, raising=False)
+    monkeypatch.setattr(t, "_engine_has_focus", lambda: True, raising=False)
+    monkeypatch.setattr(ibus_typer.time, "sleep", slept.append)
+    t.commit_text(long_note)
+    assert sent == [f"commit:{long_note}"]
+    assert slept and slept[-1] >= 0.3

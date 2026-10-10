@@ -14,6 +14,19 @@ from __future__ import annotations
 
 MAX_TEXT_BYTES = 2048
 TRUNCATION_MARK = "… "
+# Between commit chunks. A chunk the app hasn't acknowledged yet is replaced,
+# not extended, by the next one, and a busy Chromium/Electron window took
+# longer than the 40 ms this used to be: long notes landed as their last chunk.
+COMMIT_GAP_MS = 150
+
+
+def commit_secs(text: str) -> float:
+    """How long the engine needs to deliver ``text``: zero for one chunk, else
+    one gap per extra chunk plus one for the last to be acknowledged. The
+    caller must not hand the input source back before this has passed, or
+    the tail chunks arrive after the app lost focus."""
+    n = len(split_utf8(text))
+    return 0.0 if n <= 1 else n * COMMIT_GAP_MS / 1000
 
 
 def _is_continuation(byte: int) -> bool:
