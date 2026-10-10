@@ -75,9 +75,17 @@ def register(sub: argparse._SubParsersAction) -> None:
 
 
 def _yield_cpu() -> None:
-    """Run heavy learn jobs under SCHED_IDLE: they use only CPU nobody else
-    wants, so dictation never waits behind them (nice 19 measurably doesn't
-    suffice under load). Inherited by threads and worker processes."""
+    """Run heavy learn jobs on CPU nobody else wants, so dictation never waits.
+
+    Re-execs into a transient systemd scope with CPUWeight=idle: a cgroup-
+    level idle class that yields to every other cgroup. SCHED_IDLE or nice
+    alone only rank threads *inside* one cgroup — measured here, a SCHED_IDLE
+    labeler in another slice still took ~5 cores from the dictation service.
+    """
+    if os.environ.get("VOICEIO_IDLE_SCOPE") != "1" and _idle_scope_available():
+        import sys
+        os.environ["VOICEIO_IDLE_SCOPE"] = "1"
+        os.execvp("systemd-run", [*_IDLE_SCOPE, "--", sys.executable, *sys.argv])
     try:
         os.sched_setscheduler(0, os.SCHED_IDLE, os.sched_param(0))
     except (AttributeError, OSError):
@@ -85,6 +93,22 @@ def _yield_cpu() -> None:
             os.nice(19)
         except OSError:
             pass
+
+
+_IDLE_SCOPE = ["systemd-run", "--user", "--scope", "--quiet", "--collect",
+               "-p", "CPUWeight=idle", "-p", "IOWeight=1"]
+
+
+def _idle_scope_available() -> bool:
+    import shutil
+    import subprocess
+    if not shutil.which("systemd-run"):
+        return False
+    try:  # needs a user manager and systemd >= 252 for CPUWeight=idle
+        return subprocess.run([*_IDLE_SCOPE, "--", "true"], capture_output=True,
+                              timeout=10).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def _cfg():

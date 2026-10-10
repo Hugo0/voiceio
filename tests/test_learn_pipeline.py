@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 import wave
 
 import numpy as np
@@ -99,3 +101,25 @@ def test_augment_caps_synthetic_share():
     rows = augment.rows(max_share=0.3, real_rows=7)
     assert len(rows) == 3  # 3 / (7 + 3) = 30%
     assert all("Kalshi" in r["text"] or "HyperNEAT" in r["text"] for r in rows)
+
+
+def test_learn_jobs_reexec_into_an_idle_scope(monkeypatch):
+    import sys
+
+    from voiceio.cli import learn
+    monkeypatch.delenv("VOICEIO_IDLE_SCOPE")
+    monkeypatch.setattr(learn, "_idle_scope_available", lambda: True)
+    monkeypatch.setattr(sys, "argv", ["/venv/bin/voiceio", "learn", "label"])
+    calls = []
+
+    def fake_exec(file, argv):
+        calls.append(argv)
+        raise SystemExit  # execvp never returns
+
+    monkeypatch.setattr(learn.os, "execvp", fake_exec)
+    with pytest.raises(SystemExit):
+        learn._yield_cpu()
+    argv = calls[0]
+    assert "CPUWeight=idle" in argv
+    assert argv[argv.index("--") + 1:] == [sys.executable, "/venv/bin/voiceio", "learn", "label"]
+    assert learn.os.environ["VOICEIO_IDLE_SCOPE"] == "1"  # the child won't loop

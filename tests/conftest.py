@@ -14,6 +14,8 @@ os.environ.setdefault("XDG_CACHE_HOME", str(_REAL_HOME / ".cache"))
 os.environ.setdefault("HF_HOME", str(Path(os.environ["XDG_CACHE_HOME"]) / "huggingface"))
 _SANDBOX = Path(tempfile.mkdtemp(prefix="voiceio-tests-"))
 os.environ["HOME"] = str(_SANDBOX)
+# `voiceio learn` re-execs itself into an idle systemd scope; never from tests.
+os.environ["VOICEIO_IDLE_SCOPE"] = "1"
 for _var, _sub in (
     ("XDG_CONFIG_HOME", ".config"),
     ("XDG_STATE_HOME", ".local/state"),
