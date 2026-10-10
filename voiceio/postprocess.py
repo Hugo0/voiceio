@@ -89,8 +89,14 @@ def cleanup(text: str, language: str = "en") -> str:
     # Normalize multiple spaces to single
     text = re.sub(r" {2,}", " ", text)
 
-    # Ensure space after sentence-ending punctuation before a letter
-    text = re.sub(r"([.?!])([A-Za-z\u00C0-\u024F])", r"\1 \2", text)
+    # Whisper ends a segment with "..." and opens the next with "..." when a
+    # thought runs across them: one pause, not "......".
+    text = re.sub(r"\.\.\.\s*\.\.\.\s*", "... ", text).rstrip()
+
+    # Ensure space after ?/! before a letter. Not after ".": on real
+    # dictation every "x.Y" was a domain, file or identifier ("claude.ai",
+    # "roadmap.md", "Print.Observer"), never a missing sentence space.
+    text = re.sub(r"([?!])([A-Za-z\u00C0-\u024F])", r"\1 \2", text)
 
     # Remove space before punctuation marks
     text = re.sub(r"\s+([.,;:?!])", r"\1", text)
@@ -99,9 +105,10 @@ def cleanup(text: str, language: str = "en") -> str:
         # Capitalize first character
         text = text[0].upper() + text[1:]
 
-        # Capitalize after sentence-ending punctuation
+        # Capitalize after sentence-ending punctuation (an ellipsis is a
+        # pause, not an ending)
         text = re.sub(
-            r"([.?!]\s+)([a-z\u00E0-\u00FF])",
+            r"(?<!\.\.)([.?!]\s+)([a-z\u00E0-\u00FF])",
             lambda m: m.group(1) + m.group(2).upper(),
             text,
         )

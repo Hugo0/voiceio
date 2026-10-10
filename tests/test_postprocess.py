@@ -111,8 +111,15 @@ class TestSpacing:
     def test_triple_spaces(self):
         assert cleanup("hello   world") == "Hello world"
 
-    def test_space_after_period(self):
-        assert cleanup("hello.world") == "Hello. World"
+    def test_dots_inside_tokens_survive(self):
+        for text in ["see claude.ai", "open roadmap.md", "the Print.Observer class"]:
+            assert cleanup(text)[1:] == text[1:]
+
+    def test_space_after_question_mark(self):
+        assert cleanup("really?yes") == "Really? Yes"
+
+    def test_segment_continuation_ellipsis(self):
+        assert cleanup("interesting... ...evolving fast") == "Interesting... evolving fast"
 
     def test_space_before_comma(self):
         assert cleanup("hello , world") == "Hello, world"
