@@ -118,7 +118,7 @@ def test_lanes_share_the_thread_budget(monkeypatch):
     assert (auto_cpu_threads(1), auto_cpu_threads(2)) == (4, 2)
 
     seen = []
-    monkeypatch.setattr(tr, "Transcriber", lambda cfg: seen.append(cfg.cpu_threads) or object())
+    monkeypatch.setattr(tr, "Transcriber", lambda cfg: seen.append(cfg.cpu_threads) or types.SimpleNamespace(name="small"))
     build_decoder(ModelConfig(name="small"), lanes=2)
     build_decoder(ModelConfig(name="small", cpu_threads=6), lanes=2)
     assert seen == [2, 2, 6, 6]
