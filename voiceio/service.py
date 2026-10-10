@@ -19,6 +19,8 @@ _IS_WINDOWS = sys.platform == "win32"
 LOCAL_BIN = Path.home() / ".local" / "bin"
 # `voiceio-toggle` stays for 1.x: GNOME shortcuts created before 1.0 call it.
 SCRIPT_NAMES = ["voiceio", "voiceio-toggle"]
+# v0 entry points; their symlinks dangle (or run old code) after an upgrade.
+_LEGACY_SCRIPT_NAMES = ["voiceio-doctor", "voiceio-setup", "voiceio-test"]
 _PATH_HINT_ADDED = False  # track if we already printed the PATH hint
 
 SERVICE_NAME = "voiceio.service"
@@ -156,6 +158,7 @@ def install_service() -> bool:
         )
         log.info("Enabled %s", SERVICE_NAME)
         uninstall_correct_timer()
+        install_symlinks()  # the CLI must run the same install as the service
         return True
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         log.warning("Could not enable service: %s", e)
@@ -270,6 +273,11 @@ def install_symlinks() -> list[str]:
 
     venv_bin = Path(sys.prefix) / "bin"
     LOCAL_BIN.mkdir(parents=True, exist_ok=True)
+    for name in _LEGACY_SCRIPT_NAMES:
+        dest = LOCAL_BIN / name
+        if dest.is_symlink():
+            dest.unlink()
+            log.info("Removed legacy %s", dest)
     linked = []
     for name in SCRIPT_NAMES:
         src = venv_bin / name
