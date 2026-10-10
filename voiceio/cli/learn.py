@@ -105,7 +105,10 @@ def _yield_cpu() -> None:
     if os.environ.get("VOICEIO_IDLE_SCOPE") != "1" and _idle_scope_available():
         import sys
         os.environ["VOICEIO_IDLE_SCOPE"] = "1"
-        os.execvp("systemd-run", [*_IDLE_SCOPE, "--", sys.executable, *sys.argv])
+        # orig_argv keeps "-m voiceio": re-running __main__.py as a script
+        # would put voiceio/ first on sys.path, where numbers.py and
+        # platform.py shadow the standard library.
+        os.execvp("systemd-run", [*_IDLE_SCOPE, "--", sys.executable, *sys.orig_argv[1:]])
     try:
         os.sched_setscheduler(0, os.SCHED_IDLE, os.sched_param(0))
     except (AttributeError, OSError):

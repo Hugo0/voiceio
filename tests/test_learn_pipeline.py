@@ -115,7 +115,7 @@ def test_learn_jobs_reexec_into_an_idle_scope(monkeypatch):
     from voiceio.cli import learn
     monkeypatch.delenv("VOICEIO_IDLE_SCOPE")
     monkeypatch.setattr(learn, "_idle_scope_available", lambda: True)
-    monkeypatch.setattr(sys, "argv", ["/venv/bin/voiceio", "learn", "label"])
+    monkeypatch.setattr(sys, "orig_argv", ["python3", "-m", "voiceio", "learn", "label"])
     calls = []
 
     def fake_exec(file, argv):
@@ -127,7 +127,7 @@ def test_learn_jobs_reexec_into_an_idle_scope(monkeypatch):
         learn._yield_cpu()
     argv = calls[0]
     assert "CPUWeight=idle" in argv
-    assert argv[argv.index("--") + 1:] == [sys.executable, "/venv/bin/voiceio", "learn", "label"]
+    assert argv[argv.index("--") + 1:] == [sys.executable, "-m", "voiceio", "learn", "label"]
     assert learn.os.environ["VOICEIO_IDLE_SCOPE"] == "1"  # the child won't loop
 
 
