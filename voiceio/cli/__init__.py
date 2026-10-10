@@ -474,19 +474,15 @@ def _cmd_uninstall() -> None:
             pass
 
         # Kill any running IBus engine process
-        try:
-            result = subprocess.run(
-                ["pgrep", "-f", "voiceio.ibus.engine"],
-                capture_output=True, text=True, timeout=3,
-            )
-            if result.returncode == 0:
-                for pid in result.stdout.strip().split("\n"):
-                    pid = pid.strip()
-                    if pid:
-                        subprocess.run(["kill", pid], capture_output=True, timeout=3)
-                removed.append("Running IBus engine(s)")
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+        from voiceio.ibus import engine_pids
+        pids = engine_pids()
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        if pids:
+            removed.append("Running IBus engine(s)")
 
         # Stop and disable systemd service
         service_path = home / ".config" / "systemd" / "user" / "voiceio.service"

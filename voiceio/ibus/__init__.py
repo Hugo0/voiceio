@@ -62,3 +62,34 @@ def ping_engine(timeout: float = 2.0) -> bool:
         return False
     finally:
         sock.close()
+
+
+ENGINE_MODULE = "voiceio.ibus.engine"
+LAUNCHER_NAME = "voiceio-ibus-engine"
+
+
+def engine_pids() -> list[int]:
+    """PIDs of this user's running engines (and their launcher shells).
+
+    Matched on exact argv tokens, never a pattern: `pgrep -f
+    voiceio.ibus.engine` is a regex whose dots also match
+    "voiceio-ibus-engine.log", so it killed anything mentioning the log — a
+    `tail -f` of it, an editor, the shell that ran the restart.
+    """
+    uid, me, pids = os.getuid(), os.getpid(), []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == me:
+            continue
+        try:
+            if entry.stat().st_uid != uid:
+                continue
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        args = [a.decode(errors="replace") for a in argv if a]
+        is_engine = any(a == "-m" and b == ENGINE_MODULE for a, b in zip(args, args[1:]))
+        is_launcher = len(args) >= 2 and Path(args[0]).name in ("bash", "sh") \
+            and Path(args[1]).name == LAUNCHER_NAME
+        if is_engine or is_launcher:
+            pids.append(int(entry.name))
+    return pids

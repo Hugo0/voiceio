@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -68,21 +69,19 @@ def set_global_engine(name: str) -> None:
 
 def kill_stale_engines(socket_path) -> None:
     """Remove the command socket and SIGTERM any running engine process."""
+    import signal
+
+    from voiceio.ibus import engine_pids
     socket_path.unlink(missing_ok=True)
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "voiceio.ibus.engine"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if result.returncode == 0:
-            for pid in result.stdout.strip().split("\n"):
-                pid = pid.strip()
-                if pid:
-                    log.debug("Killing stale engine process %s", pid)
-                    subprocess.run(["kill", pid], capture_output=True, timeout=3)
-            time.sleep(0.3)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+    pids = engine_pids()
+    for pid in pids:
+        log.debug("Killing stale engine process %s", pid)
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    if pids:
+        time.sleep(0.3)
 
 
 # ── Input sources ───────────────────────────────────────────────────────
