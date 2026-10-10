@@ -310,7 +310,7 @@ class IBusSession:
         self._prev_engine: str | None = None
         # Consecutive missed pings: one miss on a busy system isn't a zombie.
         self._ping_fails = 0
-        self._started_at = 0.0
+        self._started_at = float("-inf")  # no launch yet: never "starting"
         # Engine stderr goes to a file, never a pipe (see _spawn).
         self._stderr_file = None
         self._stderr_path = None
