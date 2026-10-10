@@ -16,23 +16,27 @@ def test_clean_dry_run_then_apply():
         {"text": "Hello world"},                                   # fixture
         {"text": "Hello", "duration": 2.0, "audio": "real.wav"},   # real mic test
         {"text": "ship the Kalshi bot"},
+        {"text": "so I am testing out this software", "duration": 4.0},
     ])
     _write(config.TRACES_PATH, [
         {"audio": "gone.wav", "latency": {"transcribe": 0.0}},
         {"audio": "real.wav", "latency": {"transcribe": 1.2}},
     ])
     _write(config.POSTCORRECT_PAIRS_PATH,
-           [{"before": "Chris chat is the tool", "model": "x"}] * 5
+           [{"before": "Chris chat is the tool", "model": "x"}] * 5        # never dictated
+           + [{"before": "ship the Kalshi bot", "ts": 100 + i * 0.001} for i in range(5)]  # burst
+           # a real clip re-run by hand: repeated, but dictated and human-paced
+           + [{"before": "so I am testing out this software", "ts": 100 + i} for i in range(6)]
            + [{"before": "a real one", "model": "my/override-model"},
               {"before": "keep me", "model": "google/gemini-2.5-flash-lite"}])
 
     reports = {r.path.name: r for r in clean(apply=False)}
     assert reports["history.jsonl"].removed == 1
-    assert len(config.HISTORY_PATH.read_text().splitlines()) == 3  # dry run
+    assert len(config.HISTORY_PATH.read_text().splitlines()) == 4  # dry run
 
     reports = {r.path.name: r for r in clean(apply=True)}
     assert [json.loads(l)["text"] for l in config.HISTORY_PATH.read_text().splitlines()] \
-        == ["Hello", "ship the Kalshi bot"]
+        == ["Hello", "ship the Kalshi bot", "so I am testing out this software"]
     assert reports[config.TRACES_PATH.name].removed == 1
-    assert reports["postcorrect_pairs.jsonl"].removed == 6
+    assert reports["postcorrect_pairs.jsonl"].removed == 11
     assert list(config.HISTORY_PATH.parent.glob("history.jsonl.*.bak"))

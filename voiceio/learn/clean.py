@@ -21,8 +21,11 @@ _FIXTURE_TEXTS = frozenset({
     "hello", "hello world", "hello world.", "hello.", "thank you.",
 })
 _FIXTURE_MODELS = frozenset({"my/override-model"})
-# Real dictation never repeats verbatim this many times; fixtures do.
+# Real dictation rarely repeats verbatim this many times; fixtures do. Repeats
+# alone aren't proof (re-running a real clip repeats it too), so a repeated
+# input also has to be absent from history or written in a test-speed burst.
 _DUPLICATE_THRESHOLD = 5
+_BURST_SECS = 0.25
 
 
 @dataclass
@@ -65,14 +68,41 @@ def _trace_reason(row: dict) -> str | None:
     return None
 
 
-def _pairs_reasons(rows: list[dict]) -> list[str | None]:
+def _ts(row: dict) -> float | None:
+    try:
+        return float(row["ts"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _burst_inputs(rows: list[dict]) -> set:
+    """Inputs logged twice within `_BURST_SECS` — faster than any human."""
+    times = collections.defaultdict(list)
+    for r in rows:
+        if (t := _ts(r)) is not None:
+            times[r.get("before")].append(t)
+    return {b for b, ts in times.items()
+            if any(y - x < _BURST_SECS for x, y in zip(sorted(ts), sorted(ts)[1:]))}
+
+
+def _pairs_reasons(rows: list[dict], history: str = "") -> list[str | None]:
     counts = collections.Counter(r.get("before") for r in rows)
+    bursts = _burst_inputs(rows)
+
+    def dictated(r: dict) -> bool:
+        return any(s and s.lower()[:40] in history
+                   for s in (r.get("before"), r.get("after")))
+
     out = []
     for r in rows:
         if r.get("model") in _FIXTURE_MODELS:
             out.append("fixture model")
-        elif counts[r.get("before")] >= _DUPLICATE_THRESHOLD:
-            out.append(f"input repeated ≥{_DUPLICATE_THRESHOLD}x")
+        elif counts[r.get("before")] < _DUPLICATE_THRESHOLD:
+            out.append(None)
+        elif r.get("before") in bursts:
+            out.append("repeated input, written in a burst")
+        elif not dictated(r):
+            out.append("repeated input, never dictated")
         else:
             out.append(None)
     return out
@@ -99,10 +129,13 @@ def _clean_file(path: Path, reasons: list[str | None], rows: list[dict],
 def clean(apply: bool = False) -> list[FileReport]:
     """Find (and with `apply`, remove) fixture rows. Returns per-file counts."""
     reports = []
+    history = ""
+    if config.HISTORY_PATH.exists():
+        history = "\n".join(r.get("text", "") for r in _read(config.HISTORY_PATH)).lower()
     targets = [
         (config.HISTORY_PATH, lambda rows: [_history_reason(r) for r in rows]),
         (config.TRACES_PATH, lambda rows: [_trace_reason(r) for r in rows]),
-        (config.POSTCORRECT_PAIRS_PATH, _pairs_reasons),
+        (config.POSTCORRECT_PAIRS_PATH, lambda rows: _pairs_reasons(rows, history)),
     ]
     for path, classify in targets:
         if not path.exists():
