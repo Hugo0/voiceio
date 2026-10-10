@@ -150,14 +150,12 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 .try-head .label { color: var(--ink); }
 .try-min { display: none; flex: none; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: 500 14px/1 var(--mono); cursor: pointer; }
 .try-min:hover { background: var(--bg-2); color: var(--ink); }
-.try-load { margin-top: 14px; }
-.try-load[hidden] { display: none; }
-.try-load .bar { height: 5px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
-.try-load .bar i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--ink); transition: width .3s var(--ease-quart); }
-.try-load .label { margin-top: 8px; color: var(--muted); }
-.try-out { margin-top: 10px; min-height: 3.3em; max-height: 9.9em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
-           font: 400 15px/1.65 var(--mono); color: var(--ink); transition: min-height .4s var(--ease-quart); }
-.try-out .ph { color: var(--faint); }
+.try-out { display: block; margin: 10px -8px 0; padding: 6px 8px; min-height: 3.6em; max-height: 9.9em; overflow-y: auto; border-radius: 8px;
+           font: 400 15px/1.65 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; outline: none;
+           transition: background .2s, box-shadow .2s; }
+.try-out:hover { background: color-mix(in oklch, var(--surface) 45%, transparent); }
+.try-out:focus { background: color-mix(in oklch, var(--surface) 75%, transparent); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.try-out:empty::before { content: attr(data-ph); color: var(--faint); pointer-events: none; }
 .try-out .pre { text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 4px; color: var(--muted); }
 .talk { position: relative; overflow: hidden; margin-top: 12px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
         touch-action: none; user-select: none; -webkit-user-select: none; font: 500 12px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
@@ -168,6 +166,9 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 .talk > span { position: relative; }
 .talk .lvl { position: absolute; inset: 0; pointer-events: none; background: oklch(1 0 0 / 0.16); transform-origin: left; transform: scaleX(var(--lvl, 0)); transition: transform .08s linear; }
 .talk .recdot { margin: 0; background: var(--faint); animation: none; }
+.try.loading .talk { cursor: progress; background: var(--ink); }
+.try.loading .talk .lvl { background: color-mix(in oklch, var(--signal) 45%, transparent); transition: transform .35s var(--ease-quart); }
+.try.loading .talk .recdot { display: none; }
 .try.live .talk { background: var(--miss); }
 .try.live .talk .recdot { background: var(--surface); animation: rec 1.2s ease-in-out infinite; }
 .talk kbd { font: 600 11px/1 var(--mono); border: 1px solid oklch(1 0 0 / 0.4); border-bottom-width: 2px; border-radius: 4px; padding: 3px 6px 2px; letter-spacing: 0.08em; }
@@ -176,13 +177,10 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 .try.docked { position: fixed; z-index: 40; right: 20px; bottom: 20px; width: min(440px, calc(100vw - 32px));
               display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 18px; border-radius: 999px; }
 .try.docked .try-head, .try.docked .try-foot { display: none; }
-.try.docked .try-out { flex: 1; min-width: 0; margin: 0; min-height: 0; max-height: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: clip; font-size: 14px; line-height: 1.5; }
-.try.docked .try-out > div { overflow: hidden; text-overflow: ellipsis; }
+.try.docked .try-out { flex: 1; min-width: 0; margin: 0; padding: 4px 6px; min-height: 0; max-height: none; white-space: nowrap; overflow: hidden; font-size: 14px; line-height: 1.5; }
+.try.docked .try-out:empty::before { content: "say something"; }
 .try.docked .talk { flex: none; width: auto; margin: 0; padding: 11px 15px; border-radius: 999px; font-size: 11px; }
 .try.docked .try-min { display: inline-grid; order: 3; }
-.try.docked .try-load { position: absolute; left: 22px; right: 22px; top: -1px; margin: 0; }
-.try.docked .try-load .bar { height: 2px; border: 0; }
-.try.docked .try-load .label { display: none; }
 .try-pill { position: fixed; z-index: 40; right: 20px; bottom: 20px; display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
             font: 500 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--surface); background: var(--ink);
             border: 0; border-radius: 999px; padding: 12px 16px; box-shadow: 0 16px 40px -20px color-mix(in oklch, var(--ink) 70%, transparent); }
@@ -366,8 +364,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
         <div class="try-slot" id="try-slot">
         <aside class="try rise" id="try" style="animation-delay:320ms" aria-label="Try dictation in your browser">
           <div class="try-head"><span class="label">// try it here · nothing to install</span></div>
-          <div class="try-load" id="try-load" hidden><div class="bar"><i id="try-bar"></i></div><div class="label" id="try-load-text">getting the speech model…</div></div>
-          <div class="try-out" id="try-out" aria-live="polite"></div>
+          <div class="try-out" id="try-out" contenteditable="plaintext-only" role="textbox" aria-multiline="true" aria-label="Dictated text" spellcheck="false" data-ph="Hold space and talk. Words appear where your cursor is."></div>
           <button class="talk" id="talk" type="button"><i class="lvl" aria-hidden="true"></i><span class="recdot" aria-hidden="true"></span><span id="talk-label">hold <kbd>space</kbd> to talk</span></button>
           <button class="try-min" id="try-min" type="button" aria-label="Hide the demo">×</button>
           <div class="try-foot label" id="try-status">runs in this tab · audio stays here</div>
@@ -687,75 +684,129 @@ void main(){
 
   // ------------------------------------------------ try it: dictation in-tab
   // Hold space (or the button) to talk. A small speech model runs in a Web
-  // Worker: partial decodes show as underlined preview, the final one commits
-  // on release, the way voiceio types. The mic is open only while held.
+  // Worker. The box is a real text field: dictation goes in at your cursor (or
+  // at the end), as an underlined preview that is replaced by the final text
+  // on release, the way voiceio types into an app. Talking is only possible
+  // once the model is ready; until then the button shows the download. The
+  // mic is open only while held.
   const tryEl = document.getElementById("try");
   const slot = document.getElementById("try-slot");
   const pill = document.getElementById("try-pill");
-  const out = document.getElementById("try-out");
+  const box = document.getElementById("try-out");
   const talk = document.getElementById("talk");
   const talkLabel = document.getElementById("talk-label");
   const statusEl = document.getElementById("try-status");
-  const loadEl = document.getElementById("try-load");
-  const bar = document.getElementById("try-bar");
-  const loadText = document.getElementById("try-load-text");
   const RATE = 16000, MAX_SECS = 20, STEP_SECS = 0.35;
   const DEBUG = new URLSearchParams(location.search).has("debug");
   const touch = matchMedia("(hover: none)").matches;
-  const TALK = touch ? "hold to talk" : "hold <kbd>space</kbd> to talk";
   const TAP_URL = URL.createObjectURL(new Blob([
     "class Tap extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('tap',Tap)",
   ], { type: "text/javascript" }));
   // model: idle | loading | ready | failed. `attempt` invalidates mic opens
   // that resolve after the key was released (e.g. across a permission prompt).
   const T = { worker: null, model: "idle", busy: false, want: false, live: false, attempt: 0, session: 0,
-              chunks: [], n: 0, sent: 0, rate: RATE, pending: null, said: [], preview: "", stream: null, ctx: null, files: {}, note: "" };
+              chunks: [], n: 0, sent: 0, rate: RATE, pending: null, stream: null, ctx: null, files: {}, spans: new Map() };
+  const ready = () => T.model === "ready";
+  const secs = () => T.n / T.rate;
   const setStatus = (t) => (statusEl.textContent = t);
   const setLevel = (v) => { mic.level = v; talk.style.setProperty("--lvl", v.toFixed(3)); };
+  const editing = () => document.activeElement === box;
+  const STATUS_READY = "ready · runs in this tab · audio stays here";
 
-  function render() {
-    out.textContent = "";
-    if (!T.said.length && !T.preview && !T.live) {
-      const ph = document.createElement("span");
-      ph.className = "ph";
-      ph.textContent = docked() ? "say something" : (touch ? "Hold the button" : "Hold space") + " and talk. Words appear as you speak.";
-      out.appendChild(ph);
-      if (docked()) { const c = document.createElement("span"); c.className = "caret"; out.appendChild(c); }
-      return;
-    }
-    const p = document.createElement("div");
-    const said = T.said.join(" ");
-    const keep = docked() ? 60 : 400;  // docked, it is one line: show the tail
-    p.textContent = (said.length > keep ? "…" + said.slice(said.indexOf(" ", said.length - keep) + 1) : said) + (said && T.preview ? " " : "");
-    if (T.preview) { const s = document.createElement("span"); s.className = "pre"; s.textContent = T.preview; p.appendChild(s); }
-    if (T.live) { const c = document.createElement("span"); c.className = "caret"; p.appendChild(c); }
-    out.appendChild(p);
+  // The button tells the whole state: idle, downloading (a progress fill),
+  // ready, recording (red) — never red unless it can actually transcribe.
+  function label() {
+    tryEl.classList.toggle("loading", T.model === "loading");
+    if (T.model === "loading") return;
+    talkLabel.innerHTML = touch || editing() ? "hold to talk" : "hold <kbd>space</kbd> to talk";
   }
-
-  function showLoad(text, frac) {
-    loadEl.hidden = false;
-    loadText.textContent = text;
-    bar.style.width = (frac == null ? 8 : Math.max(8, frac * 100)) + "%";
+  function progress(frac, text) {
+    talk.style.setProperty("--lvl", frac.toFixed(3));
+    talkLabel.textContent = text;
   }
 
   function ensureModel() {
     if (T.worker) return;
     T.model = "loading";
+    label();
+    progress(0.02, "loading the model…");
+    setStatus("downloads once (67 MB), then it's cached");
     T.worker = new Worker("asr-worker.js", { type: "module" });
     T.worker.onmessage = onWorker;
     T.worker.onerror = (e) => fail(e.message || "the speech model's script didn't load");
     T.worker.postMessage({ type: "load" });
-    showLoad("getting the speech model…", null);
-    talkLabel.innerHTML = touch ? "hold to talk · model loading" : TALK;
-    render();
   }
   function fail(why) {
     console.error("voiceio demo:", why);
     T.model = "failed";
-    loadEl.hidden = true;
-    setStatus("couldn't run the model here: " + String(why).slice(0, 90));
-    talkLabel.innerHTML = TALK;
-    render();
+    T.worker = null;
+    label();
+    setLevel(0);
+    setStatus("couldn't load the model: " + String(why).slice(0, 80) + " · press to retry");
+  }
+
+  // ---- the text box: insert at the caret, preview in place, then commit
+  function insertionRange() {
+    const sel = getSelection();
+    if (sel.rangeCount && box.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      const r = sel.getRangeAt(0);
+      r.deleteContents();  // like typing: dictation replaces a selection
+      return r;
+    }
+    const r = document.createRange();
+    r.selectNodeContents(box);
+    r.collapse(false);
+    return r;
+  }
+  function charBefore(node) {
+    const r = document.createRange();
+    r.selectNodeContents(box);
+    r.setEndBefore(node);
+    return r.toString().slice(-1);
+  }
+  function charAfter(node) {
+    const r = document.createRange();
+    r.selectNodeContents(box);
+    r.setStartAfter(node);
+    return r.toString().charAt(0);
+  }
+  // Space the dictated words off from their neighbours, as typing would.
+  function spaced(span, text) {
+    if (!text) return "";
+    const a = charBefore(span), z = charAfter(span);
+    return (a && !/\s/.test(a) ? " " : "") + text + (z && !/[\s.,!?;:]/.test(z) ? " " : "");
+  }
+  function openSpan(id) {
+    const span = document.createElement("span");
+    span.className = "pre";
+    insertionRange().insertNode(span);
+    T.spans.set(id, span);
+    return span;
+  }
+  function showPreview(id, text) {
+    const span = T.spans.get(id);
+    if (!span) return;
+    span.textContent = spaced(span, text);
+    keepTailVisible();
+  }
+  function commit(id, text) {
+    const span = T.spans.get(id);
+    T.spans.delete(id);
+    if (!span) return;
+    const node = document.createTextNode(spaced(span, text));
+    span.replaceWith(node);
+    box.normalize();
+    if (editing()) {  // leave the caret after what was just said
+      const r = document.createRange();
+      r.setStartAfter(node.isConnected ? node : box.lastChild || box);
+      r.collapse(true);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    }
+    keepTailVisible();
+  }
+  function keepTailVisible() {
+    box.scrollTop = box.scrollHeight;
+    if (docked()) box.scrollLeft = box.scrollWidth;
   }
 
   // Everything is kept at the mic's own rate and resampled per decode.
@@ -774,21 +825,18 @@ void main(){
     }
     return res;
   }
-  const secs = () => T.n / T.rate;
-  const ready = () => T.model === "ready";
 
   function tick() {
-    if (!ready() || T.busy || !T.live || secs() - T.sent < STEP_SECS) return;
+    if (T.busy || !T.live || secs() - T.sent < STEP_SECS) return;
     T.busy = true;
     T.sent = secs();
     T.worker.postMessage({ type: "decode", id: T.session, final: false, audio: audio16k() });
   }
   function flush() {
-    if (!ready() || T.busy || !T.pending) return;
+    if (T.busy || !T.pending) return;
     T.busy = true;
     T.worker.postMessage({ type: "decode", id: T.pending.id, final: true, audio: T.pending.audio });
     T.pending = null;
-    if (!T.live) setStatus("finishing…");
   }
 
   function onWorker({ data }) {
@@ -798,42 +846,42 @@ void main(){
       T.files[data.file] = data;
       const all = Object.values(T.files);
       const got = all.reduce((n, f) => n + (f.loaded || 0), 0), total = all.reduce((n, f) => n + (f.total || 0), 0);
-      const mb = (x) => (x / 1e6).toFixed(0);
-      if (got >= total) showLoad("preparing the model…", 1);
-      else showLoad("downloading the model · " + mb(got) + " / " + mb(total) + " MB · once", got / total);
-      if (touch) talkLabel.textContent = "hold to talk · " + Math.round((100 * got) / Math.max(1, total)) + "%";
+      const frac = total ? got / total : 0;
+      progress(Math.max(0.02, frac), got >= total ? "preparing the model…" : "loading the model · " + Math.round(frac * 100) + "%");
+      setStatus("downloads once (" + (total / 1e6).toFixed(0) + " MB), then it's cached");
     } else if (data.type === "ready") {
       T.model = "ready";
-      loadEl.hidden = true;
-      talkLabel.innerHTML = TALK;
-      T.note = data.model + " · runs in this tab · audio stays here";
-      setStatus(T.live ? "listening… release to finish" : T.note);
-      render();
-      flush(); tick();
+      setLevel(0);
+      label();
+      setStatus(STATUS_READY);
+      if (!touch && !editing()) talk.animate([{ boxShadow: "0 0 0 6px color-mix(in oklch, var(--signal) 55%, transparent)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 900, easing: "ease-out" });
     } else if (data.type === "error") {
       fail(data.message);
     } else if (data.type === "text") {
       T.busy = false;
       if (DEBUG) console.log("asr", data.final ? "final" : "partial", Math.round(data.ms) + "ms", JSON.stringify(data.text));
       if (data.final) {
-        if (data.text) T.said.push(data.text);
-        T.preview = "";
-        setStatus(T.live ? "listening… release to finish" : T.note);
+        commit(data.id, data.text);
+        if (!T.live) setStatus(STATUS_READY);
       } else if (data.id === T.session && T.live) {
-        T.preview = data.text;
+        showPreview(data.id, data.text);
       }
-      render();
       flush(); tick();
     }
   }
 
   async function start() {
     if (T.want) return;
+    if (!ready()) {  // nothing to transcribe with yet: show the download, don't pretend to record
+      if (T.model !== "loading") ensureModel();
+      talk.animate([{ transform: "translateX(0)" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "translateX(0)" }], { duration: 260 });
+      return;
+    }
     T.want = true;
     const attempt = ++T.attempt;
     const stale = () => attempt !== T.attempt || !T.want;
-    if (T.model === "idle" || T.model === "failed") { T.worker = null; ensureModel(); }
-    let stream, ctx;
+    let stream;
+    setStatus("waiting for the microphone…");
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     } catch {
@@ -842,13 +890,13 @@ void main(){
     }
     if (stale()) {
       stream.getTracks().forEach((t) => t.stop());
-      if (!T.want && !T.live) setStatus("microphone ready · hold again to talk");
+      if (!T.want && !T.live) setStatus("microphone ready · hold to talk");
       return;
     }
-    ctx = new AudioContext();
+    const ctx = new AudioContext();
     await ctx.resume().catch(() => {});
     await ctx.audioWorklet.addModule(TAP_URL);
-    if (stale()) { stream.getTracks().forEach((t) => t.stop()); ctx.close(); return; }
+    if (stale()) { stream.getTracks().forEach((t) => t.stop()); ctx.close(); setStatus(STATUS_READY); return; }
     const session = ++T.session;
     const node = new AudioWorkletNode(ctx, "tap");
     node.port.onmessage = ({ data }) => {
@@ -862,17 +910,17 @@ void main(){
       else tick();
     };
     ctx.createMediaStreamSource(stream).connect(node);
-    Object.assign(T, { stream, ctx, rate: ctx.sampleRate, chunks: [], n: 0, sent: 0, preview: "", live: true });
+    Object.assign(T, { stream, ctx, rate: ctx.sampleRate, chunks: [], n: 0, sent: 0, live: true });
+    openSpan(session);
     tryEl.classList.add("live");
     mic.wake();
-    setStatus(ready() ? "listening… release to finish" : "listening · transcribes once the model is in");
-    render();
+    setStatus("listening… release to finish");
   }
   function stop() {
     T.want = false;
     T.attempt++;
-    setLevel(0);
     if (!T.live) return;
+    setLevel(0);
     T.live = false;
     tryEl.classList.remove("live");
     T.stream.getTracks().forEach((t) => t.stop());
@@ -880,17 +928,17 @@ void main(){
     T.stream = T.ctx = null;
     if (secs() >= 0.3) {
       T.pending = { id: T.session, audio: audio16k() };
-      setStatus(ready() ? "finishing…" : "got it · transcribing when the model is in");
+      setStatus("finishing…");
       flush();
     } else {
-      T.preview = "";
-      setStatus(ready() ? T.note : "hold a little longer");
+      commit(T.session, "");
+      setStatus("hold a little longer");
     }
-    render();
   }
 
-  // Once the hero scrolls away the card docks in the corner (it glides there),
-  // and can be minimized to a pill. Space is push-to-talk only while it shows.
+  // Once the hero scrolls away the card docks in the corner as a slim bar,
+  // and can be hidden to a pill. Space is push-to-talk only while it shows
+  // and you're not typing in the box.
   let inHero = true, minimized = false;
   const docked = () => tryEl.classList.contains("docked");
   tryEl.addEventListener("animationend", function done(e) {
@@ -903,7 +951,7 @@ void main(){
     if (docked() === dock) return;
     slot.style.minHeight = dock ? slot.offsetHeight + "px" : "";
     tryEl.classList.toggle("docked", dock);
-    render();
+    keepTailVisible();
     if (!still) tryEl.animate(
       dock ? [{ opacity: 0, transform: "translateY(24px) scale(0.96)" }, { opacity: 1, transform: "none" }]
            : [{ opacity: 0, transform: "translateY(-10px)" }, { opacity: 1, transform: "none" }],
@@ -923,14 +971,18 @@ void main(){
   addEventListener("keyup", (e) => { if (e.code === "Space" && (T.want || T.live)) { e.preventDefault(); stop(); } });
   addEventListener("blur", stop);
   document.addEventListener("visibilitychange", () => document.hidden && stop());
+  // The button must not steal focus or the caret from the box.
+  talk.addEventListener("mousedown", (e) => e.preventDefault());
   talk.addEventListener("pointerdown", (e) => { e.preventDefault(); talk.setPointerCapture(e.pointerId); start(); });
   ["pointerup", "pointercancel"].forEach((ev) => talk.addEventListener(ev, stop));
   talk.addEventListener("keydown", (e) => e.code === "Enter" && e.preventDefault());
+  box.addEventListener("focus", label);
+  box.addEventListener("blur", label);
   // Fetch the model as soon as someone shows interest, not on every visit.
   tryEl.addEventListener("pointerenter", ensureModel, { once: true });
   talk.addEventListener("focus", ensureModel, { once: true });
-  talkLabel.innerHTML = TALK;
-  render();
+  if (touch) box.dataset.ph = "Hold the button and talk. Words appear where your cursor is.";
+  label();
 
   // ----------------------------------------------------- 2D halftone dither art
   function hash(x, y) { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); }
