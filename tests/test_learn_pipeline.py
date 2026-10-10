@@ -177,3 +177,31 @@ def test_lr_schedule_warms_up_then_decays_to_zero():
     f = train.lr_schedule(100)
     assert f(0) == 0.1 and f(9) == 1.0
     assert f(10) == 1.0 and 0.0 < f(55) < 1.0 and f(100) == 0.0
+
+
+def test_pipeline_audit_attributes_changes_to_stages():
+    from voiceio.core.pipeline import Pipeline, StageResult
+    from voiceio.learn.store import Clip, Label
+
+    class Swap:
+        name, final_only = "swap", False
+
+        def __init__(self, a, b):
+            self.a, self.b = a, b
+
+        def __call__(self, text, ctx):
+            return StageResult(text.replace(self.a, self.b))
+
+    clips = [Clip("a.wav", 0, 3, raw="we use kalchi", final="we used Kalshi!!"),
+             Clip("b.wav", 0, 3, raw="no one knows", final="no one knows")]
+    labels = {c.audio: Label(c.audio, (Segment(0, 3, ref),), "teacher:x", 0)
+              for c, ref in zip(clips, ["we use Kalshi", "no one knows"])}
+    pipeline = Pipeline([Swap("kalchi", "Kalshi"), Swap("one", "1")])
+    audit = evaluate.pipeline_audit(clips, labels, pipeline)
+    fix, harm = audit.stages
+    assert (audit.clips, audit.raw_errors) == (2, 1)
+    assert (fix.changed, fix.better, fix.worse) == (1, 1, 0)
+    assert (harm.changed, harm.better, harm.worse) == (1, 0, 1)
+    c = audit.committed  # vs. the local result: "used" is worse; "one" (not "1") better
+    assert (c.changed, c.better, c.worse) == (2, 1, 1)
+    assert "decoder output" in audit.summary()
