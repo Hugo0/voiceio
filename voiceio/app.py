@@ -363,8 +363,7 @@ class VoiceIO:
 
         self._state = _State.RECORDING
         self._recording += 1
-        if self._typers.typer.name == "ibus":
-            self._ibus.claim(self._recording)
+        self._typers.begin(self._recording)
         # Vocabulary and corrections are mtime-cached, so edits made with
         # `voiceio vocab`/`corrections` apply from the next recording.
         bias = self.engine.bias()
@@ -402,19 +401,7 @@ class VoiceIO:
         tray.set_recording(False)
         self._warn_if_clipping()
 
-        if self._postcorrect is not None:
-            # Freshest context for the finalize pass: this recording's window
-            # title (captured at start) and the latest transcripts/vocabulary.
-            #
-            # The FULL vocabulary, not the hotwords string: the decoder can only
-            # be biased with ~40-60 terms, but this is an LLM with no 448-token
-            # budget. The long tail that can never fit in hotwords gets its only
-            # chance to be corrected here.
-            self._postcorrect.set_context(
-                vocabulary=", ".join(self.engine.vocabulary_terms),
-                recent=self.engine.recent(3),
-                title=self._context_title,
-            )
+        self.engine.prepare_final(title=self._context_title)
 
         if self._streaming and self._session is not None:
             self._state = _State.FINALIZING
@@ -435,13 +422,13 @@ class VoiceIO:
                 self._output_thread(self._process, audio, gen, rid, self._recording_bias)
             else:
                 # No processing thread will run — release the source here.
-                self._ibus.release(rid)
+                self._typers.end(rid)
         else:
             # Streaming mode but session already gone (race) — nothing to do
             self._state = _State.IDLE
             log.debug("Stop: streaming session already finalized")
             # No finalizer will run to release the input source, so do it here.
-            self._ibus.release(rid)
+            self._typers.end(rid)
 
     def _capture_context(self) -> None:
         from voiceio import retention
@@ -499,7 +486,7 @@ class VoiceIO:
         # Snappy clipboard: make the best-so-far text pasteable the moment
         # the user stops, instead of after the (possibly long) final decode.
         if (self.cfg.output.copy_to_clipboard == "live"
-                and self._typers.typer.name != "clipboard" and session.interim_text):
+                and not self._typers.pastes_from_clipboard and session.interim_text):
             from voiceio import clipboard_read
             clipboard_read.copy_text(session.interim_text)
         extra = self._retention_extra(audio)
@@ -512,7 +499,7 @@ class VoiceIO:
             if final_text:
                 self.engine.commit(final_text, raw=session.raw_final_text,
                                    duration=elapsed, extra=extra)
-            self._ibus.release(rid)
+            self._typers.end(rid)
             return
         if final_text:
             self._copy_result_async(final_text)
@@ -537,7 +524,7 @@ class VoiceIO:
         self._warn_if_nothing_captured(final_text, gen)
         # Release the IBus input source now that the final commit is done.
         # A no-op if a newer recording has claimed it since.
-        self._ibus.release(rid)
+        self._typers.end(rid)
         # Transition to IDLE under lock to avoid racing with _toggle
         with self._hotkey_lock:
             if self._generation == gen and self._state == _State.FINALIZING:
@@ -567,7 +554,7 @@ class VoiceIO:
             log.exception("Processing failed")
         finally:
             # Release the IBus input source after the batch commit (or failure).
-            self._ibus.release(rid)
+            self._typers.end(rid)
 
     # ── Text-to-speech ─────────────────────────────────────────────
 
@@ -623,7 +610,7 @@ class VoiceIO:
         """
         if self.cfg.output.copy_to_clipboard != "live":
             return
-        if self._typers.typer.name == "clipboard":
+        if self._typers.pastes_from_clipboard:
             return
         from voiceio import clipboard_read
         clipboard_read.copy_text(text)
@@ -636,7 +623,7 @@ class VoiceIO:
         def _copy() -> None:
             # Give a just-sent paste keystroke time to consume the clipboard
             # before we overwrite it with the full text.
-            if self._typers.typer.name == "clipboard":
+            if self._typers.pastes_from_clipboard:
                 time.sleep(0.3)
             from voiceio import clipboard_read
             clipboard_read.copy_text(text)

@@ -106,6 +106,23 @@ class TyperManager:
 
     # ── Runtime fallback ────────────────────────────────────────────────
 
+    # ── per-recording ────────────────────────────────────────────────────
+    def begin(self, rid: int) -> None:
+        """A recording starts: an IBus typer needs the input source."""
+        if self.typer.name == "ibus":
+            self._ibus.claim(rid)
+
+    def end(self, rid: int) -> None:
+        """Its output is committed (or abandoned): give the source back. A
+        no-op if a newer recording has claimed it, or nothing was claimed."""
+        self._ibus.release(rid)
+
+    @property
+    def pastes_from_clipboard(self) -> bool:
+        """The typer pastes from the clipboard, so nothing else may overwrite
+        it while a paste may still be pending."""
+        return self.typer.name == "clipboard"
+
     def type_with_fallback(self, text: str) -> None:
         try:
             self.typer.type_text(text)

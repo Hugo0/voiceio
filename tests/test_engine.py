@@ -81,3 +81,17 @@ def test_commit_without_persist_learns_but_writes_nothing():
     eng.commit("ship the Kalshi fix", raw="ship the kalshi fix", duration=1.0, persist=False)
     assert "Kalshi" in (eng.bias().prompt or "")
     assert not config.HISTORY_PATH.exists()
+
+
+def test_prepare_final_gives_postcorrect_full_vocabulary_and_title():
+    from unittest.mock import MagicMock
+
+    from voiceio import config
+    config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (config.CONFIG_DIR / "vocabulary.txt").write_text("Kalshi\nHyperNEAT\n")
+    pc = MagicMock()
+    eng = Engine.from_config(Config(), decoder=FakeDecoder(), postcorrect=pc)
+    eng.prepare_final(title="editor")
+    kw = pc.set_context.call_args.kwargs
+    assert "Kalshi" in kw["vocabulary"] and kw["title"] == "editor"
+    Engine.from_config(Config(), decoder=FakeDecoder()).prepare_final(title="x")  # no-op

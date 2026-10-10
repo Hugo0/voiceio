@@ -52,6 +52,7 @@ class Engine:
         bias: BiasProvider,
         corrections: CorrectionDict,
         prefix: str = "",
+        postcorrect: PostCorrector | None = None,
     ):
         self.cfg = cfg
         self.decoder = decoder
@@ -59,6 +60,7 @@ class Engine:
         self.corrections = corrections
         self._bias = bias
         self._prefix = prefix
+        self._postcorrect = postcorrect
 
     @classmethod
     def from_config(
@@ -94,7 +96,8 @@ class Engine:
         if decoder is None:
             decoder = build_decoder(cfg.model, lanes=lanes)
         return cls(cfg, decoder, pipeline=pipeline, bias=bias, corrections=corrections,
-                   prefix=cfg.output.voice_input_prefix if prefix else "")
+                   prefix=cfg.output.voice_input_prefix if prefix else "",
+                   postcorrect=postcorrect)
 
     # ── personalization ──────────────────────────────────────────────────
     @property
@@ -113,6 +116,18 @@ class Engine:
     def record_usage(self, text: str) -> None:
         """Feed a committed utterance back: prompt history + vocab usage."""
         self._bias.record_usage(text)
+
+    def prepare_final(self, title: str | None = None) -> None:
+        """Freshest context for the cloud pass on the coming final: the
+        window title and the latest transcripts and vocabulary.
+
+        The FULL vocabulary, not the hotwords string: the decoder can only be
+        biased with ~35 terms, but this is an LLM with no 448-token budget. The
+        long tail that can never fit in hotwords gets its only chance here."""
+        if self._postcorrect is not None:
+            self._postcorrect.set_context(
+                vocabulary=", ".join(self.vocabulary_terms),
+                recent=self.recent(3), title=title)
 
     # ── transcription ────────────────────────────────────────────────────
     def transcribe(self, audio: np.ndarray, *, bias: Bias | None = None) -> Transcript:
