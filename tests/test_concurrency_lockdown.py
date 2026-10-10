@@ -98,7 +98,7 @@ class TestGuardedSwaps:
         from voiceio.app import _State
         vio = _make_app()
         vio._state = _State.RECORDING
-        vio.transcriber.healthy.return_value = True
+        vio.decoder.healthy.return_value = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.cfg.tray.enabled = False
         vio._typers.health_upkeep = MagicMock()
@@ -153,7 +153,7 @@ class TestIBusGoodCitizen:
         from voiceio.app import _State
         vio = _make_app(typer_name="ibus")
         vio._state = _State.IDLE
-        vio.transcriber.healthy.return_value = True
+        vio.decoder.healthy.return_value = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.cfg.tray.enabled = False
         vio._typers.health_upkeep = MagicMock()

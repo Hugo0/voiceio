@@ -82,7 +82,7 @@ class VoiceIO:
 
         print(f"Loading model '{cfg.model.name}'...", end="", flush=True)
         t0 = time.monotonic()
-        self.transcriber = build_decoder(cfg.model)
+        self.decoder = build_decoder(cfg.model)
         print(f" ready ({time.monotonic() - t0:.1f}s)")
 
         # VAD, vocabulary, commands
@@ -119,7 +119,7 @@ class VoiceIO:
         # corrections, prompt history and text pipeline (same as the server).
         from voiceio.core.engine import Engine
         self.engine = Engine.from_config(
-            cfg, decoder=self.transcriber, commands=self._command_processor,
+            cfg, decoder=self.decoder, commands=self._command_processor,
             postcorrect=self._postcorrect, llm=self._llm,
         )
         self._corrections = self.engine.corrections
@@ -189,14 +189,14 @@ class VoiceIO:
         )
         self._watchdog = Watchdog(
             cfg,
-            transcriber=self.transcriber,
+            decoder=self.decoder,
             recorder=self.recorder,
             typers=self._typers,
             ibus=self._ibus,
             session=lambda: self._session,
             is_idle=self._is_idle,
             is_recording=lambda: self._state == _State.RECORDING,
-            on_transcriber_failed=self._on_transcriber_failed,
+            on_decoder_failed=self._on_decoder_failed,
             on_hotkey=self.on_hotkey,
             shutdown=self._shutdown,
         )
@@ -302,7 +302,7 @@ class VoiceIO:
             # Attempt recovery: try to restart worker, then start recording
             log.info("Attempting recovery from error state")
             try:
-                self.transcriber.recover()
+                self.decoder.recover()
                 self._state = _State.IDLE
                 tray.set_error(False)
                 self._do_start()
@@ -313,7 +313,7 @@ class VoiceIO:
             # The generation counter ensures the old finalizer exits cleanly.
             self._do_start()
 
-    def _on_transcriber_failed(self) -> None:
+    def _on_decoder_failed(self) -> None:
         """Watchdog: the worker could not be recovered."""
         with self._hotkey_lock:
             if self._state != _State.RECORDING:
@@ -708,7 +708,7 @@ class VoiceIO:
             if self._tts_engine:
                 self._tts_engine.shutdown()
             self.recorder.close_stream()
-            self.transcriber.close()
+            self.decoder.close()
             tray.stop()
             self._ibus.shutdown()
             self._pid_fd.close()

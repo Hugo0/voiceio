@@ -17,18 +17,18 @@ from voiceio.config import Config
 # Helpers (same pattern as test_app_wiring.py)
 # ---------------------------------------------------------------------------
 
-def _make_vio(mock_transcriber=None):
+def _make_vio(mock_decoder=None):
     """Create a VoiceIO instance with mocked backends."""
     mock_hotkey = MagicMock()
     mock_hotkey.name = "socket"
     mock_typer = MagicMock()
     mock_typer.name = "clipboard"
-    if mock_transcriber is None:
-        mock_transcriber = FakeDecoder()
+    if mock_decoder is None:
+        mock_decoder = FakeDecoder()
 
     with patch("voiceio.app.hotkey_chain.select", return_value=mock_hotkey), \
          patch("voiceio.app.typer_chain.select", return_value=mock_typer), \
-         patch("voiceio.app.build_decoder", return_value=mock_transcriber), \
+         patch("voiceio.app.build_decoder", return_value=mock_decoder), \
          patch("voiceio.app.plat.detect") as mock_detect:
         mock_detect.return_value = MagicMock(display_server="wayland", desktop="gnome")
 
@@ -40,7 +40,7 @@ def _make_vio(mock_transcriber=None):
         mock_stream.stopped = False
         vio.recorder._stream = mock_stream
         vio.recorder._last_callback_time = time.monotonic()
-        return vio, mock_typer, mock_transcriber
+        return vio, mock_typer, mock_decoder
 
 
 def _feed_audio(vio, chunks=20):
@@ -421,7 +421,7 @@ class TestHealthWatchdogAudioBackoff:
         vio, _, _ = _make_vio()
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock()
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.watchdog.tray"):
             vio._watchdog.check()
@@ -434,7 +434,7 @@ class TestHealthWatchdogAudioBackoff:
         vio._watchdog._next_stream_retry = 0  # allow retry
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock()  # succeeds (no exception)
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.watchdog.tray"):
             vio._watchdog.check()
@@ -448,7 +448,7 @@ class TestHealthWatchdogAudioBackoff:
         vio._watchdog._next_stream_retry = 0
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock(side_effect=OSError("device gone"))
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.watchdog.tray"):
             vio._watchdog.check()
@@ -463,7 +463,7 @@ class TestHealthWatchdogAudioBackoff:
         vio._watchdog._next_stream_retry = time.monotonic() + 999  # far future
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock()
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.watchdog.tray"):
             vio._watchdog.check()
@@ -476,7 +476,7 @@ class TestHealthWatchdogAudioBackoff:
         vio._watchdog._stream_fail_count = 3
         vio._watchdog._next_stream_retry = time.monotonic() + 100
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.watchdog.tray"):
             vio._watchdog.check()
@@ -489,7 +489,7 @@ class TestHealthWatchdogAudioBackoff:
         vio, _, _ = _make_vio()
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock(side_effect=OSError("device gone"))
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         delays = []
         with patch("voiceio.watchdog.tray"):
@@ -551,7 +551,7 @@ class TestPreFlightStreamCheck:
 class TestStreamingWorkerExceptionHandling:
     def test_worker_catches_exception_and_continues(self):
         """Worker loop should catch exceptions in _transcribe_and_apply and keep running."""
-        mock_transcriber = FakeDecoder()
+        mock_decoder = FakeDecoder()
         mock_typer = MagicMock()
         mock_typer.name = "clipboard"
         mock_recorder = MagicMock()
@@ -561,7 +561,7 @@ class TestStreamingWorkerExceptionHandling:
         from voiceio.streaming import StreamingSession
 
         session = StreamingSession(
-            mock_transcriber, mock_typer, mock_recorder,
+            mock_decoder, mock_typer, mock_recorder,
             generation=0,
         )
 
@@ -593,8 +593,8 @@ class TestStreamingWorkerExceptionHandling:
 
     def test_final_transcription_exception_does_not_crash(self):
         """Exception during final transcription should be caught."""
-        mock_transcriber = FakeDecoder()
-        mock_transcriber.transcribe.side_effect = RuntimeError("model crash")
+        mock_decoder = FakeDecoder()
+        mock_decoder.transcribe.side_effect = RuntimeError("model crash")
         mock_typer = MagicMock()
         mock_typer.name = "clipboard"
         mock_recorder = MagicMock()
@@ -604,7 +604,7 @@ class TestStreamingWorkerExceptionHandling:
         from voiceio.streaming import StreamingSession
 
         session = StreamingSession(
-            mock_transcriber, mock_typer, mock_recorder,
+            mock_decoder, mock_typer, mock_recorder,
             generation=0,
         )
 
@@ -629,7 +629,7 @@ class TestTrayWatchdog:
         vio, _, _ = _make_vio()
         vio.cfg.tray.enabled = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.watchdog.tray") as mock_tray:
             mock_tray.is_alive.return_value = False
@@ -640,7 +640,7 @@ class TestTrayWatchdog:
         vio, _, _ = _make_vio()
         vio.cfg.tray.enabled = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.watchdog.tray") as mock_tray:
             mock_tray.is_alive.return_value = True
@@ -651,7 +651,7 @@ class TestTrayWatchdog:
         vio, _, _ = _make_vio()
         vio.cfg.tray.enabled = False
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
 
         with patch("voiceio.watchdog.tray") as mock_tray:
             vio._watchdog.check()
@@ -810,7 +810,7 @@ class TestBootRaceAndReProbe:
         vio._typers.typer = MagicMock()
         vio._typers.typer.name = "clipboard"
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
-        vio.transcriber.healthy = MagicMock(return_value=True)
+        vio.decoder.healthy = MagicMock(return_value=True)
         vio.cfg.tray.enabled = False
 
         # Env arrives; health check should re-import, re-detect, and upgrade.

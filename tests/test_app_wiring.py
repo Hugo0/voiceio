@@ -13,18 +13,18 @@ import pytest
 from voiceio.config import Config
 
 
-def _make_vio(mock_transcriber=None):
+def _make_vio(mock_decoder=None):
     """Create a VoiceIO instance with mocked backends."""
     mock_hotkey = MagicMock()
     mock_hotkey.name = "socket"
     mock_typer = MagicMock()
     mock_typer.name = "clipboard"
-    if mock_transcriber is None:
-        mock_transcriber = FakeDecoder()
+    if mock_decoder is None:
+        mock_decoder = FakeDecoder()
 
     with patch("voiceio.app.hotkey_chain.select", return_value=mock_hotkey), \
          patch("voiceio.app.typer_chain.select", return_value=mock_typer), \
-         patch("voiceio.app.build_decoder", return_value=mock_transcriber), \
+         patch("voiceio.app.build_decoder", return_value=mock_decoder), \
          patch("voiceio.app.plat.detect") as mock_detect:
         mock_detect.return_value = MagicMock(display_server="wayland", desktop="gnome")
 
@@ -39,7 +39,7 @@ def _make_vio(mock_transcriber=None):
         mock_stream.stopped = False
         vio.recorder._stream = mock_stream  # skip real audio
         vio.recorder._last_callback_time = time.monotonic()  # healthy heartbeat
-        return vio, mock_typer, mock_transcriber
+        return vio, mock_typer, mock_decoder
 
 
 def _feed_audio(vio, chunks=20):

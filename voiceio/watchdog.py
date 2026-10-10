@@ -26,11 +26,11 @@ _RESUME_THRESHOLD = 30  # seconds
 
 
 class Watchdog:
-    """Every ``_HEALTH_CHECK_INTERVAL``: transcriber worker, audio stream,
+    """Every ``_HEALTH_CHECK_INTERVAL``: decoder worker, audio stream,
     tray, typer and IBus engine; a full re-probe after suspend/resume.
 
     It never mutates the daemon's state machine itself: ``is_idle`` /
-    ``is_recording`` read it, ``on_transcriber_failed`` asks the daemon to
+    ``is_recording`` read it, ``on_decoder_failed`` asks the daemon to
     enter ERROR, and typer/platform changes go through ``typers``' IDLE-gated
     swap helpers.
     """
@@ -39,26 +39,26 @@ class Watchdog:
         self,
         cfg: config.Config,
         *,
-        transcriber: Decoder,
+        decoder: Decoder,
         recorder: AudioRecorder,
         typers: TyperManager,
         ibus: IBusSession,
         session: Callable[[], StreamingSession | None],
         is_idle: Callable[[], bool],
         is_recording: Callable[[], bool],
-        on_transcriber_failed: Callable[[], None],
+        on_decoder_failed: Callable[[], None],
         on_hotkey: Callable[[], None],
         shutdown: threading.Event,
     ):
         self._cfg = cfg
-        self._transcriber = transcriber
+        self._decoder = decoder
         self._recorder = recorder
         self._typers = typers
         self._ibus = ibus
         self._session = session
         self._is_idle = is_idle
         self._is_recording = is_recording
-        self._on_transcriber_failed = on_transcriber_failed
+        self._on_decoder_failed = on_decoder_failed
         self._on_hotkey = on_hotkey
         self._shutdown = shutdown
 
@@ -72,7 +72,7 @@ class Watchdog:
         ).start()
 
     def _loop(self) -> None:
-        """Periodic health check: transcriber worker, IBus engine, audio stream."""
+        """Periodic health check: decoder worker, IBus engine, audio stream."""
         last_check = time.monotonic()
         while not self._shutdown.is_set():
             self._shutdown.wait(_HEALTH_CHECK_INTERVAL)
@@ -120,25 +120,25 @@ class Watchdog:
             tray.restart(self._on_hotkey)
 
         # Transcriber: ensure worker is alive
-        if not self._transcriber.healthy():
+        if not self._decoder.healthy():
             try:
-                self._transcriber.recover()
-                log.info("Resume: transcriber worker restarted")
+                self._decoder.recover()
+                log.info("Resume: decoder worker restarted")
             except RuntimeError:
-                log.error("Resume: transcriber worker failed")
+                log.error("Resume: decoder worker failed")
 
     def check(self) -> None:
         """Run one health check cycle."""
-        # Check transcriber worker
-        if not self._transcriber.healthy():
+        # Check decoder worker
+        if not self._decoder.healthy():
             if self._is_recording():
                 log.warning("Transcriber worker died during recording")
             try:
-                self._transcriber.recover()
+                self._decoder.recover()
                 log.info("Transcriber worker recovered")
             except RuntimeError:
                 log.error("Transcriber worker permanently failed")
-                self._on_transcriber_failed()
+                self._on_decoder_failed()
 
         # Check audio stream (covers ALSA underrun, PulseAudio/PipeWire
         # restart, device disconnect, stale callback heartbeat)

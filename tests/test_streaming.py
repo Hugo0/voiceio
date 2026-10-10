@@ -75,7 +75,7 @@ class TestWordMatchLen:
 class TestApplyCorrection:
     def _make_session(self):
         return StreamingSession(
-            transcriber=FakeDecoder(),
+            decoder=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
@@ -172,7 +172,7 @@ class TestApplyCorrection:
 class TestWhisperSequence:
     def _simulate(self, transcriptions: list[str]) -> tuple[list, str]:
         s = StreamingSession(
-            transcriber=FakeDecoder(),
+            decoder=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
@@ -241,7 +241,7 @@ def test_fixture_no_large_streaming_deletions(fixture_name):
         pytest.skip("Silent recording")
 
     s = StreamingSession(
-        transcriber=FakeDecoder(),
+        decoder=FakeDecoder(),
         typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
@@ -269,7 +269,7 @@ def test_fixture_final_text_correct(fixture_name):
         pytest.skip("Silent recording")
 
     s = StreamingSession(
-        transcriber=FakeDecoder(),
+        decoder=FakeDecoder(),
         typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
@@ -292,7 +292,7 @@ def test_fixture_text_grows(fixture_name):
         pytest.skip("Too few transcriptions")
 
     s = StreamingSession(
-        transcriber=FakeDecoder(),
+        decoder=FakeDecoder(),
         typer=MagicMock(spec=TyperBackend),
         recorder=MagicMock(),
     )
@@ -341,7 +341,7 @@ class TestPreeditPath:
         typer.type_text = MagicMock()
         typer.delete_chars = MagicMock()
         return StreamingSession(
-            transcriber=FakeDecoder(),
+            decoder=FakeDecoder(),
             typer=typer,
             recorder=MagicMock(),
         )
@@ -407,7 +407,7 @@ class TestOutputOwnershipGate:
 
     def _session(self, is_current):
         return StreamingSession(
-            transcriber=FakeDecoder(),
+            decoder=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
             is_current=is_current,
@@ -435,7 +435,7 @@ class TestOutputOwnershipGate:
         typer.commit_text = MagicMock()
         typer.update_preedit = MagicMock()
         s = StreamingSession(
-            transcriber=FakeDecoder(), typer=typer, recorder=MagicMock(),
+            decoder=FakeDecoder(), typer=typer, recorder=MagicMock(),
             is_current=lambda: False,
         )
         s._display.text = "Hello"
@@ -444,7 +444,7 @@ class TestOutputOwnershipGate:
 
     def test_default_is_current_true(self):
         s = StreamingSession(
-            transcriber=FakeDecoder(),
+            decoder=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
@@ -459,7 +459,7 @@ class TestCommitInterimOnFinal:
         typer.name = "mock-ibus"
         typer.commit_text = MagicMock()
         s = StreamingSession(
-            transcriber=FakeDecoder(), typer=typer, recorder=MagicMock(),
+            decoder=FakeDecoder(), typer=typer, recorder=MagicMock(),
             is_current=is_current,
         )
         return s, typer
@@ -505,7 +505,7 @@ class TestCommitInterimOnFinal:
 class TestSetTyper:
     def test_swap_resets_typed_text(self):
         s = StreamingSession(
-            transcriber=FakeDecoder(),
+            decoder=FakeDecoder(),
             typer=MagicMock(spec=TyperBackend),
             recorder=MagicMock(),
         )
@@ -604,7 +604,7 @@ class TestOnInterim:
         recorder.sample_rate = 16000
         transcriber = FakeDecoder()
         session = StreamingSession(
-            transcriber=transcriber,
+            decoder=transcriber,
             typer=MagicMock(spec=TyperBackend),
             recorder=recorder,
             on_interim=cb,
@@ -670,7 +670,7 @@ class TestSegmentFreeze:
         transcriber = FakeDecoder()
         transcriber.last_segments = []
         session = StreamingSession(
-            transcriber=transcriber,
+            decoder=transcriber,
             typer=MagicMock(spec=TyperBackend),
             recorder=recorder,
             freeze_secs=freeze_secs,
@@ -786,7 +786,7 @@ class TestDecodeTrace:
         transcriber = FakeDecoder()
         transcriber.last_segments = []
         s = StreamingSession(
-            transcriber=transcriber,
+            decoder=transcriber,
             typer=MagicMock(spec=TyperBackend),
             recorder=recorder,
             freeze_secs=2.0,
@@ -813,7 +813,7 @@ class TestDecodeFailureSafety:
         transcriber = FakeDecoder()
         transcriber.last_segments = []
         s = StreamingSession(
-            transcriber=transcriber,
+            decoder=transcriber,
             typer=MagicMock(spec=typer_spec),
             recorder=recorder,
             freeze_secs=freeze_secs,
@@ -899,7 +899,7 @@ class TestDecodeBackpressure:
         transcriber = FakeDecoder()
         transcriber.last_segments = []
         s = StreamingSession(
-            transcriber=transcriber,
+            decoder=transcriber,
             typer=MagicMock(spec=TyperBackend),
             recorder=recorder,
         )
@@ -942,7 +942,7 @@ class TestStaleInterimAfterStop:
         transcriber = FakeDecoder()
         transcriber.last_segments = []
         s = StreamingSession(
-            transcriber=transcriber,
+            decoder=transcriber,
             typer=MagicMock(spec=StreamingTyper),
             recorder=recorder,
         )

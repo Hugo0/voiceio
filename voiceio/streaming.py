@@ -142,7 +142,7 @@ class StreamingSession:
 
     def __init__(
         self,
-        transcriber: Decoder,
+        decoder: Decoder,
         typer: TyperBackend,
         recorder: AudioSource,
         generation: int = 0,
@@ -153,7 +153,7 @@ class StreamingSession:
         freeze_secs: float = 15.0,
         bias: Bias | None = None,
     ):
-        self._transcriber = transcriber
+        self._decoder = decoder
         # Captured once per session: vocabulary/prompt changes made while this
         # recording runs apply to the next one, never halfway through this.
         self._bias = bias or Bias()
@@ -281,7 +281,7 @@ class StreamingSession:
         its cut on the draft lane meanwhile, so stop waits for the longer of
         the two instead of their sum. Returns (start_sample, result) or None."""
         end = self._freeze_pending_end
-        draft = getattr(self._transcriber, "draft", None)
+        draft = getattr(self._decoder, "draft", None)
         if end is None or draft is None or audio is None or len(audio) <= end:
             return None
         try:
@@ -334,7 +334,7 @@ class StreamingSession:
         """
         t0 = time.monotonic()
         try:
-            result = self._transcriber.decode(chunk, final=True, bias=self._tail_bias())
+            result = self._decoder.decode(chunk, final=True, bias=self._tail_bias())
         except Exception:
             log.exception("Freeze decode failed (boundary unchanged)")
             return
@@ -419,7 +419,7 @@ class StreamingSession:
                 if pre is not None and pre[0] == self._frozen_samples:
                     result = pre[1]  # decoded in parallel with the last freeze
                 else:
-                    result = self._transcriber.decode(tail, final=final, bias=self._tail_bias())
+                    result = self._decoder.decode(tail, final=final, bias=self._tail_bias())
             except Exception:
                 # Decode FAILED (timeout/crash) — this is not silence. Never
                 # advance the freeze boundary or char-diff against a partial
