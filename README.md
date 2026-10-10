@@ -239,7 +239,7 @@ There is a best-effort pynput path for both (hotkeys and typing, no live preview
 | Hotkey does nothing on Wayland | `voiceio doctor --fix` installs the keyboard udev rule, or bind `voiceio toggle` in your compositor |
 | `sounddevice is not installed` | You installed without the desktop extra: `pipx install --force 'python-voiceio[desktop]'` |
 | evdev fails to build | Install a C toolchain and Python headers (see Quickstart), then reinstall |
-| Too slow | `voiceio doctor` shows your real stop→text. Turn off cloud postcorrect; use `voiceio models use small` (or a GPU with `large-v3-turbo`); or set `[model] beam_size = 1` — on the author's clips greedy decoding was 1.6× faster at the same WER but recalled fewer vocabulary terms (26/32 vs 29/32). Measure on yours: `voiceio learn eval --beam 1` |
+| Too slow | `voiceio doctor` shows your real stop→text. Turn off cloud postcorrect; use `voiceio models use small` (or a GPU with `large-v3-turbo`); or narrow the beam of the passes you keep: on the author's 44 clips `[model] beam_size = 2` matched the default 5 (WER 4.9% vs 5.4%, vocabulary 28/32 vs 29/32) while decoding faster; greedy (`1`) lost vocabulary (26/32). Measure on yours: `voiceio learn eval --beam 2` |
 | Words come out wrong in a pattern | `voiceio learn eval --pipeline` and `voiceio corrections audit` show which stage or rule did it |
 | Start over | `voiceio uninstall`, then `voiceio setup` |
 
