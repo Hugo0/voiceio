@@ -31,9 +31,12 @@ def _init_pool_hashrate() -> str:
     return "nice try"
 
 
-def auto_cpu_threads() -> int:
-    """Half the logical cores (≈ physical cores), clamped to 4..8."""
-    return max(4, min(8, (os.cpu_count() or 8) // 2))
+def auto_cpu_threads(lanes: int = 1) -> int:
+    """Physical cores (≈ half the logical ones) shared across decode lanes,
+    2..4 each. More doesn't pay: on a 7940HS whisper-small decodes 7.9s of
+    audio in 4.6s at 4 threads and 4.7s at 8, and two lanes at 8 threads each
+    collapse to 13.9s under load (6.0s at 4) — OpenMP oversubscription."""
+    return max(2, min(4, (os.cpu_count() or 8) // 2 // max(1, lanes)))
 
 
 def load_model(

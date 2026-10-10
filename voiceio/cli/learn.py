@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -71,6 +72,19 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     lsub.add_parser("rollback", help="Return to the model used before the last promote"
                     ).set_defaults(func=cmd_rollback)
+
+
+def _yield_cpu() -> None:
+    """Run heavy learn jobs under SCHED_IDLE: they use only CPU nobody else
+    wants, so dictation never waits behind them (nice 19 measurably doesn't
+    suffice under load). Inherited by threads and worker processes."""
+    try:
+        os.sched_setscheduler(0, os.SCHED_IDLE, os.sched_param(0))
+    except (AttributeError, OSError):
+        try:
+            os.nice(19)
+        except OSError:
+            pass
 
 
 def _cfg():
@@ -143,6 +157,7 @@ def cmd_import(args: argparse.Namespace) -> None:
 
 
 def cmd_label(args: argparse.Namespace) -> None:
+    _yield_cpu()
     from voiceio.learn.teacher import DEFAULT_TEACHER, WhisperTeacher, label_clips
     cfg = _cfg()
     name = args.teacher or DEFAULT_TEACHER
@@ -204,6 +219,7 @@ def cmd_review(args: argparse.Namespace) -> None:
 
 
 def cmd_augment(args: argparse.Namespace) -> None:
+    _yield_cpu()
     from voiceio import tts
     from voiceio.learn import augment
     cfg = _cfg()
@@ -226,6 +242,7 @@ def cmd_build(args: argparse.Namespace) -> None:
 
 
 def cmd_eval(args: argparse.Namespace) -> None:
+    _yield_cpu()
     from voiceio.core.bias import BiasProvider
     from voiceio.learn import evaluate
     from voiceio.transcriber import Transcriber
@@ -248,6 +265,7 @@ def cmd_eval(args: argparse.Namespace) -> None:
 
 
 def cmd_train(args: argparse.Namespace) -> None:
+    _yield_cpu()
     from voiceio.learn import augment, train
     ds = store.latest_dataset()
     if ds is None:

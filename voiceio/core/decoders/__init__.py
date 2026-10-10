@@ -41,6 +41,11 @@ def build_decoder(model_cfg, lanes: int | None = None) -> Decoder:
 
     from voiceio.transcriber import Transcriber
     lanes = model_cfg.decode_lanes if lanes is None else lanes
+    if not model_cfg.cpu_threads:
+        import dataclasses
+
+        from voiceio.worker import auto_cpu_threads
+        model_cfg = dataclasses.replace(model_cfg, cpu_threads=auto_cpu_threads(lanes))
     final = Transcriber(model_cfg)
     if lanes < 2:
         return final

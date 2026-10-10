@@ -15,6 +15,7 @@ Differences from the live decode, all deliberate:
 from __future__ import annotations
 
 import logging
+import os
 import time
 import wave
 from collections.abc import Callable, Iterable
@@ -41,7 +42,9 @@ class WhisperTeacher:
                  language: str = "en"):
         from voiceio.worker import load_model
         self.name = f"teacher:{model}"
-        self._model = load_model(model, device=device, compute_type=compute_type)
+        # A background batch job (see cli.learn._yield_cpu): use every core idle.
+        self._model = load_model(model, device=device, compute_type=compute_type,
+                                 cpu_threads=max(4, (os.cpu_count() or 8) // 2))
         self._language = language
         terms = [t for t in vocabulary if t]
         # Prompt, not hotwords: hotwords are capped at 223 tokens; a prompt

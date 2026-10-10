@@ -107,3 +107,18 @@ def test_sherpa_mbs_passes_unbounded_hotwords(monkeypatch, tmp_path):
     assert kw["decoding_method"] == "modified_beam_search"
     with open(kw["hotwords_file"]) as f:
         assert f.read().split() == ["Kalshi", "HyperNEAT"]
+
+
+def test_lanes_share_the_thread_budget(monkeypatch):
+    import voiceio.transcriber as tr
+    from voiceio.worker import auto_cpu_threads
+    monkeypatch.setattr("os.cpu_count", lambda: 16)
+    assert (auto_cpu_threads(1), auto_cpu_threads(2)) == (4, 4)
+    monkeypatch.setattr("os.cpu_count", lambda: 8)
+    assert (auto_cpu_threads(1), auto_cpu_threads(2)) == (4, 2)
+
+    seen = []
+    monkeypatch.setattr(tr, "Transcriber", lambda cfg: seen.append(cfg.cpu_threads) or object())
+    build_decoder(ModelConfig(name="small"), lanes=2)
+    build_decoder(ModelConfig(name="small", cpu_threads=6), lanes=2)
+    assert seen == [2, 2, 6, 6]
