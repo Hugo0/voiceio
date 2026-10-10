@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Voice dictation that learns you.** ([website](https://voiceio-site.voiceio-v1.workers.dev/)) Local, open source, private — and it fine-tunes itself on your own voice, on your own machine.
+**Voice dictation that learns you.** ([website](https://voiceio.dev/)) Local, open source, private — and it fine-tunes itself on your own voice, on your own machine.
 
 Off-the-shelf speech models stumble on exactly the words you say most: your colleagues' names, your project, your jargon. voiceio keeps (with your permission) the audio of what you dictate, has a bigger model transcribe it overnight, and trains a personal model from it — nothing uploaded, no GPU required. On the author's dictation, one overnight run on a laptop CPU cut word errors from **12.1% to 5.0%** on held-out clips and recognized more of the author's vocabulary, at the same speed. Every model is scored on clips it never trained on, and it only replaces the current one when it wins.
 

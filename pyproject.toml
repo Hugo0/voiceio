@@ -58,7 +58,7 @@ sherpa = ["sherpa-onnx>=1.12"]
 dev = ["pytest>=7.0", "pytest-mock", "ruff>=0.15,<0.18"]
 
 [project.urls]
-Homepage = "https://voiceio-site.voiceio-v1.workers.dev/"
+Homepage = "https://voiceio.dev/"
 Repository = "https://github.com/Hugo0/voiceio"
 Issues = "https://github.com/Hugo0/voiceio/issues"
 Changelog = "https://github.com/Hugo0/voiceio/releases"
