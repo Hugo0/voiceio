@@ -140,7 +140,18 @@ voiceio learn maintain   # later: label what's new, and once 50+ clips piled up,
 
 Labeling, training and offline eval run in an idle-priority cgroup, so they never slow dictation down. Everything stays on your machine unless you choose `train --remote`.
 
-`voiceio learn status` shows where you are. Re-run `eval` (or `voiceio models bench`) after promoting; only promote a model that beats the current one on your own test split.
+`voiceio learn status` shows where you are, each model's scores, and suggests `promote` only when a fine-tune wins on everything. `promote` itself refuses a model that hasn't, and reports how many clips got better or worse with a confidence interval — a few dozen test clips can move an average by luck.
+
+**Is it actually helping?** Once some clips are labeled, measure instead of guessing:
+
+```bash
+voiceio learn eval --pipeline   # what each text stage (numbers, commands, corrections, cloud
+                                # postcorrect…) did to your past dictations, and its commonest edits
+voiceio corrections audit       # rules your own audio contradicts, and ones that look risky
+voiceio learn eval --streaming  # accuracy *and* stop→text, replaying clips through live dictation
+```
+
+On the author's data these found a correction that kept turning "composable" into "comparable", a number rule writing "no one" as "no 1", and a cloud pass that never fixed a single vocabulary term.
 
 ## Choose a model
 
@@ -226,7 +237,8 @@ There is a best-effort pynput path for both (hotkeys and typing, no live preview
 | Hotkey does nothing on Wayland | `voiceio doctor --fix` installs the keyboard udev rule, or bind `voiceio toggle` in your compositor |
 | `sounddevice is not installed` | You installed without the desktop extra: `pipx install --force 'python-voiceio[desktop]'` |
 | evdev fails to build | Install a C toolchain and Python headers (see Quickstart), then reinstall |
-| Too slow | `voiceio models use small` (or a GPU with `large-v3-turbo`) |
+| Too slow | `voiceio doctor` shows your real stop→text; turn off cloud postcorrect, or `voiceio models use small` (or a GPU with `large-v3-turbo`) |
+| Words come out wrong in a pattern | `voiceio learn eval --pipeline` and `voiceio corrections audit` show which stage or rule did it |
 | Start over | `voiceio uninstall`, then `voiceio setup` |
 
 Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
