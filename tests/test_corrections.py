@@ -146,3 +146,15 @@ class TestEdgeCases:
     def test_missing_file(self, tmp_path):
         cd = CorrectionDict(path=tmp_path / "nonexistent.json")
         assert cd.apply("test") == "test"
+
+
+def test_risky_rules_flags_rewrites_not_typo_fixes():
+    from voiceio.corrections import risky_rules
+    risky = {w: why for w, _, why in risky_rules({
+        "virtualize": "wake you",          # unrelated replacement
+        "unimplemented": "implemented",    # a real word, meaning inverted
+        "andd": "and",                     # typo fix, one edit
+        "kalchi": "Kalshi",                # plain mishearing fix
+    })}
+    assert set(risky) == {"virtualize", "unimplemented"}
+    assert "unrelated" in risky["virtualize"] and "real word" in risky["unimplemented"]

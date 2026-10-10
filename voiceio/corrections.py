@@ -192,3 +192,37 @@ class CorrectionDict:
             patterns.append(pattern)
         combined = "|".join(patterns)
         self._regex = re.compile(rf"\b(?:{combined})\b", re.IGNORECASE)
+
+
+# A rule worth a second look: its replacement shares little with what it
+# replaces (a mined rule that learned a context, not a mishearing), or what
+# it replaces is a real word you may actually say. Both were common among
+# rules mined by the old cloud loop ("virtualize" → "wake you").
+_UNRELATED_BELOW = 0.4
+_REAL_WORD_ZIPF = 1.5
+
+
+def _levenshtein(a: str, b: str) -> int:
+    from voiceio.vocabulary import _levenshtein as lev
+    return lev(a, b)
+
+
+def risky_rules(rules: dict[str, str], language: str = "en") -> list[tuple[str, str, str]]:
+    """(wrong, right, why) for each rule worth reviewing, most suspicious first."""
+    from difflib import SequenceMatcher
+
+    from wordfreq import zipf_frequency
+    out = []
+    for wrong, right in rules.items():
+        sim = SequenceMatcher(None, wrong.lower(), right.lower()).ratio()
+        zipf = zipf_frequency(wrong.lower(), language) if " " not in wrong else 0.0
+        why = []
+        if sim < _UNRELATED_BELOW:
+            why.append("replacement looks unrelated")
+        # One edit away is a typo fix ("andd" → "and"); a real word rewritten
+        # further is a different word ("debugged" → "debuted").
+        if zipf >= _REAL_WORD_ZIPF and _levenshtein(wrong.lower(), right.lower()) > 1:
+            why.append(f'"{wrong}" is a real word')
+        if why:
+            out.append((sim - zipf / 10, wrong, right, ", ".join(why)))
+    return [(w, r, why) for _, w, r, why in sorted(out)]

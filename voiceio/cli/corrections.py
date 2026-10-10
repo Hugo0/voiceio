@@ -18,6 +18,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     r = cs.add_parser("remove", help="Remove a correction")
     r.add_argument("wrong")
     r.set_defaults(func=cmd_remove)
+    cs.add_parser("audit", help="Rules worth a second look (unrelated or real-word triggers)"
+                  ).set_defaults(func=cmd_audit)
     f = cs.add_parser("flagged", help="Words you flagged by saying \"correct that\"")
     f.add_argument("--clear", action="store_true")
     f.set_defaults(func=cmd_flagged)
@@ -32,6 +34,18 @@ def cmd_list(args: argparse.Namespace) -> None:
     for wrong, right in sorted(items.items()):
         print(f"  {wrong} → {right}")
     print(f"\n{len(items)} correction(s)")
+
+
+def cmd_audit(args: argparse.Namespace) -> None:
+    from voiceio.config import load
+    from voiceio.corrections import CorrectionDict, risky_rules
+    risky = risky_rules(CorrectionDict().list_all(), load().model.language or "en")
+    if not risky:
+        print("Every correction looks like a plain mishearing fix.")
+        return
+    for wrong, right, why in risky:
+        print(f"  {wrong!r:24} → {right!r:24} {why}")
+    print(f"\n{len(risky)} rule(s) to review. Remove one: voiceio corrections remove WORD")
 
 
 def cmd_add(args: argparse.Namespace) -> None:
