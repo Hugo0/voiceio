@@ -84,3 +84,24 @@ def test_usage_latency_judges_the_current_release(monkeypatch):
     config.HISTORY_PATH.write_text("".join(json.dumps(r) + "\n" for r in rows))
     finding = next(f for ok, f, _ in usage_findings(config.Config()) if f.startswith("stop→text"))
     assert "median 2.0s" in finding and f"on {__version__}" in finding
+
+
+def test_usage_decoder_counts_incidents_on_the_current_release(tmp_path, monkeypatch):
+    import time
+
+    from voiceio import __version__, config
+    from voiceio.health import usage_findings
+    day = time.strftime("%Y-%m-%d")
+    monkeypatch.setattr(config, "LOG_DIR", tmp_path)
+    (config.LOG_DIR / "voiceio.log.1").write_text(
+        f"{day} 01:00 voiceio INFO === voiceio v0.9.11 startup ===\n"
+        f"{day} 01:01 voiceio.transcriber WARNING Transcription timed out after 30s, killing worker\n"
+        f"{day} 01:01 voiceio.transcriber WARNING Worker died, restarting (attempt 1/3)\n")
+    (config.LOG_DIR / "voiceio.log").write_text(
+        f"{day} 02:00 voiceio INFO === voiceio v{__version__} startup ===\n"
+        f"{day} 02:05 voiceio.transcriber WARNING Worker died, restarting (attempt 1/3)\n")
+    ok, finding = next((ok, f) for ok, f, _ in usage_findings(config.Config())
+                       if f.startswith("decoder"))
+    assert ok
+    assert finding.startswith(f"decoder: 0 hangs, 1 crashes in the last 7 days on {__version__}")
+    assert f"(1 more before {__version__})" in finding

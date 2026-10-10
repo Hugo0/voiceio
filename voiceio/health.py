@@ -462,22 +462,38 @@ def usage_findings(cfg=None) -> list[tuple[bool, str, str]]:
         out.append((p90 <= 10, f"stop→text: median {p50:.1f}s, p90 {p90:.1f}s ({scope})",
                     _latency_hint(cfg or config.load())))
 
-    log_files = sorted(config.LOG_DIR.glob("voiceio.log*")) if config.LOG_DIR.exists() else []
+    # Rotated logs are voiceio.log.N with N=1 the newest: read oldest first so
+    # each line is attributed to the release whose startup preceded it.
+    log_files = sorted(config.LOG_DIR.glob("voiceio.log*"), reverse=True) \
+        if config.LOG_DIR.exists() else []
     cutoff = time.strftime("%Y-%m-%d", time.localtime(time.time() - 7 * 86400))
-    deaths = timeouts = 0
+    startup = f"=== voiceio v{__version__} startup ==="
+    # [older releases, this release]; a hang's kill also logs "Worker died",
+    # so a death right after a timeout is the same incident.
+    hangs, crashes = [0, 0], [0, 0]
+    current = killed = False
     for path in log_files:
         try:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
         for line in lines:
+            if "startup ===" in line:
+                current = startup in line
             if line[:10] < cutoff:        # log lines start with an ISO date
                 continue
-            deaths += "Worker died" in line
-            timeouts += "Transcription timed out" in line
+            if "Transcription timed out" in line:
+                hangs[current] += 1
+                killed = True
+            elif "Worker died" in line:
+                crashes[current] += not killed
+                killed = False
     if log_files:
-        out.append((deaths + timeouts < 5,
-                    f"decoder: {deaths} worker restarts, {timeouts} timeouts in the last 7 days",
+        older = hangs[0] + crashes[0]
+        note = f" ({older} more before {__version__})" if older else ""
+        out.append((hangs[1] + crashes[1] < 5,
+                    f"decoder: {hangs[1]} hangs, {crashes[1]} crashes in the last 7 days "
+                    f"on {__version__}{note}",
                     f"stack dumps of hung decodes: {config.LOG_DIR / 'worker.log'}"))
 
     try:
