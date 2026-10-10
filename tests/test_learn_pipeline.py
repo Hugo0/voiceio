@@ -81,6 +81,12 @@ def test_build_review_eval_export_flow(tmp_path):
     dec.transcribe.return_value = "We use Kalshi daily"
     assert evaluate.evaluate(dec, ds, terms=["Kalshi"]).term_recall == 1.0
 
+    # Streaming replays through the dictation path and times stop→text.
+    res = evaluate.evaluate(dec, ds, terms=["Kalshi"], limit=2, streaming=True, speed=100)
+    assert res.mode == "streaming" and res.clips == 2 and res.failures == 0
+    assert res.term_recall == 1.0 and len(res.waits) == 2
+    assert "stop→text" in res.summary()
+
     counts = train.export(ds, tmp_path / "export")
     assert counts["train"] == manifest["counts"]["train"]
     row = json.loads((tmp_path / "export" / "train.jsonl").read_text().splitlines()[0])

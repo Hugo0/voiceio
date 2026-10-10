@@ -54,6 +54,14 @@ def register(sub: argparse._SubParsersAction) -> None:
     e.add_argument("--model", default=None, help="model name or path (default: configured)")
     e.add_argument("--dataset", default=None, help="dataset version (default: latest)")
     e.add_argument("--limit", type=int, default=None)
+    e.add_argument("--streaming", action="store_true",
+                   help="replay clips in real time through the dictation path; "
+                        "also measures stop→text latency")
+    e.add_argument("--lanes", type=int, default=None, help="decode lanes (default: config)")
+    e.add_argument("--freeze", type=float, default=None,
+                   help="streaming freeze seconds (default: config)")
+    e.add_argument("--speed", type=float, default=1.0,
+                   help="streaming replay speed; >1 is faster but skews latency")
     e.set_defaults(func=cmd_eval)
 
     t = lsub.add_parser("train", help="Fine-tune on the latest dataset (LoRA)")
@@ -266,10 +274,11 @@ def cmd_build(args: argparse.Namespace) -> None:
 
 
 def cmd_eval(args: argparse.Namespace) -> None:
-    _yield_cpu()
+    if not args.streaming:  # streaming measures latency: run at dictation priority
+        _yield_cpu()
     from voiceio.core.bias import BiasProvider
+    from voiceio.core.decoders import build_decoder
     from voiceio.learn import evaluate
-    from voiceio.transcriber import Transcriber
     from voiceio.vocabulary import VocabularyLoader
     cfg = _cfg()
     ds = store.learn_dir() / "datasets" / args.dataset if args.dataset else store.latest_dataset()
@@ -278,10 +287,15 @@ def cmd_eval(args: argparse.Namespace) -> None:
     if args.model:
         cfg.model.name = args.model
     print(f"Loading {cfg.model.name}…", flush=True)
-    decoder = Transcriber(cfg.model)
+    # Offline scoring needs one lane; streaming mirrors the live setup.
+    lanes = args.lanes if args.lanes is not None else (None if args.streaming else 1)
+    decoder = build_decoder(cfg.model, lanes=lanes)
+    freeze = cfg.output.streaming_freeze_secs if args.freeze is None else args.freeze
     try:
         bias = BiasProvider(VocabularyLoader(cfg.model)).bias_for(decoder.capabilities)
-        result = evaluate.evaluate(decoder, ds, bias=bias, terms=_vocabulary(), limit=args.limit)
+        result = evaluate.evaluate(decoder, ds, bias=bias, terms=_vocabulary(), limit=args.limit,
+                                   streaming=args.streaming, freeze_secs=freeze,
+                                   speed=args.speed)
     finally:
         decoder.close()
     print(result.summary())

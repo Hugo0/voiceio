@@ -1,14 +1,20 @@
 """Score a decoder on the user's held-out clips.
 
-Decodes each test clip the way dictation does (final quality, the user's
-vocabulary bias) and compares to the reference label: WER, vocabulary-term
-recall (the number personalization is meant to move), hallucinations,
-repetition loops, and speed. Results are saved under learn/runs/ so models
-can be compared over time.
+Compares each test clip's decode to its reference label: WER, vocabulary-term
+recall (the number personalization is meant to move), repetition loops,
+failures and speed. Two modes:
+
+    offline    one final-quality decode per clip — fast, isolates the model
+    streaming  replays the clip in real time through StreamingSession exactly
+               as dictation runs it (interims, freeze cuts, tail decode at
+               stop) and also measures stop→text, the wait a user feels
+
+Results are saved under learn/runs/ so models can be compared over time.
 """
 from __future__ import annotations
 
 import json
+import statistics
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -33,6 +39,8 @@ class EvalResult:
     repetitions: int = 0
     failures: int = 0
     gold: int = 0           # clips whose reference a human verified
+    mode: str = "offline"
+    waits: list[float] = field(default_factory=list)   # streaming: stop→text
     per_clip: list[dict] = field(default_factory=list)
 
     @property
@@ -47,7 +55,18 @@ class EvalResult:
     def rtf(self) -> float:
         return self.audio_secs / self.decode_secs if self.decode_secs else 0.0
 
+    def wait_summary(self) -> str:
+        if not self.waits:
+            return ""
+        p90 = statistics.quantiles(self.waits, n=10)[-1] if len(self.waits) > 1 else self.waits[0]
+        return (f"stop→text median {statistics.median(self.waits):.2f}s  p90 {p90:.2f}s  "
+                f"max {max(self.waits):.2f}s")
+
     def summary(self) -> str:
+        wait = f"\n  {self.wait_summary()}" if self.waits else ""
+        return self._scores() + wait
+
+    def _scores(self) -> str:
         return (f"{self.decoder}: WER {self.wer:.1%}  vocab recall {self.term_recall:.1%} "
                 f"({self.terms_recalled}/{self.terms_spoken})  loops {self.repetitions}  "
                 f"failures {self.failures}  {self.rtf:.1f}x realtime  "
@@ -55,14 +74,21 @@ class EvalResult:
 
 
 def evaluate(decoder: Decoder, dataset: Path, *, bias: Bias = Bias(),
-             terms: list[str] = (), limit: int | None = None) -> EvalResult:
+             terms: list[str] = (), limit: int | None = None,
+             streaming: bool = False, freeze_secs: float = 8.0,
+             speed: float = 1.0) -> EvalResult:
     rows = read_split(dataset, "test")[:limit]
-    res = EvalResult(decoder=decoder.name, dataset=dataset.name)
+    res = EvalResult(decoder=decoder.name, dataset=dataset.name,
+                     mode="streaming" if streaming else "offline")
     for row in rows:
         audio = load_wav(Path(row["file_name"]))
         t0 = time.monotonic()
         try:
-            hyp = decoder.decode(audio, final=True, bias=bias).text
+            if streaming:
+                hyp, wait = _replay(decoder, audio, bias, freeze_secs, speed)
+                res.waits.append(wait)
+            else:
+                hyp = decoder.decode(audio, final=True, bias=bias).text
         except Exception:  # noqa: BLE001 — a crash is a result, not an abort
             res.failures += 1
             continue
@@ -78,9 +104,37 @@ def evaluate(decoder: Decoder, dataset: Path, *, bias: Bias = Bias(),
         res.terms_spoken += spoken
         res.terms_recalled += recalled
         res.repetitions += metrics.count_repetitions(hyp)
-        res.per_clip.append({"file": Path(row["file_name"]).name, "wer": round(a.wer, 4),
-                             "terms": [spoken, recalled], "secs": round(dt, 2)})
+        clip = {"file": Path(row["file_name"]).name, "wer": round(a.wer, 4),
+                "terms": [spoken, recalled], "secs": round(dt, 2)}
+        if streaming:
+            clip["wait"] = round(res.waits[-1], 2)
+        res.per_clip.append(clip)
     return res
+
+
+_CHUNK = 1600  # 100 ms, the size real capture delivers
+
+
+def _replay(decoder: Decoder, audio, bias: Bias, freeze_secs: float,
+            speed: float) -> tuple[str, float]:
+    """Feed `audio` through a StreamingSession as if spoken; press stop at the
+    end. Returns (final raw text, seconds from stop to final text)."""
+    from voiceio.audio_source import PushAudioSource
+    from voiceio.core.pipeline import Pipeline
+    from voiceio.streaming import StreamingSession
+    from voiceio.typers.collecting import CollectingTyper
+
+    source = PushAudioSource(16000)
+    session = StreamingSession(decoder, CollectingTyper(), source, pipeline=Pipeline([]),
+                               freeze_secs=freeze_secs, bias=bias)
+    session.start()
+    for i in range(0, len(audio), _CHUNK):
+        source.feed(audio[i:i + _CHUNK])
+        time.sleep(_CHUNK / 16000 / speed)
+    source.close()
+    t0 = time.monotonic()
+    text = session.stop(source.get_audio_so_far())
+    return text, time.monotonic() - t0
 
 
 def save(result: EvalResult) -> Path:
@@ -89,5 +143,7 @@ def save(result: EvalResult) -> Path:
     path = runs / f"eval-{time.strftime('%Y%m%d-%H%M%S')}.json"
     data = asdict(result) | {"wer": result.wer, "term_recall": result.term_recall,
                              "rtf": result.rtf}
+    if result.waits:
+        data["stop_to_text_median"] = statistics.median(result.waits)
     path.write_text(json.dumps(data, indent=2) + "\n")
     return path

@@ -125,14 +125,19 @@ Most dictation errors are proper nouns and jargon: `PostgreSQL` heard as `post g
 **3. Fine-tuning with `voiceio learn`.** This is how you get past the 35-term ceiling: teach the model your vocabulary directly, from your own retained audio.
 
 ```bash
-voiceio learn label      # a stronger teacher model (large-v3-turbo) transcribes your retained clips
+voiceio learn import DIR --source phone   # optional: add your own recordings from elsewhere
+voiceio learn label      # a stronger teacher model (large-v3-turbo) transcribes your clips
 voiceio learn review     # fix the teacher where it matters: your names and terms
+voiceio learn review --test   # once: verify the held-out clips, so eval scores against the truth
 voiceio learn augment    # synthesize extra examples of rare terms with local TTS
 voiceio learn build      # freeze a versioned train/dev/test dataset (the test split never trains)
 voiceio learn eval       # score the current model on your held-out clips: WER and term recall
-voiceio learn train      # LoRA fine-tune (needs the `train` extra; a GPU helps, --remote for a rented one)
+                         #   --streaming replays them through live dictation and times stop→text
+voiceio learn train      # LoRA fine-tune (needs the `train` extra; decoder-only on CPU, --full on a GPU)
 voiceio learn promote <run>   # dictate with the fine-tune; `voiceio learn rollback` undoes it
 ```
+
+Labeling, training and offline eval run in an idle-priority cgroup, so they never slow dictation down. Everything stays on your machine unless you choose `train --remote`.
 
 `voiceio learn status` shows where you are. Re-run `eval` (or `voiceio models bench`) after promoting; only promote a model that beats the current one on your own test split.
 
