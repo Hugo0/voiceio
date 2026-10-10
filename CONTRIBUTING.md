@@ -72,6 +72,7 @@ voiceio/
 │                    #   manager.py: TyperManager (selection, IDLE-gated upgrade/fallback)
 ├── ibus/            # IBus engine process (GLib main loop + socket listener);
 │                    #   session.py: IBusSession (input sources, engine lifecycle)
+│                    #   install.py: launcher, component XML, IBus env, GNOME source
 ├── tray/            # Animated tray icon (AppIndicator3 / pystray fallback)
 ├── tts/             # Text-to-speech engines (piper, espeak, edge-tts) + chain
 ├── data/            # Shipped static files (udev uaccess rule)
