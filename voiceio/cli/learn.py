@@ -59,6 +59,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     t.add_argument("--base", default="small")
     t.add_argument("--epochs", type=int, default=4)
     t.add_argument("--synthetic-share", type=float, default=0.3)
+    t.add_argument("--full", action="store_true",
+                   help="also adapt the encoder to your voice/mic (slow on CPU; default on GPU)")
     t.add_argument("--remote", action="store_true",
                    help="only export, and print the commands for a rented GPU")
     t.set_defaults(func=cmd_train)
@@ -260,7 +262,8 @@ def cmd_train(args: argparse.Namespace) -> None:
         print("\n" + train.remote_recipe(folder, run, args.base))
         return
     train.require_train_deps()
-    hf = train.train(folder, run, train.TrainConfig(base=args.base, epochs=args.epochs))
+    hf = train.train(folder, run, train.TrainConfig(
+        base=args.base, epochs=args.epochs, decoder_only=False if args.full else None))
     train.convert(hf, run / "ct2")
     print(f"\ntrained {run.name}\nnext: voiceio learn eval --model {run / 'ct2'}"
           f"  (compare with the current model, then `voiceio learn promote {run.name}`)")
