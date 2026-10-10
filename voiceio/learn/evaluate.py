@@ -111,6 +111,7 @@ def evaluate(decoder: Decoder, dataset: Path, *, bias: Bias = Bias(),
         res.terms_recalled += recalled
         res.repetitions += metrics.count_repetitions(hyp)
         clip = {"file": Path(row["file_name"]).name, "wer": round(a.wer, 4),
+                "errors": a.errors, "ref_words": a.ref_words,
                 "terms": [spoken, recalled], "secs": round(dt, 2)}
         if streaming:
             clip["wait"] = round(res.waits[-1], 2)
@@ -175,6 +176,24 @@ def latest(model: str, dataset: str, mode: str = "offline") -> dict | None:
 WER_SLACK = 0.002
 
 
+def paired(candidate: dict, current: dict, *, n_boot: int = 2000) -> dict | None:
+    """Clip-by-clip comparison of two runs on the same clips: how many got
+    better or worse, and a bootstrap 90% interval for the mean per-clip WER
+    change. On a few dozen clips an average can move by luck; this says how
+    much the difference can be trusted."""
+    import numpy as np
+    before = {c["file"]: c["wer"] for c in current.get("per_clip", [])}
+    diffs = np.array([c["wer"] - before[c["file"]] for c in candidate.get("per_clip", [])
+                      if c["file"] in before])
+    if len(diffs) < 5:
+        return None
+    boots = np.random.default_rng(0).choice(diffs, (n_boot, len(diffs))).mean(axis=1)
+    lo, hi = np.percentile(boots, [5, 95])
+    return {"clips": len(diffs), "better": int((diffs < 0).sum()),
+            "worse": int((diffs > 0).sum()), "mean": float(diffs.mean()),
+            "lo": float(lo), "hi": float(hi)}
+
+
 def promotion_verdict(candidate: dict, current: dict) -> tuple[bool, str]:
     """Is `candidate` at least as good as `current` on the same clips?"""
     rows = [("WER", current["wer"], candidate["wer"], "{:.1%}"),
@@ -182,6 +201,12 @@ def promotion_verdict(candidate: dict, current: dict) -> tuple[bool, str]:
             ("loops", current["repetitions"], candidate["repetitions"], "{}")]
     table = "\n".join(f"  {name:<13} {fmt.format(a):>8} → {fmt.format(b):<8}"
                       for name, a, b, fmt in rows)
+    p = paired(candidate, current)
+    if p:
+        table += (f"\n  per clip: {p['better']} better, {p['worse']} worse of {p['clips']}; "
+                  f"WER change {p['mean']:+.1%} (90% interval {p['lo']:+.1%} … {p['hi']:+.1%})")
+        if p["lo"] < 0 < p["hi"]:
+            table += "\n  (the interval spans zero: the WER difference may be luck)"
     ok = (candidate["wer"] <= current["wer"] + WER_SLACK
           and candidate["term_recall"] >= current["term_recall"]
           and candidate["repetitions"] <= current["repetitions"])

@@ -442,7 +442,7 @@ def cmd_maintain(args: argparse.Namespace) -> None:
 
 def _scores(result) -> dict:
     return {"wer": result.wer, "term_recall": result.term_recall,
-            "repetitions": result.repetitions}
+            "repetitions": result.repetitions, "per_clip": result.per_clip}
 
 
 def cmd_promote(args: argparse.Namespace) -> None:

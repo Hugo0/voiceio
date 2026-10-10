@@ -265,3 +265,19 @@ def test_status_shows_scores_and_suggests_a_winning_run(capsys):
     out = capsys.readouterr().out
     assert "small (active)" in out and "WER 8.0%" in out
     assert "next: voiceio learn promote v0001-small-x" in out
+
+
+def test_paired_comparison_reports_direction_and_uncertainty():
+    clips = [f"{i}.wav" for i in range(20)]
+    cur = {"per_clip": [{"file": f, "wer": 0.10} for f in clips]}
+    clearly_better = {"per_clip": [{"file": f, "wer": 0.05} for f in clips]}
+    p = evaluate.paired(clearly_better, cur)
+    assert (p["better"], p["worse"], p["clips"]) == (20, 0, 20) and p["hi"] < 0
+    mixed = {"per_clip": [{"file": f, "wer": 0.10 + (0.05 if i % 2 else -0.05)}
+                          for i, f in enumerate(clips)]}
+    p = evaluate.paired(mixed, cur)
+    assert p["lo"] < 0 < p["hi"]
+    base = {"wer": 0.1, "term_recall": 0.5, "repetitions": 0}
+    _, table = evaluate.promotion_verdict({**base, **mixed}, {**base, **cur})
+    assert "may be luck" in table
+    assert evaluate.paired({"per_clip": []}, cur) is None
