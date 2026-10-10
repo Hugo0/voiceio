@@ -167,3 +167,4 @@ class TestPunctuationWordsAsNouns:
         assert p.process("hello comma world") == "hello, world"
         assert p.process("is it done question mark") == "is it done?"
         assert p.process("sentence one period sentence two") == "sentence one. sentence two"
+        assert p.process("I didn't know that period") == "I didn't know that."

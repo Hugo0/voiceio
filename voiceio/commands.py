@@ -36,10 +36,10 @@ DEFAULT_COMMANDS: dict[tuple[str, ...], str] = {
 
 
 # After one of these a punctuation word is a noun ("over a period of time",
-# "put a comma there", "a long dash"), not a spoken command.
+# "put a comma there", "a long dash"), not a spoken command. Not "that",
+# "this", "last"…: they end clauses ("I didn't know that period").
 _NOUN_CUES = frozenset({
-    "a", "an", "the", "this", "that", "these", "those", "each", "every", "another",
-    "long", "short", "same", "first", "last", "next", "single", "double",
+    "a", "an", "the", "each", "every", "another", "long", "short", "single", "double",
 })
 _PUNCTUATION = frozenset({".", ",", "?", "!", ":", ";", "-", " -- ", '"', "(", ")"})
 
