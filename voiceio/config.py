@@ -63,7 +63,7 @@ class HotkeyConfig:
     # hold_ms toggles, holding longer is push-to-talk. Releases need evdev or
     # pynput (a DE shortcut only fires on key down, so it always toggles).
     mode: str = "auto"
-    hold_ms: int = 350
+    hold_ms: int = 1000
     # Keep recording this long after the release, so the last word isn't cut.
     release_tail_ms: int = 250
     # A key that abandons the dictation (e.g. "escape"), evdev/pynput only.

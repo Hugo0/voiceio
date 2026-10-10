@@ -9,7 +9,7 @@ key = "ctrl+alt+v"            # e.g. super+v, ctrl+shift+r
 backend = "auto"              # auto | evdev | pynput | socket (bind `voiceio toggle` in your WM)
 mode = "auto"                 # auto: tap toggles, hold = push-to-talk | toggle | hold
                               # (releases need evdev/pynput, or `voiceio toggle --press/--release`)
-hold_ms = 350                 # auto: held longer than this = push-to-talk
+hold_ms = 1000                # auto: held at least this long = push-to-talk; shorter toggles
 release_tail_ms = 250         # keep recording this long after release (last word)
 cancel_key = ""               # e.g. "escape": abandon the dictation (evdev/pynput; the app
                               # gets the key too). Or bind `voiceio cancel`
