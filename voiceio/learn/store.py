@@ -247,20 +247,19 @@ def _suspect_segment(seg: Segment) -> str | None:
 
 
 def _train_windows(lab: Label, dropped: dict[str, int]) -> list[list[Segment]]:
-    """Windows to train on. Suspect teacher segments are dropped *before*
-    windowing, so their audio ends up outside a window or inside one with no
-    text — i.e. it teaches silence. Human-reviewed labels are trusted."""
-    def drop(reason: str) -> None:
-        dropped[reason] = dropped.get(reason, 0) + 1
-
-    segments = []
+    """Windows to train on. A suspect teacher segment ends the run it is in:
+    windows never span its audio, which may well hold real speech the label
+    doesn't describe — training on that would teach the model to drop words.
+    Human-reviewed labels are trusted."""
+    runs: list[list[Segment]] = [[]]
     for seg in lab.segments:
         reason = None if lab.reviewed else _suspect_segment(seg)
         if reason:
-            drop(reason)
+            dropped[reason] = dropped.get(reason, 0) + 1
+            runs.append([])
         else:
-            segments.append(seg)
-    return window_groups(tuple(segments))
+            runs[-1].append(seg)
+    return [g for run in runs if run for g in window_groups(tuple(run))]
 
 
 def build_dataset(*, reviewed_only: bool = False) -> Path:

@@ -169,6 +169,13 @@ def test_build_drops_suspect_teacher_segments_but_trusts_humans():
                                     Segment(5, 6, "Thank you.")), "teacher:fake", 0)
     assert [store._merge(g).text for g in store._train_windows(teacher, {})] \
         == ["ship the Kalshi bot"]
+    # A dropped segment between good ones splits the window: its audio (maybe
+    # real speech) must never sit inside a window whose text omits it.
+    mid = store.Label("m.wav", (Segment(0, 5, "hello there"),
+                                Segment(5, 6, "one two three four five six seven eight"),
+                                Segment(6, 10, "I am fine")), "teacher:fake", 0)
+    groups = store._train_windows(mid, {})
+    assert [(g[0].start, g[-1].end) for g in groups] == [(0, 5), (6, 10)]
     human = store._train_windows(store.load_labels()["h.wav"], {})
     assert [store._merge(g).text for g in human] == ["ship it Thank you."]
 
@@ -223,3 +230,9 @@ def test_maintain_waits_for_enough_new_clips(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_train", lambda *a, **k: pytest.fail("must not retrain"))
     cli.cmd_maintain(argparse.Namespace(min_new=5, base="small", epochs=1))
     assert "1 new labeled clips since v0001" in capsys.readouterr().out
+
+
+def test_dev_mix_is_stable_per_row():
+    assert train._row_draws("a.wav") == train._row_draws("a.wav")
+    assert train._row_draws("a.wav") != train._row_draws("b.wav")
+    assert all(0 <= x < 1 for x in train._row_draws("c.wav"))
