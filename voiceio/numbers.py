@@ -186,11 +186,22 @@ def convert_numbers(text: str, language: str = "en") -> str:
                     # e.g. "one two three" should NOT become 6
                     # But "twenty three", "one hundred", "thirteen thousand" are valid
                     cat = "scale" if w in _SCALES else ("tens" if w in _TENS else "ones")
-                    if cat == "ones" and last_category == "ones":
+                    # "one two" and "twenty thirty" / "nineteen ninety" are
+                    # separate numbers, not sums.
+                    # "thousand million" would mis-sum: stop. Only "hundred" can
+                    # multiply into a larger scale ("three hundred thousand").
+                    if (cat == "scale" and num_words and num_words[-1] in _SCALES
+                            and num_words[-1] != "hundred"
+                            and _SCALES[w] > _SCALES[num_words[-1]]):
+                        break
+                    if cat in ("ones", "tens") and last_category in ("ones", "tens") \
+                            and not (cat == "ones" and last_category == "tens"):
                         break
                     num_words.append(w)
                     last_category = cat
                     j += 1
+                    if words[j - 1][-1:] in ".,;:?!":
+                        break  # punctuation ends the number: "twenty. Thirty…"
                 elif _ends_compound_ordinal(w, last_category):
                     # "twenty fifth", "hundred and first": the ordinal ends it
                     num_words.append(w)
@@ -238,7 +249,8 @@ def convert_numbers(text: str, language: str = "en") -> str:
                         i = j
                         ordinal = True
 
-                if not ordinal and num_words[-1] in _WORDY_SCALES and not percent:
+                if (not ordinal and num_words[-1] in _WORDY_SCALES and not percent
+                        and not any(w in ("thousand", *_WORDY_SCALES) for w in num_words[:-1])):
                     # "five million" → "5 million", not "5000000"; "a million"
                     # stays as said.
                     lead = num_words[:-1]

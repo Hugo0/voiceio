@@ -80,6 +80,13 @@ class TestOrdinals:
         assert convert_numbers("two million three hundred thousand") == "2,300,000"
         assert convert_numbers("forty thousand") == "40,000"
 
+    def test_separate_numbers_are_not_summed(self):
+        assert convert_numbers("twenty, thirty, forty") == "20, 30, 40"
+        assert convert_numbers("I have twenty. Thirty more came") == "I have 20. 30 more came"
+        assert convert_numbers("nineteen ninety nine") == "19 99"
+        assert convert_numbers("one billion two million") == "1,002,000,000"
+        assert convert_numbers("one thousand million") == "1000 million"
+
     def test_tenth_converts(self):
         assert convert_numbers("the tenth time") == "the 10th time"
 
