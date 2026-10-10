@@ -550,3 +550,23 @@ def test_retain_is_opt_in_and_tags_phone(tmp_path):
     row = json.loads(config.HISTORY_PATH.read_text().splitlines()[-1])
     assert row["source"] == "phone" and row["raw"] == "ship it"
     assert (config.RECORDINGS_DIR / row["audio"]).exists()
+
+
+# ── the transcript never reaches the log ─────────────────────────────────
+
+def test_transcribe_never_logs_the_transcript(caplog):
+    """Servers run under systemd, so an INFO line is the journal, on disk.
+    FakeEngine's "Hello world." stands in for whatever the user said."""
+    import logging
+
+    async def go(client):
+        resp = await client.post("/transcribe", data=b"fake-audio-bytes")
+        assert resp.status == 200
+        return await resp.json()
+
+    with caplog.at_level(logging.DEBUG):
+        body = run_with_client(go)
+
+    assert body["text"] == "Hello world."       # still returned to the caller
+    assert "Hello world." not in caplog.text    # and nowhere in the log
+    assert "2 words" in caplog.text             # size is what debugging needs

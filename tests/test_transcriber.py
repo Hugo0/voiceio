@@ -281,13 +281,33 @@ def test_promptless_distil_models_take_no_bias():
 
 def test_no_log_call_formats_the_transcript_itself():
     """The daemon writes DEBUG to ~/.local/state/voiceio/voiceio.log, so even
-    debug lines must not carry the user's words."""
-    import re
+    debug lines must not carry the user's words: no log call may pass a
+    transcript variable (or its ["text"]) straight through as an argument."""
+    import ast
     from pathlib import Path
 
     import voiceio
-    leaky = re.compile(r"log\.\w+\(.*%[sr].*,\s*(text|new_text|final_text|to_type|"
-                       r"self\._typed_text|result)(\[[^]]*\])?\)")
-    hits = [f"{p.name}:{i}" for p in Path(voiceio.__file__).parent.rglob("*.py")
-            for i, line in enumerate(p.read_text().splitlines(), 1) if leaky.search(line)]
+    names = {"text", "new_text", "final_text", "to_type", "_typed_text", "result",
+             "corrected", "hyp", "transcript"}
+
+    def leaks(node):
+        if isinstance(node, ast.BoolOp):
+            return any(leaks(v) for v in node.values)
+        if isinstance(node, ast.Subscript):
+            key = node.slice
+            if isinstance(key, ast.Slice):          # text[:60] is still the words
+                return leaks(node.value)
+            return isinstance(key, ast.Constant) and key.value == "text"
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "strip":
+            return leaks(node.func.value)
+        return (isinstance(node, ast.Name) and node.id in names) or \
+            (isinstance(node, ast.Attribute) and node.attr in names)
+
+    hits = []
+    for path in Path(voiceio.__file__).parent.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and getattr(node.func.value, "id", "") == "log"
+                    and any(leaks(a) for a in node.args[1:])):
+                hits.append(f"{path.name}:{node.lineno}")
     assert not hits, hits

@@ -101,7 +101,7 @@ async def handle_transcribe(request: web.Request) -> web.Response:
     result["ms"] = round((time.monotonic() - t0) * 1000)
     log.info(
         "%.1fs audio → %dms: %s",
-        result["audio_secs"], result["ms"], result["text"] or "(silence)",
+        result["audio_secs"], result["ms"], describe_transcript(result["text"]),
     )
     return web.json_response(result)
 
