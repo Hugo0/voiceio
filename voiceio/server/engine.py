@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import logging
 import subprocess
+import threading
 import time
 import wave
 
@@ -194,7 +195,8 @@ class VoiceEngine:
         text, raw = result.text, result.raw
         if text:
             self.record_usage(text)
-            self.retain(audio, text, raw)
+            # Off the request path: the reply shouldn't wait on a WAV write.
+            threading.Thread(target=self.retain, args=(audio, text, raw), daemon=True).start()
 
         return {
             "text": text,
