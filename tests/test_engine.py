@@ -60,3 +60,24 @@ def test_session_uses_engine_pipeline_and_bias():
     session.start()
     src.feed(np.full(16000, 0.3, dtype=np.float32))
     assert session.stop(src.get_audio_so_far()) == "25"
+
+
+def test_commit_strips_prefix_learns_and_keeps_history():
+    import json
+
+    from voiceio import config
+    eng, _ = _engine(voice_input_prefix="[voice]")
+    stored = eng.commit("[voice] we deployed the Kalshi bot", raw="we deployed the kalshi bot",
+                        duration=2.0, audio=np.zeros(16000, dtype=np.float32))
+    assert stored == "we deployed the Kalshi bot"
+    assert "Kalshi" in (eng.bias().prompt or "")
+    row = json.loads(config.HISTORY_PATH.read_text().splitlines()[-1])
+    assert row["text"] == stored and (config.RECORDINGS_DIR / row["audio"]).exists()
+
+
+def test_commit_without_persist_learns_but_writes_nothing():
+    from voiceio import config
+    eng, _ = _engine()
+    eng.commit("ship the Kalshi fix", raw="ship the kalshi fix", duration=1.0, persist=False)
+    assert "Kalshi" in (eng.bias().prompt or "")
+    assert not config.HISTORY_PATH.exists()

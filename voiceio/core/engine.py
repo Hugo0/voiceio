@@ -51,12 +51,14 @@ class Engine:
         pipeline: Pipeline,
         bias: BiasProvider,
         corrections: CorrectionDict,
+        prefix: str = "",
     ):
         self.cfg = cfg
         self.decoder = decoder
         self.pipeline = pipeline
         self.corrections = corrections
         self._bias = bias
+        self._prefix = prefix
 
     @classmethod
     def from_config(
@@ -91,7 +93,8 @@ class Engine:
         )
         if decoder is None:
             decoder = build_decoder(cfg.model, lanes=lanes)
-        return cls(cfg, decoder, pipeline=pipeline, bias=bias, corrections=corrections)
+        return cls(cfg, decoder, pipeline=pipeline, bias=bias, corrections=corrections,
+                   prefix=cfg.output.voice_input_prefix if prefix else "")
 
     # ── personalization ──────────────────────────────────────────────────
     @property
@@ -130,6 +133,37 @@ class Engine:
             latency["postcorrect"] = processed.timings["postcorrect"]
         return Transcript(processed.text, result.text, result.segments, latency,
                           abort=processed.abort)
+
+    def commit(
+        self,
+        text: str,
+        *,
+        raw: str,
+        duration: float,
+        segments=(),
+        audio: np.ndarray | None = None,
+        extra: dict | None = None,
+        persist: bool = True,
+    ) -> str:
+        """What every front end does with a finished utterance: learn from it
+        (prompt history, vocabulary usage) and, if `persist`, keep it — the
+        history row, plus `audio` when given. Returns the text as stored: the
+        voice prefix is presentation for the target app, not dictated content.
+        """
+        stored = text
+        if self._prefix and stored.startswith(self._prefix):
+            stored = stored[len(self._prefix):].lstrip()
+        if not stored:
+            return stored
+        self.record_usage(stored)
+        if persist:
+            from voiceio import history, retention
+            extra = dict(extra or {})
+            if audio is not None:
+                extra["audio"] = retention.save_audio(audio, time.time(), self.cfg.data)
+            history.append(stored, raw=raw, segments=list(segments) or None,
+                           duration=round(duration, 2), extra=extra, cfg=self.cfg.history)
+        return stored
 
     def session(
         self,

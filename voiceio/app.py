@@ -92,7 +92,6 @@ class VoiceIO:
         self._recording_bias = Bias()
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
-        self._voice_input_prefix = cfg.output.voice_input_prefix
         self._streaming = cfg.output.streaming
 
         # LLM post-processing (optional, requires Ollama)
@@ -124,7 +123,6 @@ class VoiceIO:
             postcorrect=self._postcorrect, llm=self._llm,
         )
         self._corrections = self.engine.corrections
-        self._pipeline = self.engine.pipeline
 
         # Explicit state machine
         self._state = _State.IDLE
@@ -462,16 +460,6 @@ class VoiceIO:
             "model": self.cfg.model.name,
         }
 
-    def _strip_voice_prefix(self, text: str) -> str:
-        """Remove the configured voice-input prefix before persisting.
-
-        The prefix is presentation for the target app, not dictated content;
-        storing it would pollute vocabulary mining and correction analysis.
-        """
-        if self._voice_input_prefix and text.startswith(self._voice_input_prefix):
-            return text[len(self._voice_input_prefix):].lstrip()
-        return text
-
     _CLIP_RATIO_WARN = 0.005   # >0.5% of samples in flat-top runs
     _CLIP_WARN_INTERVAL = 300  # seconds between warnings
 
@@ -522,28 +510,19 @@ class VoiceIO:
             log.info("Finalize superseded (gen %d, current %d): %s saved to history only",
                      gen, self._generation, describe_transcript(final_text))
             if final_text:
-                from voiceio import history
-                history.append(self._strip_voice_prefix(final_text),
-                               raw=session.raw_final_text, duration=elapsed)
+                self.engine.commit(final_text, raw=session.raw_final_text,
+                                   duration=elapsed, extra=extra)
             self._ibus.release(rid)
             return
         if final_text:
             self._copy_result_async(final_text)
             self._play_feedback(final_text)
-            stored = self._strip_voice_prefix(final_text)
-            self.engine.record_usage(stored)
             latency = dict(session.final_latency)
             # stop-to-commit: what the user actually waits for
             latency["finalize_total"] = round(time.monotonic() - t_final, 3)
             extra["latency"] = latency
-            from voiceio import history
-            history.append(
-                stored,
-                raw=session.raw_final_text,
-                segments=session.final_segments,
-                duration=elapsed,
-                extra=extra,
-            )
+            self.engine.commit(final_text, raw=session.raw_final_text,
+                               segments=session.final_segments, duration=elapsed, extra=extra)
             from voiceio import retention
             retention.save_trace(self.cfg.data, {
                 "ts": time.time(),
@@ -572,43 +551,18 @@ class VoiceIO:
             if self._generation != gen:
                 return
             extra = self._retention_extra(audio)
-            t0 = time.monotonic()
-            result = self.transcriber.decode(audio, final=True, bias=bias or Bias())
-            raw = result.text
-            latency = {
-                "audio_secs": round(len(audio) / self.recorder.sample_rate, 2),
-                "transcribe": round(time.monotonic() - t0, 3),
-            }
-            segments = list(result.segments)
-            text = raw
-            if self._generation != gen:
+            result = self.engine.transcribe(audio, bias=bias)
+            # Superseded by a newer recording, or a voice command discarded
+            # it: do not touch the typer.
+            if self._generation != gen or result.abort or not result.text:
                 return
-            if text:
-                t1 = time.monotonic()
-                processed = self._pipeline(text, final=True)
-                text, abort = processed.text, processed.abort
-                latency["pipeline"] = round(time.monotonic() - t1, 3)
-                if "postcorrect" in processed.timings:
-                    latency["postcorrect"] = processed.timings["postcorrect"]
-                extra["latency"] = latency
-                if abort:
-                    return
-                # Superseded by a newer recording — do not touch the typer.
-                if text and self._generation == gen:
-                    self._typers.type_with_fallback(text)
-                    self._copy_result_async(text)
-                    self._play_feedback(text)
-                    stored = self._strip_voice_prefix(text)
-                    self.engine.record_usage(stored)
-                    from voiceio import history
-                    history.append(
-                        stored,
-                        raw=raw,
-                        segments=segments,
-                        duration=len(audio) / self.recorder.sample_rate,
-                        extra=extra,
-                    )
-                    log.info("Typed: %s", describe_transcript(text))
+            extra["latency"] = result.latency
+            self._typers.type_with_fallback(result.text)
+            self._copy_result_async(result.text)
+            self._play_feedback(result.text)
+            self.engine.commit(result.text, raw=result.raw, segments=result.segments,
+                               duration=len(audio) / self.recorder.sample_rate, extra=extra)
+            log.info("Typed: %s", describe_transcript(result.text))
         except Exception:
             log.exception("Processing failed")
         finally:

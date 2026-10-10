@@ -73,8 +73,7 @@ class FakeEngine:
         self.transcribe_error: Exception | None = None
         self.tts_error: Exception | None = None
         self.sessions: list[FakeSession] = []
-        self.retained: list[str] = []
-        self.vocab_recorded: list[str] = []
+        self.committed: list[str] = []
         self.shutdown_called = False
         self.__dict__.update(overrides)
 
@@ -101,11 +100,8 @@ class FakeEngine:
         audio = np.zeros(2205, dtype=np.int16)  # 0.1s @ 22050
         return wav_bytes(audio, 22050), 22050, "espeak"
 
-    def retain(self, audio, text, raw):
-        self.retained.append(text)
-
-    def record_usage(self, text):
-        self.vocab_recorded.append(text)
+    def commit(self, audio, text, raw):
+        self.committed.append(text)
 
     def shutdown(self):
         self.shutdown_called = True
@@ -314,7 +310,7 @@ def test_ws_ready_partial_final_sequence():
     assert final["text"] == "Hello world."
     assert final["raw"] == "hello world raw"
     assert isinstance(final["ms"], int)
-    assert engine.retained == ["Hello world."]  # offered for opt-in retention
+    assert engine.committed == ["Hello world."]  # learned from; kept if opted in
 
 
 def test_ws_feeds_audio_through_to_the_session():
@@ -334,7 +330,7 @@ def test_ws_feeds_audio_through_to_the_session():
     audio = engine.sessions[0].stopped_with
     assert audio is not None
     assert len(audio) == 1600  # both chunks reached the final decode
-    assert engine.vocab_recorded == ["Hello world."]
+    assert engine.committed == ["Hello world."]
 
 
 def test_ws_client_disconnect_still_finalizes():
@@ -530,23 +526,30 @@ def test_odd_length_frames_keep_sample_alignment():
 
 def test_retain_is_opt_in_and_tags_phone(tmp_path):
     import json
+    from unittest.mock import MagicMock
 
     import numpy as np
 
     from voiceio import config
+    from voiceio.core.engine import Engine
+    from voiceio.core.pipeline import Pipeline
     from voiceio.server.engine import VoiceEngine
 
     eng = VoiceEngine.__new__(VoiceEngine)   # no model load
     eng.vio_cfg = config.Config()
     eng.model_cfg = eng.vio_cfg.model
+    bias = MagicMock()
+    eng.engine = Engine(eng.vio_cfg, MagicMock(), pipeline=Pipeline([]), bias=bias,
+                        corrections=MagicMock())
     audio = np.zeros(16000, dtype=np.float32)
 
     eng.vio_cfg.data.retain_audio = False
-    eng.retain(audio, "Ship it.", "ship it")
+    eng.commit(audio, "Ship it.", "ship it")
     assert not config.HISTORY_PATH.exists()
+    bias.record_usage.assert_called_once_with("Ship it.")   # still learns from it
 
     eng.vio_cfg.data.retain_audio = True
-    eng.retain(audio, "Ship it.", "ship it")
+    eng.commit(audio, "Ship it.", "ship it")
     row = json.loads(config.HISTORY_PATH.read_text().splitlines()[-1])
     assert row["source"] == "phone" and row["raw"] == "ship it"
     assert (config.RECORDINGS_DIR / row["audio"]).exists()

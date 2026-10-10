@@ -149,25 +149,20 @@ class VoiceEngine:
             len(self.engine.vocabulary_terms), len(self.engine.corrections.list_all()),
         )
 
-    def retain(self, audio, text: str, raw: str) -> None:
-        """Keep this dictation for `voiceio learn` — only when the server's
-        owner opted in with `[data] retain_audio = true` in its config.toml.
-        Same caps and 0600 files as the desktop; tagged source="phone"."""
-        if not (self.vio_cfg.data.retain_audio and text):
+    def commit(self, audio, text: str, raw: str) -> None:
+        """After the reply: learn from the utterance (vocabulary usage, prompt
+        history), and keep it for `voiceio learn` only if the server's owner
+        opted in with `[data] retain_audio = true` — a server keeps no
+        history otherwise. Tagged source="phone"."""
+        if not text:
             return
-        from voiceio import history, retention
+        keep = self.vio_cfg.data.retain_audio
         try:
-            name = retention.save_audio(audio, time.time(), self.vio_cfg.data)
-            history.append(text, raw=raw, duration=round(len(audio) / SAMPLE_RATE, 2),
-                           extra={"audio": name, "source": "phone",
-                                  "model": self.model_cfg.name},
-                           cfg=self.vio_cfg.history)
-        except Exception:  # noqa: BLE001 — retention must never fail a request
-            log.exception("could not retain dictation")
-
-    def record_usage(self, text: str) -> None:
-        """Feed usage stats + prompt history so biasing follows real use."""
-        self.engine.record_usage(text)
+            self.engine.commit(text, raw=raw, duration=len(audio) / SAMPLE_RATE,
+                               audio=audio if keep else None, persist=keep,
+                               extra={"source": "phone", "model": self.model_cfg.name})
+        except Exception:  # noqa: BLE001 — never fail a request over it
+            log.exception("could not commit dictation")
 
     # ── transcription ────────────────────────────────────────────────────
     def transcribe(self, data: bytes) -> dict:
@@ -189,10 +184,8 @@ class VoiceEngine:
         result = self.engine.transcribe(audio)
         whisper_ms = (time.monotonic() - t1) * 1000
         text, raw = result.text, result.raw
-        if text:
-            self.record_usage(text)
-            # Off the request path: the reply shouldn't wait on a WAV write.
-            threading.Thread(target=self.retain, args=(audio, text, raw), daemon=True).start()
+        if text:   # off the request path: the reply shouldn't wait on a WAV write
+            threading.Thread(target=self.commit, args=(audio, text, raw), daemon=True).start()
 
         return {
             "text": text,
