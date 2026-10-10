@@ -18,7 +18,7 @@ from voiceio.hotkeys.socket_backend import SocketHotkey
 from voiceio.recorder import AudioRecorder
 from voiceio.streaming import StreamingSession
 from voiceio.core.decoders import build_decoder
-from voiceio.transcriber import describe_transcript
+from voiceio.privacy import describe_transcript
 from voiceio.typers import chain as typer_chain
 from voiceio.typers.manager import TyperManager
 from voiceio.vad import load_vad

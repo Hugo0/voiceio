@@ -76,12 +76,12 @@ class TestTimeoutScaling:
     """Fix #9: read timeout scales with audio length (never kill long audio)."""
 
     def test_floor_for_short_audio(self):
-        from voiceio.transcriber import transcribe_timeout, TRANSCRIBE_TIMEOUT
+        from voiceio.core.decoders.base import TRANSCRIBE_TIMEOUT, transcribe_timeout
         assert transcribe_timeout(1.0) == TRANSCRIBE_TIMEOUT
         assert transcribe_timeout(0.0) == TRANSCRIBE_TIMEOUT
 
     def test_scales_above_floor_for_long_audio(self):
-        from voiceio.transcriber import transcribe_timeout
+        from voiceio.core.decoders.base import transcribe_timeout
         # 200s dictation -> 200 * 1.5 = 300s, well above the 30s floor.
         assert transcribe_timeout(200.0) == 600.0
         assert transcribe_timeout(60.0) == 180.0
@@ -265,7 +265,7 @@ class TestWorkerModelLoad:
 
 
 def test_describe_transcript_never_contains_text():
-    from voiceio.transcriber import describe_transcript
+    from voiceio.privacy import describe_transcript
     assert describe_transcript("my secret plan") == "3 words"
     assert describe_transcript("") == "(silence)"
 

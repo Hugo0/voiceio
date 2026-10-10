@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from aiohttp import WSMsgType, web
 
 from voiceio.server.config import SAMPLE_RATE, ServerConfig
-from voiceio.transcriber import describe_transcript
+from voiceio.privacy import describe_transcript
 from voiceio.server.engine import (
     AudioTooLong,
     DecodeError,

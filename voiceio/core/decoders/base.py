@@ -82,3 +82,24 @@ class Decoder(Protocol):
         ...
 
     def close(self) -> None: ...
+
+
+# Floor of the decode timeout. A timeout kills the worker, reloads the model
+# and retries — always slower than waiting — so it is only for genuine hangs.
+# Runaway loops, the old reason for a tight floor, are now bounded by the
+# worker's max_new_tokens; a saturated CPU took 25s for 8s of audio.
+TRANSCRIBE_TIMEOUT = 60
+# Realtime-factor headroom: on an idle CPU whisper decodes ~5x faster than
+# realtime, but under load it was measured at 0.3x — 3s per second of audio
+# still never kills a slow-but-progressing decode.
+TIMEOUT_PER_SECOND = 3.0
+
+
+def transcribe_timeout(audio_duration: float) -> float:
+    """How long one decode of `audio_duration` seconds may take.
+
+    A fixed 30s timeout kills any dictation whose decode exceeds it (a >2.5min
+    utterance) with total text loss. Scale with the audio so the worker always
+    gets enough time, keeping the floor for short clips.
+    """
+    return max(TRANSCRIBE_TIMEOUT, audio_duration * TIMEOUT_PER_SECOND)

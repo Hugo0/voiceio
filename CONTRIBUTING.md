@@ -51,6 +51,7 @@ voiceio/
 ├── suggest.py       # Offline: unusual words in history (`vocab suggest`)
 ├── postcorrect.py   # Constrained final-pass LLM rewrite of misheard words (cloud, opt-in)
 ├── consent.py       # Explicit consent record for cloud LLM calls
+├── privacy.py       # describe_transcript(): what a log may say about a transcript
 ├── retention.py     # Per-utterance audio + context storage, size caps
 ├── history.py       # Transcription history (JSONL)
 ├── llm.py           # Optional local LLM cleanup via Ollama
@@ -117,7 +118,7 @@ NixOS module, Home Manager module).
 - Comments only where logic isn't self-evident
 - Never log what the user said — at any level: the daemon writes DEBUG to
   `~/.local/state/voiceio/voiceio.log`, and under systemd INFO is the journal.
-  Use `transcriber.describe_transcript()` (a word count) instead.
+  Use `privacy.describe_transcript()` (a word count) instead.
 
 ## Testing
 

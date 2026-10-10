@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Callable
 import numpy as np
 
 from voiceio.core.decoders.base import Bias
-from voiceio.transcriber import describe_transcript, transcribe_timeout
+from voiceio.core.decoders.base import transcribe_timeout
+from voiceio.privacy import describe_transcript
 from voiceio.typers.base import StreamingTyper
 
 if TYPE_CHECKING:

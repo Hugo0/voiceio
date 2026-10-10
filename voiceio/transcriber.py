@@ -25,7 +25,9 @@ from voiceio.core.decoders.base import (
     Capabilities,
     DecodeError,
     DecodeResult,
+    transcribe_timeout,
 )
+from voiceio.privacy import describe_transcript
 from voiceio.tokens import HOTWORDS_TOKEN_BUDGET, PROMPT_TOKEN_BUDGET, truncate_to_tokens
 
 if TYPE_CHECKING:
@@ -33,23 +35,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Floor of the decode timeout. A timeout kills the worker, reloads the model
-# and retries — always slower than waiting — so it is only for genuine hangs.
-# Runaway loops, the old reason for a tight floor, are now bounded by the
-# worker's max_new_tokens; a saturated CPU took 25s for 8s of audio.
-TRANSCRIBE_TIMEOUT = 60
-
-
-def describe_transcript(text: str) -> str:
-    """Privacy-safe summary of a transcript for INFO-level logs."""
-    return f"{len(text.split())} words" if text else "(silence)"
-
-
-
-# Realtime-factor headroom for the read timeout: on an idle CPU whisper decodes
-# ~5x faster than realtime, but under load it was measured at 0.3x — 3s per
-# second of audio still never kills a slow-but-progressing decode.
-TIMEOUT_PER_SECOND = 3.0
 MAX_RESTARTS = 3
 # Ceiling on the worker's model-load handshake. A cached load is ~4s (worst
 # observed: 53s), so this only trips on a genuinely stuck start — but it must
@@ -62,15 +47,6 @@ WORKER_START_TIMEOUT = 300
 # unrelated crashes spread over weeks don't permanently kill the daemon.
 RESTART_RESET_SECS = 600
 
-
-def transcribe_timeout(audio_duration: float) -> float:
-    """Read timeout for one transcription, scaled to audio length.
-
-    A fixed 30s timeout kills any dictation whose decode exceeds it (a >2.5min
-    utterance) with total text loss. Scale with the audio so the worker always
-    gets enough time, keeping the 30s floor for short clips.
-    """
-    return max(TRANSCRIBE_TIMEOUT, audio_duration * TIMEOUT_PER_SECOND)
 
 # Loudness normalization: Whisper's log-mel frontend is not scale-invariant at
 # extremes, so too-quiet audio transcribes poorly. Normalize RMS toward a
