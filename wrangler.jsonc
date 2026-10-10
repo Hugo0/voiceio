@@ -1,0 +1,7 @@
+// The landing page (site/) as Cloudflare Workers static assets: no Worker
+// script, nothing runs. Cloudflare's Git integration deploys every push to main.
+{
+  "name": "voiceio-site",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./site" }
+}
