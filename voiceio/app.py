@@ -888,6 +888,8 @@ class VoiceIO:
         """At login voiceio may start before ibus-daemon: wait briefly and
         switch to the IBus typer instead of settling on a broken fallback."""
         if self._ibus.wait_for_daemon():
+            from voiceio.typers.ibus import refresh_stale_launcher
+            refresh_stale_launcher()
             try:
                 typer = typer_chain.select(self.platform, self.cfg.output.method)
                 if typer.name == "ibus":

@@ -74,6 +74,32 @@ def _component_installed() -> bool:
         return False
 
 
+def refresh_stale_launcher() -> bool:
+    """Rewrite the launcher when only its baked-in paths went stale.
+
+    An upgrade into a new venv leaves the old interpreter paths in the
+    launcher, so the probe reports the component missing and the daemon falls
+    back to keystrokes. The component XML is unchanged in that case, so this
+    needs no IBus restart (unlike install_component) and is safe at start-up.
+    """
+    try:
+        if COMPONENT_DEST.read_text() != _component_xml():
+            return False
+        if LAUNCHER_PATH.read_text() == _launcher_script():
+            return False
+    except OSError:
+        return False
+    _write_launcher()
+    log.info("Refreshed stale IBus launcher at %s", LAUNCHER_PATH)
+    return True
+
+
+def _write_launcher() -> None:
+    LAUNCHER_DIR.mkdir(parents=True, exist_ok=True)
+    LAUNCHER_PATH.write_text(_launcher_script())
+    LAUNCHER_PATH.chmod(LAUNCHER_PATH.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+
 def _get_pkg_root() -> str:
     """Get the directory that contains the ``voiceio`` package.
 
@@ -154,9 +180,7 @@ def install_component() -> bool:
 
     Returns True if installed successfully.
     """
-    LAUNCHER_DIR.mkdir(parents=True, exist_ok=True)
-    LAUNCHER_PATH.write_text(_launcher_script())
-    LAUNCHER_PATH.chmod(LAUNCHER_PATH.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    _write_launcher()
     log.info("Installed IBus engine launcher to %s", LAUNCHER_PATH)
 
     COMPONENT_DIR.mkdir(parents=True, exist_ok=True)

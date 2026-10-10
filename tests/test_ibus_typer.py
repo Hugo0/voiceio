@@ -259,3 +259,16 @@ def test_stale_launcher_counts_as_not_installed(tmp_path, monkeypatch):
     ibus_mod.LAUNCHER_PATH.write_text(
         ibus_mod._launcher_script().replace("/usr/bin/python3", "/nix/store/gone/bin/python3"))
     assert not ibus_mod._component_installed()
+
+
+def test_refresh_stale_launcher_rewrites_only_stale_paths(tmp_path, monkeypatch):
+    from voiceio.typers import ibus as m
+    monkeypatch.setattr(m, "LAUNCHER_DIR", tmp_path)
+    monkeypatch.setattr(m, "LAUNCHER_PATH", tmp_path / "voiceio-ibus-engine")
+    monkeypatch.setattr(m, "COMPONENT_DEST", tmp_path / "voiceio.xml")
+    assert not m.refresh_stale_launcher()            # nothing installed: no-op
+    m.COMPONENT_DEST.write_text(m._component_xml())
+    m.LAUNCHER_PATH.write_text('INSTALL_PY="/old/venv/bin/python3"\n')  # pre-upgrade
+    assert m.refresh_stale_launcher()
+    assert m._component_installed()
+    assert not m.refresh_stale_launcher()            # current: no rewrite
