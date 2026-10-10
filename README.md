@@ -247,7 +247,7 @@ Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
 
 ## Roadmap
 
-- **A landing page** — voiceio as local, open-source, private dictation that learns from you.
+- **A landing page** — voiceio as local, open-source, private dictation that learns from you. A draft is in [`site/index.html`](site/index.html), ready for GitHub Pages.
 - **Hands-off promotion** — `learn schedule` already retrains nightly and tells you when a model wins; next is switching to it automatically, with one-command rollback.
 - **Unbounded vocabulary** — move to a decoder whose biasing has no token cap (see [model choice](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it)).
 - **One model everywhere** — sync your fine-tune to your phone server and laptops, peer to peer.

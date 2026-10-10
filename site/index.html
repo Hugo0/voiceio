@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voiceio</title>
+<meta name="description" content="Local, open-source voice dictation for Linux that fine-tunes itself on your own voice.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F3F5F8;
+    --surface: #FFFFFF;
+    --ink: #15181F;
+    --muted: #5A6070;
+    --rule: #D8DCE4;
+    --mark: #C8285E;        /* proofreader's correction */
+    --learned: #1C7A52;     /* a word the model learned */
+    --learned-bg: #E3F3EB;
+    --code-bg: #E9ECF2;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0F1116; --surface: #171A21; --ink: #E7EAF1; --muted: #9AA1B1;
+      --rule: #2A2F3A; --mark: #F2668F; --learned: #57CC92; --learned-bg: #15301F;
+      --code-bg: #1C2029;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0F1116; --surface: #171A21; --ink: #E7EAF1; --muted: #9AA1B1;
+    --rule: #2A2F3A; --mark: #F2668F; --learned: #57CC92; --learned-bg: #15301F;
+    --code-bg: #1C2029;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 400 17px/1.6 var(--body);
+    margin: 0;
+    padding-inline: 20px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  a { color: inherit; text-decoration-color: var(--mark); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--mark); outline-offset: 3px; border-radius: 4px; }
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+  p { margin: 0; max-width: 62ch; }
+  code, kbd, .mono { font-family: var(--mono); font-size: 0.9em; }
+  kbd { border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); }
+
+  /* top bar */
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+         padding-block: 22px; }
+  .wordmark { font: 800 22px/1 var(--display); letter-spacing: -0.02em; text-decoration: none; }
+  .wordmark span { color: var(--mark); }
+  .bar nav { display: flex; gap: 20px; font-size: 15px; color: var(--muted); flex-wrap: wrap; }
+  .bar nav a { text-decoration: none; }
+  .bar nav a:hover { color: var(--ink); }
+
+  /* hero */
+  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center;
+          padding-block: 40px 72px; }
+  .eyebrow { font: 500 13px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.12em;
+             color: var(--muted); margin-bottom: 18px; }
+  .hero h1 { font-size: clamp(42px, 6.2vw, 76px); line-height: 0.98; font-weight: 800; }
+  .hero h1 em { font-style: normal; color: var(--learned); }
+  .hero .lede { margin-top: 22px; font-size: 19px; color: var(--muted); }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; align-items: center; }
+  .btn { font: 600 15px/1 var(--body); padding: 13px 18px; border-radius: 8px; text-decoration: none;
+         border: 1px solid var(--ink); background: var(--ink); color: var(--bg); cursor: pointer; }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
+
+  /* the dictation pane: the page's one bold object */
+  .pane { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
+          box-shadow: 0 18px 40px -24px rgb(20 24 32 / 0.35); overflow: hidden; }
+  .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+               padding: 12px 16px; border-bottom: 1px solid var(--rule); font: 500 13px/1 var(--mono);
+               color: var(--muted); flex-wrap: wrap; }
+  .rec { display: inline-flex; align-items: center; gap: 8px; }
+  .rec::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--mark);
+                 animation: pulse 1.4s ease-in-out infinite; }
+  .toggle { display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; padding: 3px; }
+  .toggle button { font: 500 12px/1 var(--mono); border: 0; background: transparent; color: var(--muted);
+                   padding: 7px 10px; border-radius: 999px; cursor: pointer; }
+  .toggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .transcript { padding: 26px 22px 30px; font: 400 19px/1.75 var(--mono); min-height: 8.5em; }
+  .preedit { text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 5px; }
+  .miss { color: var(--mark); text-decoration: line-through; text-decoration-thickness: 2px; }
+  .fix { color: var(--learned); background: var(--learned-bg); border-radius: 3px; padding: 0 2px; }
+  .caret { display: inline-block; width: 2px; height: 1.1em; background: var(--ink); vertical-align: -0.2em;
+           margin-left: 1px; animation: blink 1s steps(1) infinite; }
+  .pane-foot { padding: 12px 16px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--muted); }
+
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* sections */
+  section { padding-block: 64px; border-top: 1px solid var(--rule); }
+  .section-head { display: grid; grid-template-columns: 1fr 1.4fr; gap: 40px; margin-bottom: 36px; }
+  .section-head h2 { font-size: clamp(30px, 3.6vw, 44px); line-height: 1.05; font-weight: 700; }
+  .section-head p { color: var(--muted); }
+
+  /* the learning loop is a real sequence, so it is numbered */
+  .loop { list-style: none; margin: 0; padding: 0; display: grid; gap: 0;
+          grid-template-columns: repeat(5, 1fr); counter-reset: step; }
+  .loop li { counter-increment: step; padding: 18px 18px 18px 0; border-top: 2px solid var(--ink); }
+  .loop li + li { padding-left: 18px; }
+  .loop li::before { content: counter(step); display: block; font: 500 13px/1 var(--mono);
+                     color: var(--mark); margin-bottom: 14px; }
+  .loop h3 { font-size: 19px; font-weight: 700; margin-bottom: 8px; }
+  .loop p { font-size: 15px; color: var(--muted); }
+  .loop code { font-size: 13px; }
+
+  /* the measured result */
+  .result { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+  .figure { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 26px; }
+  .bars { display: grid; gap: 18px; }
+  .row-label { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 7px;
+               font-variant-numeric: tabular-nums; }
+  .row-label b { font: 600 15px/1 var(--mono); }
+  .track { height: 14px; background: var(--code-bg); border-radius: 4px; overflow: hidden; }
+  .fill { height: 100%; border-radius: 4px; }
+  .fill.stock { background: var(--muted); }
+  .fill.tuned { background: var(--learned); }
+  .figure figcaption { margin-top: 18px; font-size: 14px; color: var(--muted); }
+  .facts { display: grid; gap: 20px; }
+  .facts div { border-left: 2px solid var(--rule); padding-left: 16px; }
+  .facts h3 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .facts p { font-size: 15px; color: var(--muted); }
+
+  /* privacy ledger */
+  .ledger { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .ledger th, .ledger td { text-align: left; padding: 12px 14px 12px 0; border-bottom: 1px solid var(--rule);
+                           vertical-align: top; }
+  .ledger th { font: 500 12px/1.2 var(--mono); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+  .ledger td:first-child { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
+  .pill { display: inline-block; font: 500 12px/1 var(--mono); padding: 5px 8px; border-radius: 999px;
+          border: 1px solid var(--rule); white-space: nowrap; }
+  .pill.on { color: var(--learned); border-color: var(--learned); }
+  .pill.off { color: var(--muted); }
+  .table-scroll { overflow-x: auto; }
+
+  /* install */
+  .install { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .cmd { background: var(--code-bg); border-radius: 10px; padding: 18px; position: relative; }
+  .cmd h3 { font: 600 15px/1 var(--body); margin-bottom: 12px; }
+  .cmd pre { margin: 0; font: 400 14px/1.7 var(--mono); overflow-x: auto; white-space: pre; }
+  .cmd pre .c { color: var(--muted); }
+  .copy { position: absolute; top: 12px; right: 12px; font: 500 12px/1 var(--mono); border: 1px solid var(--rule);
+          background: var(--surface); color: var(--ink); border-radius: 6px; padding: 7px 9px; cursor: pointer; }
+  .distros { margin-top: 24px; color: var(--muted); font-size: 15px; }
+
+  footer { border-top: 1px solid var(--rule); padding-block: 32px 48px; display: flex; gap: 24px;
+           justify-content: space-between; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+
+  @media (max-width: 860px) {
+    .hero, .section-head, .result, .install { grid-template-columns: 1fr; gap: 28px; }
+    .loop { grid-template-columns: 1fr; }
+    .loop li, .loop li + li { padding: 16px 0; }
+    .transcript { font-size: 17px; min-height: 9em; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rec::before, .caret { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="bar">
+    <a class="wordmark" href="#top" aria-label="voiceio home">voice<span>io</span></a>
+    <nav aria-label="Sections">
+      <a href="#learns">How it learns</a>
+      <a href="#private">Private</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/Hugo0/voiceio">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <div class="hero">
+      <div>
+        <p class="eyebrow">Linux · open source · MIT</p>
+        <h1>Dictation that <em>learns you.</em></h1>
+        <p class="lede">Press a hotkey, speak, and the words stream into whatever app has focus. Everything runs on your machine — and overnight, voiceio trains a model on your own voice, so the names and jargon you say most stop coming out wrong.</p>
+        <div class="cta">
+          <a class="btn" href="#install">Install voiceio</a>
+          <a class="btn ghost" href="https://github.com/Hugo0/voiceio">Read the code</a>
+        </div>
+      </div>
+
+      <figure class="pane" aria-label="A dictation, as typed by the stock model and by your fine-tuned one">
+        <div class="pane-head">
+          <span class="rec">Ctrl+Alt+V · listening</span>
+          <span class="toggle" role="group" aria-label="Model">
+            <button type="button" id="m-stock" aria-pressed="false">stock model</button>
+            <button type="button" id="m-tuned" aria-pressed="true">tuned on you</button>
+          </span>
+        </div>
+        <div class="transcript" id="transcript" aria-live="polite"></div>
+        <div class="pane-foot" id="pane-note">The underline is the live preview; it commits when you stop.</div>
+      </figure>
+    </div>
+
+    <section id="learns">
+      <div class="section-head">
+        <h2>It gets better at your words the longer you use it.</h2>
+        <p>Speech models stumble on exactly what you say most: colleagues' names, your project, your stack. A vocabulary helps right away. Fine-tuning fixes it for good — on your laptop's CPU, while you sleep, with nothing uploaded.</p>
+      </div>
+      <ol class="loop">
+        <li><h3>You dictate</h3><p>If you opt in, each recording is kept on your disk, next to its transcript.</p></li>
+        <li><h3>A teacher listens</h3><p>A bigger Whisper model re-transcribes your clips at idle priority.</p></li>
+        <li><h3>A model trains</h3><p>A small LoRA fine-tune on your voice, on CPU. No GPU required.</p></li>
+        <li><h3>It's tested</h3><p>Scored on clips it never saw, clip by clip, with a confidence interval.</p></li>
+        <li><h3>You decide</h3><p>A notification if it wins. <code>voiceio learn promote</code> switches; rollback is one command.</p></li>
+      </ol>
+      <p class="distros" style="margin-top:22px">Turn it on once: <code>voiceio learn schedule on</code>. It runs nightly and never switches models by itself.</p>
+    </section>
+
+    <section>
+      <div class="result">
+        <figure class="figure" style="margin:0">
+          <div class="bars">
+            <div>
+              <div class="row-label"><span>Word errors, stock model</span><b>12.1%</b></div>
+              <div class="track"><div class="fill stock" style="width:60.5%"></div></div>
+            </div>
+            <div>
+              <div class="row-label"><span>Word errors, after one night</span><b>5.0%</b></div>
+              <div class="track"><div class="fill tuned" style="width:25%"></div></div>
+            </div>
+          </div>
+          <figcaption>The author's dictation: 44 held-out clips (50 minutes) the model never trained on, after one overnight run on a laptop CPU. Same speed. Bars run from 0 to 20%.</figcaption>
+        </figure>
+        <div class="facts">
+          <div><h3>Measured, not promised</h3><p><code>voiceio learn eval</code> scores any model on your clips — word error rate, how often your terms come out right, and how long you wait after you stop.</p></div>
+          <div><h3>Promotion has to win</h3><p>A fine-tune replaces your model only when it beats it on everything; <code>promote</code> refuses otherwise and tells you why.</p></div>
+          <div><h3>Your phone too</h3><p>Run the same stack headless on a home server and dictate from your phone with your vocabulary, corrections and model.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="private">
+      <div class="section-head">
+        <h2>Private by construction.</h2>
+        <p>Speech is decoded on your machine. There is no telemetry. Logs record sizes and timings, never your words. What voiceio keeps is plain files you can read and delete — and the things that hold your voice are off until you choose.</p>
+      </div>
+      <div class="table-scroll">
+        <table class="ledger">
+          <thead><tr><th>File</th><th>What it holds</th><th>Default</th></tr></thead>
+          <tbody>
+            <tr><td>vocabulary.txt</td><td>Your names and terms, ranked by how often you say them</td><td><span class="pill on">yours to edit</span></td></tr>
+            <tr><td>history.jsonl</td><td>What you dictated, so recent text can guide the next one</td><td><span class="pill on">on · capped</span></td></tr>
+            <tr><td>recordings/*.wav</td><td>The audio fine-tuning learns from</td><td><span class="pill off">off · setup asks</span></td></tr>
+            <tr><td>learn/models/</td><td>Your fine-tuned models</td><td><span class="pill off">only if you train</span></td></tr>
+            <tr><td>[postcorrect]</td><td>An optional cloud pass that sends text, never audio</td><td><span class="pill off">off</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="install">
+      <div class="section-head">
+        <h2>From install to your first sentence.</h2>
+        <p>Wayland and X11, GNOME, KDE, Hyprland, sway and i3. voiceio probes what works on your desktop and picks the backends itself; <code>voiceio doctor --fix</code> repairs what it can.</p>
+      </div>
+      <div class="install">
+        <div class="cmd">
+          <h3>Debian / Ubuntu</h3>
+          <button type="button" class="copy" data-copy="ubuntu">Copy</button>
+          <pre id="ubuntu"><span class="c"># system packages, then voiceio</span>
+sudo apt install pipx build-essential python3-dev \
+  portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi
+pipx install 'python-voiceio[desktop]'
+voiceio setup</pre>
+        </div>
+        <div class="cmd">
+          <h3>Then</h3>
+          <button type="button" class="copy" data-copy="then">Copy</button>
+          <pre id="then"><span class="c"># press Ctrl+Alt+V, speak, press it again</span>
+voiceio doctor            <span class="c"># what works, what doesn't</span>
+voiceio vocab add Kalshi  <span class="c"># a name, right away</span>
+voiceio learn schedule on <span class="c"># learn every night</span></pre>
+        </div>
+      </div>
+      <p class="distros">Fedora, Arch and NixOS instructions are in the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>. Python 3.11+.</p>
+    </section>
+  </main>
+
+  <footer>
+    <span>voiceio — MIT licensed. Built on <a href="https://github.com/SYSTRAN/faster-whisper">faster-whisper</a>.</span>
+    <span><a href="https://github.com/Hugo0/voiceio">GitHub</a> · <a href="https://pypi.org/project/python-voiceio/">PyPI</a> · <a href="https://github.com/Hugo0/voiceio/releases">Releases</a></span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  // The same dictation, decoded two ways. Each part: [text, kind] where kind
+  // marks a term the stock model misses and the tuned model learned.
+  const SENTENCE = [
+    ["Ship the ", ""], ["PostgreSQL|post grass", "term"], [" migration, fix the ", ""],
+    ["Grafana|graph Ana", "term"], [" alert, rerun the ", ""], ["Kalshi|kalchi", "term"],
+    [" backtest on ", ""], ["Hetzner|Hertzner", "term"], [".", ""],
+  ];
+  const NOTES = {
+    tuned: "Tuned on you: every name comes out right, from the first word.",
+    stock: "Stock Whisper: close — and wrong on every name you care about.",
+  };
+  const pane = document.getElementById("transcript");
+  const note = document.getElementById("pane-note");
+  const buttons = { stock: document.getElementById("m-stock"), tuned: document.getElementById("m-tuned") };
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let mode = "tuned", timer = null;
+
+  function words(m) {
+    return SENTENCE.map(([t, kind]) => {
+      if (kind !== "term") return { text: t, kind: "" };
+      const [right, wrong] = t.split("|");
+      return m === "tuned" ? { text: right, kind: "fix" } : { text: wrong, kind: "miss" };
+    });
+  }
+
+  function paint(parts, upto, committed) {
+    pane.textContent = "";
+    let left = upto;
+    for (const p of parts) {
+      if (left <= 0) break;
+      const span = document.createElement("span");
+      span.textContent = p.text.slice(0, left);
+      left -= p.text.length;
+      if (p.kind && left >= 0) span.className = p.kind;
+      if (!committed) span.classList.add("preedit");
+      pane.appendChild(span);
+    }
+    if (!committed) {
+      const caret = document.createElement("span");
+      caret.className = "caret";
+      pane.appendChild(caret);
+    }
+  }
+
+  function play(m) {
+    clearTimeout(timer);
+    mode = m;
+    for (const [k, b] of Object.entries(buttons)) b.setAttribute("aria-pressed", String(k === m));
+    note.textContent = NOTES[m];
+    const parts = words(m);
+    const total = parts.reduce((n, p) => n + p.text.length, 0);
+    if (still) { paint(parts, total, true); return; }
+    let i = 0;
+    const step = () => {
+      i = Math.min(total, i + 2 + Math.floor(Math.random() * 3));
+      paint(parts, i, false);
+      timer = i < total ? setTimeout(step, 55) : setTimeout(() => {
+        paint(parts, total, true);
+        timer = setTimeout(() => play(mode === "tuned" ? "stock" : "tuned"), 3800);
+      }, 650);
+    };
+    step();
+  }
+
+  buttons.stock.addEventListener("click", () => play("stock"));
+  buttons.tuned.addEventListener("click", () => play("tuned"));
+  paint(words("tuned"), Infinity, true);   // readable at rest, before any animation
+  setTimeout(() => play("stock"), 1200);
+
+  document.querySelectorAll(".copy").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const pre = document.getElementById(btn.dataset.copy);
+      const text = [...pre.childNodes].filter((n) => !(n.classList && n.classList.contains("c")))
+        .map((n) => n.textContent).join("").replace(/[ \t]+$/gm, "").trim();
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = "Copied";
+      } catch {
+        const r = document.createRange(); r.selectNodeContents(pre);
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+        btn.textContent = "Selected";
+      }
+      setTimeout(() => (btn.textContent = "Copy"), 1600);
+    });
+  });
+})();
+</script>
+</body>
+</html>
