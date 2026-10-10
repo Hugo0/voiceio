@@ -26,8 +26,9 @@ voiceio/
 │   ├── bias.py      #   BiasProvider: vocabulary/hotwords/prompt per request
 │   └── decoders/    #   Decoder protocol (base), model catalog, interim/final lanes,
 │                    #   sherpa-onnx + whisper.cpp adapters (faster-whisper: transcriber.py)
-├── learn/           # Personalization: store (corpus), teacher (label), review, augment,
-│                    #   metrics, evaluate, train (LoRA → CTranslate2), clean
+├── learn/           # Personalization: store (corpus), importer, teacher (label), review,
+│                    #   augment, metrics, evaluate (offline + streaming), train (LoRA →
+│                    #   CTranslate2), clean
 ├── cli/             # CLI: __init__ (entry point, run/setup/doctor/service), models, vocab,
 │                    #   corrections, learn, history, configcmd
 ├── server/          # Headless HTTP/WebSocket server (python -m voiceio.server)
@@ -95,11 +96,11 @@ NixOS module, Home Manager module).
 
 **Streaming** — IBus path uses preedit (underlined preview) + commit. Fallback path uses word-level append with char-level diff on final.
 
-**Incremental finalization** — during recording, once the un-frozen audio tail exceeds `output.streaming_freeze_secs` (default 15s), it is cut at the quietest interior speech pause (searched relative to the tail's own RMS — mic-gain independent), beam-decoded and frozen; interim and stop-time passes only decode the remaining tail. Long dictations finalize in O(tail) instead of O(recording) (~10x faster stop for multi-minute notes). Frozen text conditions the tail decode via per-call `context` prompt. Freeze passes never touch the display; decode failures never advance the boundary.
+**Incremental finalization** — during recording, once the un-frozen audio tail exceeds `output.streaming_freeze_secs` (default 8s), it is cut at the quietest interior speech pause (searched relative to the tail's own RMS — mic-gain independent), beam-decoded and frozen; interim and stop-time passes only decode the remaining tail. Long dictations finalize in O(tail) instead of O(recording) (~10x faster stop for multi-minute notes). Frozen text conditions the tail decode via per-call `context` prompt. Freeze passes never touch the display; decode failures never advance the boundary. With two decode lanes, interims run on the draft lane and freezes/finals on the final lane; if a freeze is still decoding at stop, the tail after its cut decodes in parallel on the draft lane.
 
 **Post-processing pipeline** — `core.pipeline.Pipeline` is the single pipeline, built with `Pipeline.from_config(..., profile=...)`. Stages return text plus *effects*; side effects (writing flags, "scratch that") apply only on the final pass. Used by streaming, batch and server alike.
 
-**LLM integration** — Optional Ollama-based grammar/spelling cleanup. Runs on final pass only (never during streaming). `llm.py` has shared helpers (install, start, pull, diagnose) used by wizard, doctor, and app.
+**LLM integration** — Optional Ollama-based grammar/spelling cleanup. Runs on final pass only (never during streaming). `llm.py` has shared helpers (install, start, pull, diagnose) used by setup, doctor, and app.
 
 **Tray icon** — Pre-rendered PNG frames in freedesktop icon theme. AppIndicator3 subprocess under system Python (avoids GTK/venv conflicts). Phase-matched transitions between states. App works fine without it.
 
@@ -121,6 +122,8 @@ uv run pytest tests/ -x -q
 - Mock external deps (audio, subprocesses, /dev/input)
 - Use `spec=TyperBackend` on MagicMock (Python 3.11 protocol quirk)
 - Test race conditions with `threading.Event` + timeouts
+- `tests/conftest.py` sandboxes `HOME` and every XDG dir before voiceio is imported: a test can never touch your real config, history or recordings
+- Speed and accuracy changes need numbers from real speech, not just green tests: `voiceio learn eval` (one decode per held-out clip) and `voiceio learn eval --streaming` (replays clips through live dictation, also times stop→text). Compare before/after on the same dataset version
 
 ## Pull requests
 
