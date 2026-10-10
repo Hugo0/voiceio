@@ -119,14 +119,14 @@ def test_ydotool_probe_offers_udev_not_chmod(monkeypatch):
 # ── doctor --fix consent prompt for privileged actions ───────────────────
 
 def test_is_privileged_cmd():
-    from voiceio.cli import _is_privileged_cmd
+    from voiceio.cli.doctor import _is_privileged_cmd
     assert _is_privileged_cmd(["sudo", "modprobe", "uinput"])
     assert _is_privileged_cmd(["sh", "-c", "curl x | sh"])
     assert not _is_privileged_cmd(["ydotoold"])
 
 
 def test_confirm_privileged_declined_by_default(capsys):
-    from voiceio.cli import _confirm_privileged
+    from voiceio.cli.doctor import _confirm_privileged
     with patch("builtins.input", return_value=""):
         assert _confirm_privileged("Fix ydotool", "sudo tee /etc/...") is False
     out = capsys.readouterr().out
@@ -134,7 +134,7 @@ def test_confirm_privileged_declined_by_default(capsys):
 
 
 def test_confirm_privileged_accepts_yes():
-    from voiceio.cli import _confirm_privileged
+    from voiceio.cli.doctor import _confirm_privileged
     with patch("builtins.input", return_value="y"):
         assert _confirm_privileged("Fix", "sudo x") is True
 
