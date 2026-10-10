@@ -166,3 +166,18 @@ class TestDiskFloor:
         # Budget halved from 4000 bytes total → keep <= 2000 bytes
         remaining = sum(p.stat().st_size for p in tmp_path.glob("*.wav"))
         assert remaining <= 2000
+
+
+def test_save_audio_prunes_periodically(monkeypatch):
+    import numpy as np
+
+    from voiceio import retention
+    from voiceio.config import DataConfig
+    calls = []
+    monkeypatch.setattr(retention, "prune", lambda cfg: calls.append(1))
+    monkeypatch.setattr(retention, "_saves", 0)
+    monkeypatch.setattr(retention, "_free_gb", lambda p: 100.0)
+    cfg = DataConfig(retain_audio=True)
+    for i in range(retention._PRUNE_EVERY):
+        retention.save_audio(np.zeros(160, dtype=np.float32), 1_000_000 + i, cfg)
+    assert calls == [1]

@@ -37,6 +37,12 @@ def _free_gb(path: Path) -> float:
         return float("inf")
 
 
+# Enforce the caps every this many saves too, not only at startup: a daemon
+# or server that runs for weeks would otherwise outgrow them.
+_PRUNE_EVERY = 50
+_saves = 0
+
+
 def save_audio(audio: np.ndarray, ts: float, cfg: DataConfig) -> str | None:
     """Persist one utterance as 16kHz mono int16 WAV. Returns the filename
     (relative to the recordings dir) or None if disabled/failed."""
@@ -60,10 +66,14 @@ def save_audio(audio: np.ndarray, ts: float, cfg: DataConfig) -> str | None:
             wf.setframerate(16000)
             wf.writeframes(pcm.tobytes())
         config._chmod(path, config._SECURE_FILE)
-        return name
     except OSError as e:
         log.warning("Failed to save recording: %s", e)
         return None
+    global _saves
+    _saves += 1
+    if _saves % _PRUNE_EVERY == 0:
+        prune(cfg)
+    return name
 
 
 def prune(cfg: DataConfig) -> None:
