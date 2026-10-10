@@ -90,6 +90,51 @@ def max_new_tokens(model: WhisperModel, audio_secs: float,
     return cap if cap >= 32 else None
 
 
+# faster-whisper's own fallback triggers; a segment past them is a failed decode.
+_COMPRESSION_RATIO_MAX = 2.4
+_LOGPROB_MIN = -1.0
+_NO_SPEECH_MIN = 0.6
+
+
+def _failed(seg) -> bool:
+    return seg.compression_ratio > _COMPRESSION_RATIO_MAX or (
+        seg.avg_logprob < _LOGPROB_MIN and seg.no_speech_prob <= _NO_SPEECH_MIN)
+
+
+def _transcribe(model: WhisperModel, audio: np.ndarray, kwargs: dict) -> list:
+    try:
+        segs, _ = model.transcribe(audio, **kwargs)
+        return list(segs)
+    except ValueError:
+        # Token estimate overshot the window; never fail a decode over it.
+        segs, _ = model.transcribe(audio, **{**kwargs, "max_new_tokens": None})
+        return list(segs)
+
+
+def decode(model: WhisperModel, audio: np.ndarray, kwargs: dict) -> list:
+    """Transcribe; with hotwords, never let the fallback *sample* with them.
+
+    Hotwords push Whisper into repetition loops on some windows (a 165s clip:
+    one 224-token segment). The library's fallback then re-decodes by sampling
+    at rising temperatures, which with hotwords dropped up to 40% of the speech,
+    differently on every run. So hotwords get one greedy pass; if any segment
+    fails the fallback's own checks, the audio is decoded again without them,
+    where the usual fallback schedule is safe.
+    """
+    if not kwargs.get("hotwords"):
+        return _transcribe(model, audio, kwargs)
+    from voiceio.learn.metrics import count_repetitions
+    segs = _transcribe(model, audio, {**kwargs, "temperature": 0.0})
+    # A loop can also span several short segments that each look fine.
+    if not (any(_failed(s) for s in segs)
+            or count_repetitions(" ".join(s.text for s in segs))):
+        return segs
+    return _transcribe(model, audio, {**kwargs, "hotwords": None,
+                                      "max_new_tokens": max_new_tokens(
+                                          model, len(audio) / 16000, None,
+                                          kwargs.get("initial_prompt"))})
+
+
 def main() -> None:
     # A hung decode is killed by the parent after a timeout; SIGUSR1 first
     # dumps every thread's stack to stderr (worker.log) so hangs are diagnosable.
@@ -132,14 +177,7 @@ def main() -> None:
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300},
         )
-        try:
-            segs, _ = model.transcribe(audio, **kwargs)
-            seg_list = list(segs)
-        except ValueError:
-            # Token estimate overshot the window; never fail a decode over it.
-            kwargs["max_new_tokens"] = None
-            segs, _ = model.transcribe(audio, **kwargs)
-            seg_list = list(segs)
+        seg_list = decode(model, audio, kwargs)
         text = " ".join(s.text.strip() for s in seg_list).strip()
         segments = [
             {
