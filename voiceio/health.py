@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from dataclasses import dataclass, field
 
 from voiceio import platform as plat
@@ -138,6 +139,10 @@ def _check_features() -> FeatureGroups:
         groups.processing["Smart punctuation"] = "on" if cfg.output.punctuation_cleanup else "off"
         groups.processing["Number conversion"] = "on" if cfg.output.number_conversion else "off"
         groups.processing["Silero VAD"] = cfg.audio.vad_backend
+        if cfg.audio.pause_media and not shutil.which("playerctl"):
+            from voiceio.platform import pkg_install
+            groups.processing["Pause media"] = (
+                f"enabled but playerctl not installed ({pkg_install('playerctl')})")
 
         # LLM
         if cfg.llm.enabled:

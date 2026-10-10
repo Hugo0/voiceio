@@ -108,6 +108,8 @@ class VoiceIO:
         self.recorder = AudioRecorder(cfg.audio, vad=vad)
 
         self._recording_bias = Bias()
+        from voiceio.media import MediaPauser
+        self._media = MediaPauser(cfg.audio.pause_media)
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._streaming = cfg.output.streaming
@@ -393,6 +395,7 @@ class VoiceIO:
             threading.Thread(target=self._capture_context, daemon=True).start()
         self._record_start = time.monotonic()
         self.recorder.start()
+        self._media.pause()
         self.recorder.set_on_auto_stop(self._on_auto_stop)
         self._play_record_cue(start=True)
         tray.set_recording(True)
@@ -417,6 +420,7 @@ class VoiceIO:
         self._play_record_cue(start=False)
         self.recorder.set_on_auto_stop(None)
         audio = self.recorder.stop()
+        self._media.resume()
         tray.set_recording(False)
         self._warn_if_clipping()
 
@@ -730,6 +734,7 @@ class VoiceIO:
             if self._tts_engine:
                 self._tts_engine.shutdown()
             self.recorder.close_stream()
+            self._media.close()
             self.decoder.close()
             tray.stop()
             self._ibus.shutdown()

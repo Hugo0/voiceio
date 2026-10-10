@@ -102,6 +102,9 @@ class AudioConfig:
     auto_stop_no_speech_secs: float = 20.0
     vad_backend: str = "silero"  # "silero" | "rms"
     vad_threshold: float = 0.5  # Silero speech probability threshold
+    # Pause media players (MPRIS, via playerctl) while recording; only the
+    # ones that were playing resume afterwards.
+    pause_media: bool = False
 
 
 @dataclass
