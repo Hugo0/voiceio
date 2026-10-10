@@ -244,6 +244,14 @@ class DataConfig:
 
 
 @dataclass
+class LearnConfig:
+    # A command run after every model switch (promote, auto-promote,
+    # rollback), with the model in $VOICEIO_MODEL — e.g. to push a fine-tune
+    # to another machine: scripts/push_model.sh HOST. Empty: nothing runs.
+    on_promote: str = ""
+
+
+@dataclass
 class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -260,6 +268,7 @@ class Config:
     health: HealthConfig = field(default_factory=HealthConfig)
     data: DataConfig = field(default_factory=DataConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
+    learn: LearnConfig = field(default_factory=LearnConfig)
 
 
 _REMOVED_KEYS = {
@@ -340,6 +349,7 @@ def load(path: Path | None = None) -> Config:
         health=_build(HealthConfig, raw.get("health", {})),
         data=_build(DataConfig, raw.get("data", {})),
         history=_build(HistoryConfig, raw.get("history", {})),
+        learn=_build(LearnConfig, raw.get("learn", {})),
     )
 
 

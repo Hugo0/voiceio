@@ -532,6 +532,28 @@ def cmd_promote(args: argparse.Namespace) -> None:
         f.write(json.dumps({"ts": time.time(), "from": _cfg().model.name, "to": str(ct2)}) + "\n")
     set_value("model", "name", str(ct2))
     print(f"now dictating with {args.run} — restart the daemon: voiceio service restart")
+    _on_promote(str(ct2))
+
+
+def _on_promote(model: str) -> None:
+    """Run `[learn] on_promote` for a model switch. Its failure is reported,
+    never fatal: the switch on this machine already happened."""
+    import os
+    import subprocess
+    cmd = _cfg().learn.on_promote
+    if not cmd:
+        return
+    print(f"on_promote: {cmd}", flush=True)
+    try:
+        rc = subprocess.run(cmd, shell=True, env={**os.environ, "VOICEIO_MODEL": model},
+                            timeout=3600).returncode
+    except subprocess.TimeoutExpired:
+        rc = "timeout"
+    if rc != 0:
+        print(f"on_promote failed ({rc})")
+        from voiceio import feedback
+        feedback.notify("VoiceIO: model switched here, but on_promote failed",
+                        f"`{cmd}` exited {rc}; run it again by hand.")
 
 
 def _check_beats_current(ct2: Path) -> None:
@@ -563,3 +585,4 @@ def cmd_rollback(args: argparse.Namespace) -> None:
     set_value("model", "name", last["from"])
     history.write_text("".join(r + "\n" for r in rows[:-1]))
     print(f"back to {last['from']} — restart the daemon: voiceio service restart")
+    _on_promote(last["from"])

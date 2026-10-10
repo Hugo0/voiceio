@@ -103,3 +103,6 @@ enabled = false               # local Ollama cleanup pass
 model = ""
 base_url = "http://localhost:11434"
 timeout_secs = 15.0
+
+[learn]
+on_promote = ""               # run after every model switch, model in $VOICEIO_MODEL (see scripts/push_model.sh)

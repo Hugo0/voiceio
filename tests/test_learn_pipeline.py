@@ -366,3 +366,19 @@ def test_maintain_auto_promote_switches_restarts_and_says_how_to_undo(monkeypatc
     monkeypatch.setattr(cli, "cmd_promote", refuse)
     cli.cmd_maintain(argparse.Namespace(min_new=1, base="small", epochs=1, auto_promote=True))
     assert calls == []
+
+
+def test_promote_and_rollback_run_on_promote_with_the_model(monkeypatch, tmp_path):
+    import argparse
+
+    from voiceio import config
+    from voiceio.cli import learn as cli
+    run = store.learn_dir() / "models" / "v0002-small-x" / "ct2"
+    run.mkdir(parents=True)
+    (run / "model.bin").write_text("")
+    out = tmp_path / "hook.txt"
+    config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    config.CONFIG_PATH.write_text(f'[learn]\non_promote = "echo $VOICEIO_MODEL >> {out}"\n')
+    cli.cmd_promote(argparse.Namespace(run="v0002-small-x", force=True))
+    cli.cmd_rollback(argparse.Namespace())
+    assert out.read_text().split() == [str(run), "small"]

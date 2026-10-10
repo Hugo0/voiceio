@@ -142,6 +142,8 @@ voiceio learn schedule on   # …or let it run `maintain` every night, and notif
                             #   (--auto-promote: switch to a winner by itself; `learn rollback` undoes it)
 ```
 
+To keep a second machine (say, the server your phone dictates through) on the same model, set `[learn] on_promote = "scripts/push_model.sh HOST"`: after every switch it copies the model there and flips a `current` link the server points at.
+
 Labeling, training and offline eval run in an idle-priority cgroup, so they never slow dictation down. Everything stays on your machine unless you choose `train --remote`.
 
 `voiceio learn status` shows where you are, each model's scores, and suggests `promote` only when a fine-tune wins on everything. `promote` itself refuses a model that hasn't, and reports how many clips got better or worse with a confidence interval — a few dozen test clips can move an average by luck.
