@@ -423,66 +423,66 @@ class TestHealthWatchdogAudioBackoff:
         vio.recorder.reopen_stream = MagicMock()
         vio.transcriber.healthy = MagicMock(return_value=True)
 
-        with patch("voiceio.app.tray"):
-            vio._check_health()
+        with patch("voiceio.watchdog.tray"):
+            vio._watchdog.check()
 
         vio.recorder.reopen_stream.assert_called_once()
 
     def test_successful_recovery_resets_backoff(self):
         vio, _, _ = _make_vio()
-        vio._stream_fail_count = 3
-        vio._next_stream_retry = 0  # allow retry
+        vio._watchdog._stream_fail_count = 3
+        vio._watchdog._next_stream_retry = 0  # allow retry
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock()  # succeeds (no exception)
         vio.transcriber.healthy = MagicMock(return_value=True)
 
-        with patch("voiceio.app.tray"):
-            vio._check_health()
+        with patch("voiceio.watchdog.tray"):
+            vio._watchdog.check()
 
-        assert vio._stream_fail_count == 0
-        assert vio._next_stream_retry == 0
+        assert vio._watchdog._stream_fail_count == 0
+        assert vio._watchdog._next_stream_retry == 0
 
     def test_failed_recovery_increments_backoff(self):
         vio, _, _ = _make_vio()
-        vio._stream_fail_count = 0
-        vio._next_stream_retry = 0
+        vio._watchdog._stream_fail_count = 0
+        vio._watchdog._next_stream_retry = 0
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock(side_effect=OSError("device gone"))
         vio.transcriber.healthy = MagicMock(return_value=True)
 
-        with patch("voiceio.app.tray"):
-            vio._check_health()
+        with patch("voiceio.watchdog.tray"):
+            vio._watchdog.check()
 
-        assert vio._stream_fail_count == 1
-        assert vio._next_stream_retry > 0
+        assert vio._watchdog._stream_fail_count == 1
+        assert vio._watchdog._next_stream_retry > 0
 
     def test_backoff_skips_retry(self):
-        """When in backoff, _check_health should not attempt reopen."""
+        """When in backoff, a health check should not attempt reopen."""
         vio, _, _ = _make_vio()
-        vio._stream_fail_count = 2
-        vio._next_stream_retry = time.monotonic() + 999  # far future
+        vio._watchdog._stream_fail_count = 2
+        vio._watchdog._next_stream_retry = time.monotonic() + 999  # far future
         vio.recorder.stream_health = MagicMock(return_value=(False, "stream not active"))
         vio.recorder.reopen_stream = MagicMock()
         vio.transcriber.healthy = MagicMock(return_value=True)
 
-        with patch("voiceio.app.tray"):
-            vio._check_health()
+        with patch("voiceio.watchdog.tray"):
+            vio._watchdog.check()
 
         vio.recorder.reopen_stream.assert_not_called()
 
     def test_external_recovery_resets_backoff(self):
         """If stream becomes healthy on its own, backoff resets."""
         vio, _, _ = _make_vio()
-        vio._stream_fail_count = 3
-        vio._next_stream_retry = time.monotonic() + 100
+        vio._watchdog._stream_fail_count = 3
+        vio._watchdog._next_stream_retry = time.monotonic() + 100
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.transcriber.healthy = MagicMock(return_value=True)
 
-        with patch("voiceio.app.tray"):
-            vio._check_health()
+        with patch("voiceio.watchdog.tray"):
+            vio._watchdog.check()
 
-        assert vio._stream_fail_count == 0
-        assert vio._next_stream_retry == 0
+        assert vio._watchdog._stream_fail_count == 0
+        assert vio._watchdog._next_stream_retry == 0
 
     def test_repeated_failures_increase_delay(self):
         """Each failure should increase the backoff delay."""
@@ -492,12 +492,12 @@ class TestHealthWatchdogAudioBackoff:
         vio.transcriber.healthy = MagicMock(return_value=True)
 
         delays = []
-        with patch("voiceio.app.tray"):
+        with patch("voiceio.watchdog.tray"):
             for _ in range(3):
-                vio._next_stream_retry = 0  # allow retry each time
+                vio._watchdog._next_stream_retry = 0  # allow retry each time
                 before = time.monotonic()
-                vio._check_health()
-                delays.append(vio._next_stream_retry - before)
+                vio._watchdog.check()
+                delays.append(vio._watchdog._next_stream_retry - before)
 
         # Each delay should be larger (10, 20, 40)
         assert delays[0] < delays[1] < delays[2]
@@ -621,7 +621,7 @@ class TestStreamingWorkerExceptionHandling:
 
 
 # ===========================================================================
-# 8. Tray watchdog in _check_health()
+# 8. Tray watchdog in Watchdog.check()
 # ===========================================================================
 
 class TestTrayWatchdog:
@@ -631,9 +631,9 @@ class TestTrayWatchdog:
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.transcriber.healthy = MagicMock(return_value=True)
 
-        with patch("voiceio.app.tray") as mock_tray:
+        with patch("voiceio.watchdog.tray") as mock_tray:
             mock_tray.is_alive.return_value = False
-            vio._check_health()
+            vio._watchdog.check()
             mock_tray.restart.assert_called_once_with(vio.on_hotkey)
 
     def test_tray_not_restarted_when_alive(self):
@@ -642,9 +642,9 @@ class TestTrayWatchdog:
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.transcriber.healthy = MagicMock(return_value=True)
 
-        with patch("voiceio.app.tray") as mock_tray:
+        with patch("voiceio.watchdog.tray") as mock_tray:
             mock_tray.is_alive.return_value = True
-            vio._check_health()
+            vio._watchdog.check()
             mock_tray.restart.assert_not_called()
 
     def test_tray_not_checked_when_disabled(self):
@@ -653,8 +653,8 @@ class TestTrayWatchdog:
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.transcriber.healthy = MagicMock(return_value=True)
 
-        with patch("voiceio.app.tray") as mock_tray:
-            vio._check_health()
+        with patch("voiceio.watchdog.tray") as mock_tray:
+            vio._watchdog.check()
             mock_tray.is_alive.assert_not_called()
 
 
@@ -675,8 +675,7 @@ class TestBootRaceAndReProbe:
 
     @_linux_only
     def test_redetect_clears_lru_cache(self):
-        """_redetect_platform must call cache_clear so env changes take effect."""
-        from voiceio.app import _redetect_platform
+        """platform.redetect must call cache_clear so env changes take effect."""
         from voiceio import platform as plat
 
         # Warm the cache with display=unknown (simulating boot before env ready)
@@ -686,25 +685,25 @@ class TestBootRaceAndReProbe:
             assert p1.display_server == "unknown"
 
         # Env vars appear. Plain detect() would return cached unknown;
-        # _redetect_platform must clear cache and return the fresh values.
+        # redetect() must clear cache and return the fresh values.
         with patch.dict("os.environ", {
             "XDG_SESSION_TYPE": "wayland",
             "WAYLAND_DISPLAY": "wayland-0",
             "XDG_CURRENT_DESKTOP": "GNOME",
         }):
-            p2 = _redetect_platform()
+            p2 = plat.redetect()
             assert p2.display_server == "wayland"
             assert p2.desktop == "gnome"
 
         plat.detect.cache_clear()
 
     def test_import_graphical_env_is_one_shot(self):
-        """After all vars are present, _import_graphical_env becomes a no-op
+        """After all vars are present, import_graphical_env becomes a no-op
         (no subprocess every health-check cycle)."""
-        from voiceio import app as app_mod
-        from voiceio.app import _import_graphical_env
+        from voiceio import platform as plat_mod
+        from voiceio.platform import import_graphical_env
 
-        app_mod._graphical_env_complete = False
+        plat_mod._graphical_env_complete = False
 
         with patch.dict("os.environ", {
             "DISPLAY": ":0",
@@ -714,14 +713,14 @@ class TestBootRaceAndReProbe:
             "XDG_CURRENT_DESKTOP": "GNOME",
             "XDG_SESSION_DESKTOP": "gnome",
         }):
-            with patch("voiceio.app.subprocess.check_output") as mock_sub:
-                _import_graphical_env()
-                assert app_mod._graphical_env_complete is True
+            with patch("subprocess.check_output") as mock_sub:
+                import_graphical_env()
+                assert plat_mod._graphical_env_complete is True
                 mock_sub.assert_not_called()  # all vars present → no subprocess
-                _import_graphical_env()
+                import_graphical_env()
                 mock_sub.assert_not_called()  # still no subprocess
 
-        app_mod._graphical_env_complete = False
+        plat_mod._graphical_env_complete = False
 
     def test_import_graphical_env_pulls_xauthority(self):
         """Without the X auth cookie, xclip fails silently inside the daemon
@@ -729,10 +728,10 @@ class TestBootRaceAndReProbe:
         focus-out discards any visible IBus preedit (the flashing preview)."""
         import os
 
-        from voiceio import app as app_mod
-        from voiceio.app import _import_graphical_env
+        from voiceio import platform as plat_mod
+        from voiceio.platform import import_graphical_env
 
-        app_mod._graphical_env_complete = False
+        plat_mod._graphical_env_complete = False
         env = {
             "DISPLAY": ":0",
             "WAYLAND_DISPLAY": "wayland-0",
@@ -742,48 +741,48 @@ class TestBootRaceAndReProbe:
         }
         with patch.dict("os.environ", env, clear=True):
             with patch(
-                "voiceio.app.subprocess.check_output",
+                "subprocess.check_output",
                 return_value="XAUTHORITY=/run/user/1000/.mutter-Xwaylandauth.TEST\n",
             ):
-                _import_graphical_env()
+                import_graphical_env()
             assert os.environ["XAUTHORITY"] == "/run/user/1000/.mutter-Xwaylandauth.TEST"
-            assert app_mod._graphical_env_complete is True
+            assert plat_mod._graphical_env_complete is True
 
-        app_mod._graphical_env_complete = False
+        plat_mod._graphical_env_complete = False
 
     def test_try_upgrade_typer_upgrades_from_clipboard_to_ibus(self):
         """When chain has ibus first and current is clipboard, upgrade."""
         vio, _, _ = _make_vio()
-        vio.platform = MagicMock(display_server="wayland", desktop="gnome")
-        vio._typer = MagicMock()
-        vio._typer.name = "clipboard"
+        vio._typers.platform = MagicMock(display_server="wayland", desktop="gnome")
+        vio._typers.typer = MagicMock()
+        vio._typers.typer.name = "clipboard"
 
         # Make the ClipboardTyper isinstance check false (we're using MagicMock)
         better = MagicMock()
         better.name = "ibus"
 
-        with patch("voiceio.app.typer_chain.resolve", return_value=[
+        with patch("voiceio.typers.manager.typer_chain.resolve", return_value=[
             ("ibus", better, MagicMock(ok=True)),
-            ("clipboard", vio._typer, MagicMock(ok=True)),
-        ]), patch("voiceio.app.typer_chain.select", return_value=better), \
-             patch("voiceio.app.typer_chain._get_chain",
+            ("clipboard", vio._typers.typer, MagicMock(ok=True)),
+        ]), patch("voiceio.typers.manager.typer_chain.select", return_value=better), \
+             patch("voiceio.typers.manager.typer_chain._get_chain",
                    return_value=["ibus", "clipboard"]), \
              patch.object(vio._ibus, "ensure_engine") as mock_ensure:
-            result = vio._try_upgrade_typer(reason="test")
+            result = vio._typers.try_upgrade(reason="test")
             assert result is True
-            assert vio._typer is better
+            assert vio._typers.typer is better
             mock_ensure.assert_called_once()
 
     def test_try_upgrade_typer_no_upgrade_when_already_best(self):
         """If already on the first entry in the chain, no upgrade."""
         vio, _, _ = _make_vio()
-        vio.platform = MagicMock(display_server="wayland", desktop="gnome")
-        vio._typer = MagicMock()
-        vio._typer.name = "ibus"
+        vio._typers.platform = MagicMock(display_server="wayland", desktop="gnome")
+        vio._typers.typer = MagicMock()
+        vio._typers.typer.name = "ibus"
 
-        with patch("voiceio.app.typer_chain._get_chain",
+        with patch("voiceio.typers.manager.typer_chain._get_chain",
                    return_value=["ibus", "clipboard"]):
-            result = vio._try_upgrade_typer(reason="test")
+            result = vio._typers.try_upgrade(reason="test")
             assert result is False
 
     def test_try_upgrade_typer_no_upgrade_when_unknown_platform(self):
@@ -791,26 +790,25 @@ class TestBootRaceAndReProbe:
         upgrade should early-return False (this was silent and defeated the
         health loop before the lru_cache fix)."""
         vio, _, _ = _make_vio()
-        vio.platform = MagicMock(display_server="unknown", desktop="unknown")
-        vio._typer = MagicMock()
-        vio._typer.name = "clipboard"
+        vio._typers.platform = MagicMock(display_server="unknown", desktop="unknown")
+        vio._typers.typer = MagicMock()
+        vio._typers.typer.name = "clipboard"
 
-        with patch("voiceio.app.typer_chain._get_chain",
+        with patch("voiceio.typers.manager.typer_chain._get_chain",
                    return_value=["clipboard"]):
-            result = vio._try_upgrade_typer(reason="test")
+            result = vio._typers.try_upgrade(reason="test")
             assert result is False
 
     def test_boot_race_healed_by_health_check(self):
         """Simulate: __init__ ran with display=unknown and picked clipboard.
         Later, env vars become available and health check should upgrade."""
-        from voiceio import app as app_mod
         from voiceio import platform as plat
 
         vio, _, _ = _make_vio()
         # Simulate the stale state as if we started at boot
-        vio.platform = MagicMock(display_server="unknown", desktop="unknown")
-        vio._typer = MagicMock()
-        vio._typer.name = "clipboard"
+        vio._typers.platform = MagicMock(display_server="unknown", desktop="unknown")
+        vio._typers.typer = MagicMock()
+        vio._typers.typer.name = "clipboard"
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.transcriber.healthy = MagicMock(return_value=True)
         vio.cfg.tray.enabled = False
@@ -821,7 +819,7 @@ class TestBootRaceAndReProbe:
         better.probe.return_value = MagicMock(ok=True)
 
         # Force env import to go through; reset one-shot flag
-        app_mod._graphical_env_complete = False
+        plat._graphical_env_complete = False
 
         fresh_platform = MagicMock(display_server="wayland", desktop="gnome")
 
@@ -831,41 +829,41 @@ class TestBootRaceAndReProbe:
             "XDG_SESSION_TYPE": "wayland",
             "XDG_CURRENT_DESKTOP": "GNOME",
             "XDG_SESSION_DESKTOP": "gnome",
-        }), patch("voiceio.app._redetect_platform", return_value=fresh_platform), \
-             patch("voiceio.app.typer_chain._get_chain",
+        }), patch("voiceio.platform.redetect", return_value=fresh_platform), \
+             patch("voiceio.typers.manager.typer_chain._get_chain",
                    return_value=["ibus", "clipboard"]), \
-             patch("voiceio.app.typer_chain.resolve", return_value=[
+             patch("voiceio.typers.manager.typer_chain.resolve", return_value=[
                  ("ibus", better, MagicMock(ok=True)),
-             ]), patch("voiceio.app.typer_chain.select", return_value=better), \
+             ]), patch("voiceio.typers.manager.typer_chain.select", return_value=better), \
              patch.object(vio._ibus, "ensure_engine"):
-            vio._check_health()
+            vio._watchdog.check()
 
-        assert vio._typer is better
+        assert vio._typers.typer is better
         assert vio.platform is fresh_platform
         plat.detect.cache_clear()
-        app_mod._graphical_env_complete = False
+        plat._graphical_env_complete = False
 
     def test_on_typer_broken_defers_until_idle(self):
-        """Mid-recording, _on_typer_broken must NOT hot-swap the typer."""
+        """Mid-recording, a broken typer must NOT be hot-swapped."""
         from voiceio.app import _State
 
         vio, _, _ = _make_vio()
         vio._state = _State.RECORDING
-        original_typer = vio._typer
+        original_typer = vio._typers.typer
 
         # Call the handler directly (no thread) to check it respects state.
         # The real handler kicks off a thread; we test the internal method.
-        with patch.object(vio, "_try_upgrade_typer") as mock_upgrade:
+        with patch.object(vio._typers, "try_upgrade") as mock_upgrade:
             # Simulate the thread having already waited: state is still RECORDING
             # Force deadline-past by calling with state still RECORDING
-            # We invoke _deferred_typer_upgrade with a very short timeout
+            # We invoke _deferred_upgrade with a very short timeout
             # by mocking time.monotonic and time.sleep.
-            with patch("voiceio.app.time.monotonic",
+            with patch("voiceio.typers.manager.time.monotonic",
                        side_effect=[0, 100, 100, 100]), \
-                 patch("voiceio.app.time.sleep"):
-                vio._deferred_typer_upgrade()
+                 patch("voiceio.typers.manager.time.sleep"):
+                vio._typers._deferred_upgrade()
             mock_upgrade.assert_not_called()
-        assert vio._typer is original_typer
+        assert vio._typers.typer is original_typer
 
     def test_on_typer_broken_runs_when_idle(self):
         """Once IDLE is reached, the deferred upgrade runs."""
@@ -874,12 +872,12 @@ class TestBootRaceAndReProbe:
         vio, _, _ = _make_vio()
         vio._state = _State.IDLE
 
-        with patch.object(vio, "_try_upgrade_typer") as mock_upgrade, \
-             patch("voiceio.app._import_graphical_env"), \
-             patch("voiceio.app._redetect_platform",
+        with patch.object(vio._typers, "try_upgrade") as mock_upgrade, \
+             patch("voiceio.platform.import_graphical_env"), \
+             patch("voiceio.platform.redetect",
                    return_value=vio.platform), \
-             patch("voiceio.app.time.sleep"):
-            vio._deferred_typer_upgrade()
+             patch("voiceio.typers.manager.time.sleep"):
+            vio._typers._deferred_upgrade()
             mock_upgrade.assert_called_once_with(reason="streaming-failure")
 
 

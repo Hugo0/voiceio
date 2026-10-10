@@ -534,3 +534,69 @@ def detect() -> Platform:
         has_input_group=_check_input_group() if plat_os == "linux" else False,
         has_uinput_access=_check_uinput_access() if plat_os == "linux" else False,
     )
+
+
+def redetect() -> Platform:
+    """Clear the cached Platform and re-run detection.
+
+    detect() is @lru_cache'd, so the first call freezes the result.
+    When voiceio starts before the desktop session has exported its env
+    vars, that first call returns display='unknown' and we'd be stuck
+    with that forever. Always clear the cache before re-detecting.
+    """
+    detect.cache_clear()
+    return detect()
+
+
+# Env vars needed for clipboard/tray/typing on graphical sessions.
+# XDG_CURRENT_DESKTOP is required for is_gnome() detection, which gates
+# IBus input source configuration.
+_GRAPHICAL_ENV_VARS = (
+    "DISPLAY",
+    # Without the X auth cookie, X11 tools (xclip via the XWayland bridge)
+    # fail silently inside the daemon and clipboard copies fall back to
+    # wl-copy — whose focus steal discards any visible IBus preedit.
+    "XAUTHORITY",
+    "WAYLAND_DISPLAY",
+    "XDG_SESSION_TYPE",
+    "XDG_CURRENT_DESKTOP",
+    "XDG_SESSION_DESKTOP",
+)
+
+_graphical_env_complete = False
+
+
+def import_graphical_env() -> None:
+    """Pull graphical session env vars from the systemd user manager.
+
+    When started as a systemd user service, the process may launch before
+    the desktop session imports DISPLAY/WAYLAND_DISPLAY. This queries
+    ``systemctl --user show-environment`` to pick them up after the fact.
+
+    Once all expected vars are present, sets ``_graphical_env_complete``
+    and becomes a free no-op so callers in the health loop don't spawn
+    a subprocess every 10s.
+    """
+    import subprocess
+
+    global _graphical_env_complete
+    if _graphical_env_complete:
+        return
+    missing = [v for v in _GRAPHICAL_ENV_VARS if v not in os.environ]
+    if not missing:
+        _graphical_env_complete = True
+        return
+    try:
+        out = subprocess.check_output(
+            ["systemctl", "--user", "show-environment"],
+            text=True, timeout=3,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return
+    for line in out.splitlines():
+        key, _, val = line.partition("=")
+        if key in missing and val:
+            os.environ[key] = val
+            log.info("Imported %s=%s from systemd user env", key, val)
+    if not [v for v in _GRAPHICAL_ENV_VARS if v not in os.environ]:
+        _graphical_env_complete = True

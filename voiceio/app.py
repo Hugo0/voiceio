@@ -5,10 +5,8 @@ import enum
 import logging
 import os
 import signal
-import subprocess
 import threading
 import time
-from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -22,80 +20,12 @@ from voiceio.streaming import StreamingSession
 from voiceio.core.decoders import build_decoder
 from voiceio.transcriber import describe_transcript
 from voiceio.typers import chain as typer_chain
+from voiceio.typers.manager import TyperManager
 from voiceio.vad import load_vad
+from voiceio.watchdog import Watchdog
 
-if TYPE_CHECKING:
-    from voiceio.typers.base import TyperBackend
 log = logging.getLogger("voiceio")
 _DEBOUNCE_SECS = 0.8
-
-# Env vars needed for clipboard/tray/typing on graphical sessions.
-# XDG_CURRENT_DESKTOP is required for is_gnome() detection, which gates
-# IBus input source configuration.
-_GRAPHICAL_ENV_VARS = (
-    "DISPLAY",
-    # Without the X auth cookie, X11 tools (xclip via the XWayland bridge)
-    # fail silently inside the daemon and clipboard copies fall back to
-    # wl-copy — whose focus steal discards any visible IBus preedit.
-    "XAUTHORITY",
-    "WAYLAND_DISPLAY",
-    "XDG_SESSION_TYPE",
-    "XDG_CURRENT_DESKTOP",
-    "XDG_SESSION_DESKTOP",
-)
-
-
-def _redetect_platform():
-    """Clear the cached Platform and re-run detection.
-
-    plat.detect() is @lru_cache'd, so the first call freezes the result.
-    When voiceio starts before the desktop session has exported its env
-    vars, that first call returns display='unknown' and we'd be stuck
-    with that forever. Always clear the cache before re-detecting.
-    """
-    plat.detect.cache_clear()
-    return plat.detect()
-
-
-_graphical_env_complete = False
-
-
-def _import_graphical_env() -> None:
-    """Pull graphical session env vars from the systemd user manager.
-
-    When started as a systemd user service, the process may launch before
-    the desktop session imports DISPLAY/WAYLAND_DISPLAY. This queries
-    ``systemctl --user show-environment`` to pick them up after the fact.
-
-    Once all expected vars are present, sets ``_graphical_env_complete``
-    and becomes a free no-op so callers in the health loop don't spawn
-    a subprocess every 10s.
-    """
-    global _graphical_env_complete
-    if _graphical_env_complete:
-        return
-    missing = [v for v in _GRAPHICAL_ENV_VARS if v not in os.environ]
-    if not missing:
-        _graphical_env_complete = True
-        return
-    try:
-        out = subprocess.check_output(
-            ["systemctl", "--user", "show-environment"],
-            text=True, timeout=3,
-        )
-    except (FileNotFoundError, subprocess.SubprocessError):
-        return
-    for line in out.splitlines():
-        key, _, val = line.partition("=")
-        if key in missing and val:
-            os.environ[key] = val
-            log.info("Imported %s=%s from systemd user env", key, val)
-    if not [v for v in _GRAPHICAL_ENV_VARS if v not in os.environ]:
-        _graphical_env_complete = True
-
-
-_HEALTH_CHECK_INTERVAL = 10  # seconds between health checks
-
 
 
 class _State(enum.Enum):
@@ -113,25 +43,24 @@ class VoiceIO:
         # sees DISPLAY, WAYLAND_DISPLAY, XDG_SESSION_TYPE, XDG_CURRENT_DESKTOP
         # even when started as a systemd user service before the desktop
         # session has exported them.
-        _import_graphical_env()
+        plat.import_graphical_env()
 
         # Fresh detection (clears lru_cache in case anything warmed it)
-        self.platform = _redetect_platform()
+        platform = plat.redetect()
         log.info(
             "Platform: display=%s desktop=%s",
-            self.platform.display_server, self.platform.desktop,
+            platform.display_server, platform.desktop,
         )
 
         # Select backends
-        self._hotkey = hotkey_chain.select(self.platform, cfg.hotkey.backend)
-        self._typer = typer_chain.select(self.platform, cfg.output.method)
-        self._auto_fallback = cfg.health.auto_fallback
+        self._hotkey = hotkey_chain.select(platform, cfg.hotkey.backend)
+        typer = typer_chain.select(platform, cfg.output.method)
 
         # Socket backend runs alongside native hotkey for extra robustness
         self._socket: SocketHotkey | None = None
         if self._hotkey.name != "socket":
             self._socket = SocketHotkey()
-        elif self.platform.desktop not in ("gnome", "kde"):
+        elif platform.desktop not in ("gnome", "kde"):
             # Socket backend has no physical hotkey listener — user must bind
             # `voiceio toggle` to a key in their WM config.
             from voiceio.hotkeys.evdev import access_hint as evdev_access_hint
@@ -141,10 +70,10 @@ class VoiceIO:
                 "Bind 'voiceio toggle' to a key in your window manager config "
                 "(e.g. i3: bindsym Ctrl+Alt+v exec voiceio toggle). "
                 "Or enable evdev hotkeys: %s",
-                self.platform.desktop, evdev_access_hint(),
+                platform.desktop, evdev_access_hint(),
             )
             print(
-                f"\n  NOTE: No physical hotkey listener available on '{self.platform.desktop}'.\n"
+                f"\n  NOTE: No physical hotkey listener available on '{platform.desktop}'.\n"
                 f"  Bind 'voiceio toggle' to a key in your WM config, e.g.:\n"
                 f"    i3/sway:  bindsym Ctrl+Alt+v exec voiceio toggle\n"
                 f"    hyprland: bind = CTRL ALT, V, exec, voiceio toggle\n"
@@ -232,7 +161,7 @@ class VoiceIO:
             if self._tts_engine:
                 self._tts_player = TTSPlayer()
                 # Create a second hotkey backend for TTS
-                self._tts_hotkey = hotkey_chain.select(self.platform, cfg.hotkey.backend)
+                self._tts_hotkey = hotkey_chain.select(platform, cfg.hotkey.backend)
                 log.info("TTS: engine=%s, hotkey=%s", self._tts_engine.name, cfg.tts.hotkey)
             else:
                 log.warning("TTS enabled but no engine available")
@@ -242,13 +171,39 @@ class VoiceIO:
         from voiceio.ibus.session import IBusSession
         self._ibus = IBusSession(
             lambda: self.platform,
-            is_idle=lambda: self._state == _State.IDLE,
+            is_idle=self._is_idle,
             generation=lambda: self._recording,
         )
+        self._typers = TyperManager(
+            platform, typer,
+            ibus=self._ibus,
+            method=cfg.output.method,
+            auto_fallback=cfg.health.auto_fallback,
+            lock=self._hotkey_lock,
+            is_idle=self._is_idle,
+            state=lambda: self._state,
+            shutdown=self._shutdown,
+        )
+        self._watchdog = Watchdog(
+            cfg,
+            transcriber=self.transcriber,
+            recorder=self.recorder,
+            typers=self._typers,
+            ibus=self._ibus,
+            session=lambda: self._session,
+            is_idle=self._is_idle,
+            is_recording=lambda: self._state == _State.RECORDING,
+            on_transcriber_failed=self._on_transcriber_failed,
+            on_hotkey=self.on_hotkey,
+            shutdown=self._shutdown,
+        )
 
-        # Audio stream recovery backoff
-        self._stream_fail_count = 0
-        self._next_stream_retry: float = 0
+    @property
+    def platform(self) -> plat.Platform:
+        return self._typers.platform
+
+    def _is_idle(self) -> bool:
+        return self._state == _State.IDLE
 
     def request_shutdown(self) -> None:
         """Request graceful shutdown from an external signal handler."""
@@ -343,6 +298,13 @@ class VoiceIO:
             # The generation counter ensures the old finalizer exits cleanly.
             self._do_start()
 
+    def _on_transcriber_failed(self) -> None:
+        """Watchdog: the worker could not be recovered."""
+        with self._hotkey_lock:
+            if self._state != _State.RECORDING:
+                self._state = _State.ERROR
+                tray.set_error(True)
+
     def _do_start(self) -> None:
         """Transition to RECORDING."""
         # Pre-flight: ensure audio stream is healthy before recording
@@ -386,7 +348,7 @@ class VoiceIO:
 
         self._state = _State.RECORDING
         self._recording += 1
-        if self._typer.name == "ibus":
+        if self._typers.typer.name == "ibus":
             self._ibus.claim(self._recording)
         # Vocabulary and corrections are mtime-cached, so edits made with
         # `voiceio vocab`/`corrections` apply from the next recording.
@@ -403,9 +365,9 @@ class VoiceIO:
         tray.set_recording(True)
         if self._streaming:
             self._session = self.engine.session(
-                self.recorder, self._typer, bias=bias,
+                self.recorder, self._typers.typer, bias=bias,
                 generation=self._generation,
-                on_typer_broken=self._on_typer_broken,
+                on_typer_broken=self._typers.on_broken,
                 on_interim=self._on_interim_text,
             )
             self._session.start()
@@ -540,7 +502,7 @@ class VoiceIO:
         # Snappy clipboard: make the best-so-far text pasteable the moment
         # the user stops, instead of after the (possibly long) final decode.
         if (self.cfg.output.copy_to_clipboard == "live"
-                and self._typer.name != "clipboard" and session.interim_text):
+                and self._typers.typer.name != "clipboard" and session.interim_text):
             from voiceio import clipboard_read
             clipboard_read.copy_text(session.interim_text)
         extra = self._retention_extra(audio)
@@ -625,7 +587,7 @@ class VoiceIO:
                     return
                 # Superseded by a newer recording — do not touch the typer.
                 if text and self._generation == gen:
-                    self._type_with_fallback(text)
+                    self._typers.type_with_fallback(text)
                     self._copy_result_async(text)
                     self._play_feedback(text)
                     stored = self._strip_voice_prefix(text)
@@ -700,7 +662,7 @@ class VoiceIO:
         """
         if self.cfg.output.copy_to_clipboard != "live":
             return
-        if self._typer.name == "clipboard":
+        if self._typers.typer.name == "clipboard":
             return
         from voiceio import clipboard_read
         clipboard_read.copy_text(text)
@@ -713,7 +675,7 @@ class VoiceIO:
         def _copy() -> None:
             # Give a just-sent paste keystroke time to consume the clipboard
             # before we overwrite it with the full text.
-            if self._typer.name == "clipboard":
+            if self._typers.typer.name == "clipboard":
                 time.sleep(0.3)
             from voiceio import clipboard_read
             clipboard_read.copy_text(text)
@@ -728,362 +690,12 @@ class VoiceIO:
             from voiceio.feedback import notify_clipboard
             notify_clipboard(text)
 
-    def _type_with_fallback(self, text: str) -> None:
-        try:
-            self._typer.type_text(text)
-        except Exception as e:
-            if not self._auto_fallback:
-                raise
-            log.warning("Typer '%s' failed: %s, trying fallback", self._typer.name, e)
-            probe = self._typer.probe()
-            if not probe.ok:
-                log.warning("Typer '%s' no longer works: %s", self._typer.name, probe.reason)
-            try:
-                self._typer = typer_chain.select(self.platform)
-                log.info("Switched to typer: %s", self._typer.name)
-                self._typer.type_text(text)
-            except RuntimeError:
-                log.error("No working typer backend available")
-
-    def _on_typer_broken(self) -> None:
-        """Called by streaming session when typer fails repeatedly.
-
-        Defers the re-probe+upgrade to a background thread that waits
-        for the state to reach IDLE. We cannot hot-swap mid-recording:
-        the streaming session tracks ``_typed_text`` in terms of the old
-        typer's behavior (char-level for clipboard vs preedit for ibus),
-        and mid-stream swapping would leave stale or duplicated chars.
-        The current recording is already broken — accept that, fix it
-        before the next one.
-        """
-        threading.Thread(
-            target=self._deferred_typer_upgrade,
-            daemon=True, name="typer-upgrade",
-        ).start()
-
-    def _deferred_typer_upgrade(self) -> None:
-        """Wait for IDLE state, then re-detect platform and upgrade typer.
-
-        Lock discipline: all subprocess probing (redetect, chain resolve,
-        select, engine start) runs OUTSIDE ``_hotkey_lock``. Only the field
-        assignments go through the lock-guarded swap helpers, which apply the
-        change only while IDLE. We must never hold the lock across a typer or
-        engine subprocess call.
-        """
-        # Wait up to 30s for recording/finalizing to complete
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if self._state == _State.IDLE or self._shutdown.is_set():
-                break
-            time.sleep(0.5)
-        if self._shutdown.is_set():
-            return
-        if self._state != _State.IDLE:
-            log.debug("Typer upgrade abandoned: state=%s after 30s", self._state)
-            return
-        _import_graphical_env()
-        if not self._swap_platform(_redetect_platform()):
-            return  # left IDLE before we could apply
-        log.info(
-            "Typer broken: re-detected platform: display=%s desktop=%s",
-            self.platform.display_server, self.platform.desktop,
-        )
-        self._try_upgrade_typer(reason="streaming-failure")
-
-    def _swap_platform(self, new_platform) -> bool:
-        """Assign ``self.platform`` under the lock, only while IDLE.
-
-        Health/upgrade threads must not mutate shared state that the hotkey and
-        finalizer paths read, except while IDLE and holding the lock. Returns
-        True if applied.
-        """
-        with self._hotkey_lock:
-            if self._state != _State.IDLE:
-                return False
-            self.platform = new_platform
-            return True
-
-    def _swap_typer(self, new_typer: TyperBackend, reason: str = "") -> bool:
-        """Assign ``self._typer`` under the lock, only while IDLE.
-
-        Contains NO subprocess/engine operations — callers perform those
-        (probing, engine start) outside the lock. Returns True if applied.
-        """
-        with self._hotkey_lock:
-            if self._state != _State.IDLE:
-                log.debug("Typer swap (%s) skipped: state=%s", reason, self._state)
-                return False
-            old = self._typer.name
-            self._typer = new_typer
-        log.info("Typer upgraded: %s -> %s (%s)", old, new_typer.name, reason)
-        return True
-
-    def _try_upgrade_typer(self, reason: str = "") -> bool:
-        """Try to switch to a better typer backend.
-
-        Called on resume, after env import, or after repeated typer failures.
-        If the current typer is a fallback (e.g. clipboard) and a preferred
-        backend (e.g. ibus) is now available, switch to it.
-
-        Returns True if typer was upgraded.
-        """
-        chain = typer_chain._get_chain(self.platform)
-        current_idx = chain.index(self._typer.name) if self._typer.name in chain else len(chain)
-        log.debug(
-            "Upgrade attempt (%s): current=%s (idx %d) chain=%s",
-            reason, self._typer.name, current_idx, chain,
-        )
-        if current_idx == 0:
-            log.debug("Upgrade (%s) skipped: already on best backend in chain", reason)
-            return False  # already on the best backend
-
-        # Reset clipboard tool cache so re-probe sees updated env
-        from voiceio.typers.clipboard import ClipboardTyper
-        if isinstance(self._typer, ClipboardTyper):
-            self._typer.reset_tools()
-
-        # Log all probe results so we can diagnose why upgrade failed
-        try:
-            results = typer_chain.resolve(self.platform, self.cfg.output.method)
-        except Exception:
-            log.exception("Upgrade (%s): typer resolve failed", reason)
-            return False
-        for name, _backend, probe in results:
-            status = "OK" if probe.ok else f"FAIL: {probe.reason}"
-            log.info("Upgrade (%s): probe %s -> %s", reason, name, status)
-
-        try:
-            new_typer = typer_chain.select(self.platform, self.cfg.output.method)
-        except RuntimeError as e:
-            log.warning("Upgrade (%s) select failed: %s", reason, e)
-            return False
-
-        new_idx = chain.index(new_typer.name) if new_typer.name in chain else len(chain)
-        if new_idx < current_idx:
-            # Apply the swap under the lock (IDLE-gated); if it didn't apply
-            # (state left IDLE), don't start the engine.
-            if not self._swap_typer(new_typer, reason):
-                return False
-            if new_typer.name == "ibus" and not self._ibus.has_engine:
-                try:
-                    # subprocess ops, outside the lock; IDLE → never activate
-                    self._ibus.ensure_engine(activate=False)
-                except Exception:
-                    log.exception("Upgrade (%s): failed to start IBus engine", reason)
-            return True
-
-        log.info(
-            "Upgrade (%s): no better backend available (stayed on %s)",
-            reason, new_typer.name,
-        )
-        # Even if same backend, re-resolve tools (e.g. clipboard switching
-        # from xclip to wl-copy after env vars change)
-        if isinstance(self._typer, ClipboardTyper):
-            self._typer._resolve_tools()
-            log.debug("Clipboard typer tools re-resolved (%s)", reason)
-
-        return False
-
-    def _wait_for_ibus(self) -> TyperBackend | None:
-        """At login voiceio may start before ibus-daemon: wait briefly and
-        switch to the IBus typer instead of settling on a broken fallback."""
-        if self._ibus.wait_for_daemon():
-            from voiceio.typers.ibus import refresh_stale_launcher
-            refresh_stale_launcher()
-            try:
-                typer = typer_chain.select(self.platform, self.cfg.output.method)
-                if typer.name == "ibus":
-                    self._ibus.ensure_engine(activate=False)
-                    return typer
-            except RuntimeError:
-                pass
-        log.warning("IBus daemon did not start in time, using fallback typer: %s", self._typer.name)
-        return None
-
-    # ── Health watchdog ─────────────────────────────────────────────
-
-    # If the gap between health checks exceeds this, we probably resumed
-    # from suspend/hibernate and should re-probe everything.
-    _RESUME_THRESHOLD = 30  # seconds
-
-    def _health_loop(self) -> None:
-        """Periodic health check: transcriber worker, IBus engine, audio stream."""
-        last_check = time.monotonic()
-        while not self._shutdown.is_set():
-            self._shutdown.wait(_HEALTH_CHECK_INTERVAL)
-            if self._shutdown.is_set():
-                break
-
-            now = time.monotonic()
-            gap = now - last_check
-            last_check = now
-
-            try:
-                if gap > self._RESUME_THRESHOLD:
-                    log.info("System resume detected (%.0fs gap), re-probing all backends", gap)
-                    self._on_resume()
-                self._check_health()
-            except Exception:
-                log.debug("Health check error", exc_info=True)
-
-    def _on_resume(self) -> None:
-        """Re-probe all backends after system suspend/hibernate.
-
-        Sleep/hibernate breaks connections to system services (IBus, audio,
-        tray D-Bus, ydotoold) across all platforms. Instead of catching each
-        failure individually, do a single sweep to restore everything.
-        """
-        _import_graphical_env()
-
-        # Re-detect platform now that env vars may have been refreshed
-        # (lock-guarded, IDLE-only — a live recording keeps its platform).
-        self._swap_platform(_redetect_platform())
-
-        # Audio: reopen stream (device may have changed or died)
-        try:
-            self.recorder.reopen_stream()
-            log.info("Resume: audio stream reopened")
-        except Exception:
-            log.warning("Resume: audio stream reopen failed", exc_info=True)
-
-        # Typer: re-probe if on a fallback backend (e.g. clipboard instead
-        # of ibus) — the preferred backend may be available now.
-        self._try_upgrade_typer(reason="resume")
-
-        if self._typer.name == "ibus":
-            self._ibus.on_resume()
-
-        # Tray: restart if subprocess died
-        if self.cfg.tray.enabled and not tray.is_alive():
-            log.info("Resume: restarting tray")
-            tray.restart(self.on_hotkey)
-
-        # Transcriber: ensure worker is alive
-        if not self.transcriber.healthy():
-            try:
-                self.transcriber.recover()
-                log.info("Resume: transcriber worker restarted")
-            except RuntimeError:
-                log.error("Resume: transcriber worker failed")
-
-    def _check_health(self) -> None:
-        """Run one health check cycle."""
-        # Check transcriber worker
-        if not self.transcriber.healthy():
-            if self._state == _State.RECORDING:
-                log.warning("Transcriber worker died during recording")
-            try:
-                self.transcriber.recover()
-                log.info("Transcriber worker recovered")
-            except RuntimeError:
-                log.error("Transcriber worker permanently failed")
-                with self._hotkey_lock:
-                    if self._state != _State.RECORDING:
-                        self._state = _State.ERROR
-                        tray.set_error(True)
-
-        # Check audio stream (covers ALSA underrun, PulseAudio/PipeWire
-        # restart, device disconnect, stale callback heartbeat)
-        ok, reason = self.recorder.stream_health()
-        if not ok:
-            now = time.monotonic()
-            if now < self._next_stream_retry:
-                return  # backoff: skip this cycle
-            log.warning("Audio stream unhealthy: %s — reopening (attempt %d)",
-                        reason, self._stream_fail_count + 1)
-            try:
-                self.recorder.reopen_stream()
-                self._stream_fail_count = 0
-                self._next_stream_retry = 0
-                tray.set_error(False)
-                log.info("Audio stream recovered")
-            except Exception:
-                self._stream_fail_count += 1
-                # Backoff: 10s, 20s, 40s, 80s, max 5min
-                delay = min(10 * (2 ** (self._stream_fail_count - 1)), 300)
-                self._next_stream_retry = now + delay
-                tray.set_error(True)
-                log.error("Audio stream recovery failed (retry in %ds)", delay)
-        elif self._stream_fail_count > 0:
-            # Stream recovered externally (e.g. device plugged back in)
-            self._stream_fail_count = 0
-            self._next_stream_retry = 0
-            tray.set_error(False)
-
-        # Check tray subprocess (restart if died / lost D-Bus registration)
-        if self.cfg.tray.enabled and not tray.is_alive():
-            log.warning("Tray subprocess died, restarting")
-            tray.restart(self.on_hotkey)
-
-        # Typer upkeep: only touch typer/platform while IDLE, and only through
-        # the lock-guarded swap helpers (never hot-swap under a live recording).
-        if self._state == _State.IDLE:
-            self._health_typer_upkeep()
-
-        if self._typer.name == "ibus":
-            idle = self._state == _State.IDLE
-            self._ibus.health_tick(idle)
-            # Mid-recording: don't re-force the source; if the user switched
-            # away from voiceio, fall back to clipboard for this session.
-            if not idle and self._ibus.hijacked():
-                self._fall_back_to_clipboard()
-
-    def _fall_back_to_clipboard(self) -> None:
-        try:
-            from voiceio.typers.clipboard import ClipboardTyper
-            clip = ClipboardTyper(self.platform)
-        except Exception:
-            log.debug("Could not build clipboard fallback typer", exc_info=True)
-            return
-        session = self._session
-        if session is not None:
-            session.set_typer(clip)
-
-    def _health_typer_upkeep(self) -> None:
-        """IDLE-only: refresh platform + upgrade/repair the typer.
-
-        Runs the expensive probing outside ``_hotkey_lock``; the platform and
-        typer field mutations go through the lock-guarded swap helpers.
-        """
-        _import_graphical_env()
-        old_desktop = self.platform.desktop
-        new_platform = _redetect_platform()
-        if new_platform.desktop != old_desktop:
-            log.info(
-                "Platform refreshed: display=%s desktop=%s (was desktop=%s)",
-                new_platform.display_server, new_platform.desktop, old_desktop,
-            )
-        self._swap_platform(new_platform)
-
-        chain = typer_chain._get_chain(self.platform)
-        current_idx = chain.index(self._typer.name) if self._typer.name in chain else len(chain)
-        if current_idx > 0:
-            self._try_upgrade_typer(reason="health-check")
-
-        # Re-probe current backend; re-select if it broke.
-        probe = self._typer.probe()
-        if not probe.ok:
-            log.warning("Typer '%s' probe failed: %s — re-selecting", self._typer.name, probe.reason)
-            self._try_upgrade_typer(reason="probe-failed")
-
     # ── Main loop ───────────────────────────────────────────────────────
 
     def run(self) -> None:
         from voiceio.config import PID_PATH, LOG_DIR
 
-        # Refresh env and platform in case the desktop session exported
-        # vars between __init__ and run() (e.g. boot race with user@.service).
-        _import_graphical_env()
-        old_platform = self.platform
-        self.platform = _redetect_platform()
-        if (self.platform.display_server != old_platform.display_server
-                or self.platform.desktop != old_platform.desktop):
-            log.info(
-                "Platform changed since init: display=%s desktop=%s (was %s/%s), re-selecting typer",
-                self.platform.display_server, self.platform.desktop,
-                old_platform.display_server, old_platform.desktop,
-            )
-            self._try_upgrade_typer(reason="run-init")
+        self._typers.redetect_at_start()
 
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self._pid_fd = open(PID_PATH, "w")
@@ -1098,26 +710,7 @@ class VoiceIO:
         self._pid_fd.write(str(os.getpid()))
         self._pid_fd.flush()
 
-        if self._typer.name == "ibus":
-            # Daemon-start is one of the only places allowed to install the
-            # component / restart IBus (probe() is read-only now, fix #6).
-            try:
-                if hasattr(self._typer, "ensure_installed"):
-                    self._typer.ensure_installed()
-            except Exception:
-                log.exception("IBus ensure_installed failed (continuing)")
-            # Register the engine but never claim the input source at boot —
-            # the instance is created on first activation (record start).
-            self._ibus.ensure_engine(activate=False)
-        else:
-            # IBus daemon may not be ready at startup (race with graphical
-            # session). If IBus is in the preferred chain but wasn't selected,
-            # wait briefly and re-probe. Re-fetch the chain after env refresh
-            # above so we don't use a stale "clipboard-only" chain from when
-            # platform=unknown.
-            chain = typer_chain._get_chain(self.platform)
-            if "ibus" in chain and self._typer.name != "ibus":
-                self._typer = self._wait_for_ibus() or self._typer
+        self._typers.prepare()
 
         self.recorder.open_stream()
 
@@ -1136,19 +729,16 @@ class VoiceIO:
         if self._tts_hotkey:
             self._tts_hotkey.start(self.cfg.tts.hotkey, self.on_tts_hotkey)
 
-        # Start health watchdog
-        threading.Thread(
-            target=self._health_loop, daemon=True, name="health-watchdog",
-        ).start()
+        self._watchdog.start()
 
         from voiceio import __version__
         log.info(
             "voiceio v%s ready. Press [%s] to toggle recording (hotkey=%s, typer=%s)",
-            __version__, self.cfg.hotkey.key, self._hotkey.name, self._typer.name,
+            __version__, self.cfg.hotkey.key, self._hotkey.name, self._typers.typer.name,
         )
         print(
             f"voiceio v{__version__} ready. Press [{self.cfg.hotkey.key}] to record "
-            f"(model={self.cfg.model.name}, typer={self._typer.name})",
+            f"(model={self.cfg.model.name}, typer={self._typers.typer.name})",
         )
 
         # Ctrl-C and `systemctl stop voiceio` must run the SAME cleanup path

@@ -52,12 +52,12 @@ class TestGuardedSwaps:
         new.name = "ydotool"
 
         vio._state = _State.RECORDING
-        assert vio._swap_typer(new, "test") is False
-        assert vio._typer is not new  # not swapped mid-recording
+        assert vio._typers.swap_typer(new, "test") is False
+        assert vio._typers.typer is not new  # not swapped mid-recording
 
         vio._state = _State.IDLE
-        assert vio._swap_typer(new, "test") is True
-        assert vio._typer is new
+        assert vio._typers.swap_typer(new, "test") is True
+        assert vio._typers.typer is new
 
     def test_swap_platform_only_when_idle(self):
         from voiceio.app import _State
@@ -66,24 +66,24 @@ class TestGuardedSwaps:
         new_platform = MagicMock(desktop="kde")
 
         vio._state = _State.FINALIZING
-        assert vio._swap_platform(new_platform) is False
+        assert vio._typers.swap_platform(new_platform) is False
         assert vio.platform is original
 
         vio._state = _State.IDLE
-        assert vio._swap_platform(new_platform) is True
+        assert vio._typers.swap_platform(new_platform) is True
         assert vio.platform is new_platform
 
     def test_health_upkeep_skipped_when_not_idle(self):
-        """_check_health must not run typer upkeep during a live recording."""
+        """A health check must not run typer upkeep during a live recording."""
         from voiceio.app import _State
         vio = _make_app()
         vio._state = _State.RECORDING
         vio.transcriber.healthy.return_value = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.cfg.tray.enabled = False
-        vio._health_typer_upkeep = MagicMock()
-        vio._check_health()
-        vio._health_typer_upkeep.assert_not_called()
+        vio._typers.health_upkeep = MagicMock()
+        vio._watchdog.check()
+        vio._typers.health_upkeep.assert_not_called()
 
 
 # ── Fix #2: generation-checked deactivation + source restore ─────────────
@@ -136,7 +136,7 @@ class TestIBusGoodCitizen:
         vio.transcriber.healthy.return_value = True
         vio.recorder.stream_health = MagicMock(return_value=(True, ""))
         vio.cfg.tray.enabled = False
-        vio._health_typer_upkeep = MagicMock()
+        vio._typers.health_upkeep = MagicMock()
         vio._ibus._proc = MagicMock()
         vio._ibus._proc.poll.return_value = None  # alive
         vio._ibus.ping = MagicMock(return_value=True)  # responsive
@@ -146,7 +146,7 @@ class TestIBusGoodCitizen:
     def test_idle_never_touches_input_source(self):
         vio = self._idle_healthy_ibus()
         vio._ibus.hijacked = MagicMock()
-        vio._check_health()
+        vio._watchdog.check()
         # A responsive engine while IDLE => no source re-forcing at all.
         assert vio._ibus._fixed_sources.method_calls == []
         vio._ibus.hijacked.assert_not_called()
@@ -156,7 +156,7 @@ class TestIBusGoodCitizen:
         vio = self._idle_healthy_ibus()
         vio._state = _State.RECORDING
         vio._ibus.hijacked = MagicMock(return_value=False)
-        vio._check_health()
+        vio._watchdog.check()
         vio._ibus.hijacked.assert_called_once()
 
     def _recording_with_claim(self, switched_away: bool):
@@ -172,20 +172,20 @@ class TestIBusGoodCitizen:
     def test_hijack_falls_back_to_clipboard(self):
         vio = self._recording_with_claim(switched_away=True)
         with patch("voiceio.typers.clipboard.ClipboardTyper", return_value=MagicMock()):
-            vio._check_health()
+            vio._watchdog.check()
         vio._session.set_typer.assert_called_once()
 
     def test_hijack_is_idempotent(self):
         vio = self._recording_with_claim(switched_away=True)
         with patch("voiceio.typers.clipboard.ClipboardTyper", return_value=MagicMock()):
-            vio._check_health()
+            vio._watchdog.check()
             vio._session.set_typer.reset_mock()
-            vio._check_health()  # already fell back
+            vio._watchdog.check()  # already fell back
         vio._session.set_typer.assert_not_called()
 
     def test_no_hijack_when_still_on_voiceio(self):
         vio = self._recording_with_claim(switched_away=False)
-        vio._check_health()
+        vio._watchdog.check()
         vio._session.set_typer.assert_not_called()
 
 
@@ -201,10 +201,10 @@ class TestSigterm:
         monkeypatch.setattr(vcfg, "LOG_DIR", tmp_path / "logs")
         monkeypatch.setattr("voiceio.pidlock.lock_pid_file", lambda fd: None)
         # Neutralize anything that could touch the real session/system.
-        monkeypatch.setattr("voiceio.app._import_graphical_env", lambda: None)
-        monkeypatch.setattr("voiceio.app._redetect_platform", lambda: vio.platform)
-        vio._ibus = MagicMock()
-        vio._try_upgrade_typer = MagicMock()
+        monkeypatch.setattr("voiceio.platform.import_graphical_env", lambda: None)
+        monkeypatch.setattr("voiceio.platform.redetect", lambda: vio.platform)
+        vio._ibus = vio._typers._ibus = MagicMock()
+        vio._typers.try_upgrade = MagicMock()
         vio.cfg.tray.enabled = False
         vio.cfg.feedback.sound_enabled = False
         vio._hotkey = MagicMock()

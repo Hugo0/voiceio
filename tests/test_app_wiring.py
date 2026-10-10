@@ -58,7 +58,7 @@ def _allow_stop(vio):
 class TestVoiceIOInit:
     def test_init_with_mocked_backends(self):
         vio, mock_typer, _ = _make_vio()
-        assert vio._typer is mock_typer
+        assert vio._typers.typer is mock_typer
 
     def test_on_hotkey_toggle_cycle(self):
         mock_trans = FakeDecoder()
@@ -305,7 +305,8 @@ class TestIBusWiring:
     def _vio_ibus(self):
         vio, mock_typer, _ = _make_vio()
         mock_typer.name = "ibus"
-        vio._ibus = MagicMock()
+        # The typer manager and watchdog hold the same session object.
+        vio._ibus = vio._typers._ibus = vio._watchdog._ibus = MagicMock()
         return vio
 
     def test_record_start_claims_with_current_generation(self):
@@ -337,11 +338,11 @@ class TestIBusWiring:
         from voiceio.app import _State
         vio = self._vio_ibus()
         vio._ibus.hijacked.return_value = False
-        with patch.object(vio, "_health_typer_upkeep"):
-            vio._check_health()
+        with patch.object(vio._typers, "health_upkeep"):
+            vio._watchdog.check()
         vio._ibus.health_tick.assert_called_once_with(True)
         vio._ibus.hijacked.assert_not_called()  # never while idle
         vio._state = _State.RECORDING
-        vio._check_health()
+        vio._watchdog.check()
         vio._ibus.health_tick.assert_called_with(False)
         vio._ibus.hijacked.assert_called_once()
