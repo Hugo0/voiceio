@@ -161,7 +161,14 @@ def _unlink_socket_if_ours() -> None:
         pass
 
 
-def _socket_listener(mainloop: GLib.MainLoop) -> None:
+# Set when the engine shuts down. The listener must not poll
+# mainloop.is_running(): it starts before mainloop.run(), and on a loaded CPU
+# it won that race, saw "not running", exited and unlinked its own socket —
+# an engine alive but deaf, which the daemon then reaped as a zombie.
+_stopping = threading.Event()
+
+
+def _socket_listener(mainloop: GLib.MainLoop, stopping: threading.Event = _stopping) -> None:
     """Listen for commands on Unix DGRAM socket. Runs in a thread."""
     global _bound_ino
     SOCKET_PATH.unlink(missing_ok=True)
@@ -171,13 +178,16 @@ def _socket_listener(mainloop: GLib.MainLoop) -> None:
     sock.settimeout(1.0)
     log.info("Socket listener started at %s", SOCKET_PATH)
 
-    while mainloop.is_running():
+    while not stopping.is_set():
         try:
             data, addr = sock.recvfrom(RECV_BYTES)
         except socket.timeout:
             continue
         except OSError:
-            log.exception("Socket listener error — listener exiting")
+            # A deaf engine is worse than a dead one: quit, so the daemon's
+            # watchdog sees the exit and respawns a working engine.
+            log.exception("Socket listener error — stopping the engine")
+            GLib.idle_add(mainloop.quit)
             break
 
         msg = data.decode("utf-8", errors="replace")
@@ -328,6 +338,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        _stopping.set()
         _unlink_socket_if_ours()
         READY_PATH.unlink(missing_ok=True)
         log.info("VoiceIO IBus engine stopped")
