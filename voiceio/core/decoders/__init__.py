@@ -39,12 +39,12 @@ def build_decoder(model_cfg, lanes: int | None = None) -> Decoder:
         return SherpaTransducer(model_dir, threads=model_cfg.cpu_threads or 4,
                                 method=model_cfg.decoding or "greedy_search")
 
-    from voiceio.transcriber import Transcriber
+    from voiceio.core.decoders.faster_whisper import Transcriber
     lanes = model_cfg.decode_lanes if lanes is None else lanes
     if not model_cfg.cpu_threads:
         import dataclasses
 
-        from voiceio.worker import auto_cpu_threads
+        from voiceio.core.decoders.faster_whisper.worker import auto_cpu_threads
         model_cfg = dataclasses.replace(model_cfg, cpu_threads=auto_cpu_threads(lanes))
     final = Transcriber(model_cfg)
     if lanes < 2:

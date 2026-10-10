@@ -1,7 +1,7 @@
 """faster-whisper decoder in an isolated subprocess, with crash recovery.
 
 Implements `voiceio.core.decoders.Decoder`. The model runs in its own process
-(voiceio.worker) so a native crash or hang costs a restart, not the daemon.
+(voiceio.core.decoders.faster_whisper.worker) so a native crash or hang costs a restart, not the daemon.
 """
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ class Transcriber:
             self._stderr_path.replace(self._stderr_path.with_suffix(".log.1"))
         self._stderr_file = open(self._stderr_path, "a")
         self._proc = subprocess.Popen(
-            [sys.executable, "-m", "voiceio.worker", args],
+            [sys.executable, "-m", "voiceio.core.decoders.faster_whisper.worker", args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self._stderr_file,

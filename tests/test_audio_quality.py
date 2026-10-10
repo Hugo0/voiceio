@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from voiceio.transcriber import normalize_audio
+from voiceio.core.decoders.faster_whisper import normalize_audio
 from voiceio.vad import RmsVad
 
 

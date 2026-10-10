@@ -13,14 +13,14 @@ class TestTranscriberProtocol:
     """Test the subprocess communication protocol without real whisper."""
 
     def test_read_with_timeout_returns_none_on_timeout(self):
-        from voiceio.transcriber import Transcriber
+        from voiceio.core.decoders.faster_whisper import Transcriber
 
         # Mock the worker startup
         mock_proc = MagicMock()
         mock_proc.stdout.readline.return_value = "READY\n"
         mock_proc.poll.return_value = None
 
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
             t = Transcriber(ModelConfig())
 
         # Now test timeout: readline blocks forever
@@ -33,13 +33,13 @@ class TestTranscriberProtocol:
         assert result is None
 
     def test_crash_recovery_flag(self):
-        from voiceio.transcriber import Transcriber, MAX_RESTARTS
+        from voiceio.core.decoders.faster_whisper import Transcriber, MAX_RESTARTS
 
         mock_proc = MagicMock()
         mock_proc.stdout.readline.return_value = "READY\n"
         mock_proc.poll.return_value = None
 
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
             t = Transcriber(ModelConfig())
 
         assert t._restarts == 0
@@ -47,19 +47,19 @@ class TestTranscriberProtocol:
         # Simulate worker death
         mock_proc.poll.return_value = 1  # process exited
 
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
             t._ensure_worker()
 
         assert t._restarts == 1
 
     def test_max_restarts_raises(self):
-        from voiceio.transcriber import Transcriber, MAX_RESTARTS
+        from voiceio.core.decoders.faster_whisper import Transcriber, MAX_RESTARTS
 
         mock_proc = MagicMock()
         mock_proc.stdout.readline.return_value = "READY\n"
         mock_proc.poll.return_value = None
 
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
             t = Transcriber(ModelConfig())
 
         t._restarts = MAX_RESTARTS
@@ -94,13 +94,13 @@ class TestRestartBudgetReset:
         mock_proc = MagicMock()
         mock_proc.stdout.readline.return_value = "READY\n"
         mock_proc.poll.return_value = None
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
-            from voiceio.transcriber import Transcriber
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
+            from voiceio.core.decoders.faster_whisper import Transcriber
             t = Transcriber(ModelConfig())
         return t, mock_proc
 
     def test_healthy_period_resets_counter(self):
-        from voiceio.transcriber import MAX_RESTARTS, RESTART_RESET_SECS
+        from voiceio.core.decoders.faster_whisper import MAX_RESTARTS, RESTART_RESET_SECS
         import time as _time
         t, mock_proc = self._make()
 
@@ -112,15 +112,15 @@ class TestRestartBudgetReset:
         t._last_crash_time = 1.0
         mock_proc.poll.return_value = 1  # worker died again
 
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc), \
-                patch("voiceio.transcriber.time") as mock_time:
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc), \
+                patch("voiceio.core.decoders.faster_whisper.time") as mock_time:
             mock_time.monotonic.return_value = 1.0 + RESTART_RESET_SECS + 60
             t._ensure_worker()  # must NOT raise — counter reset then incremented
 
         assert t._restarts == 1
 
     def test_rapid_crashes_still_give_up(self):
-        from voiceio.transcriber import MAX_RESTARTS
+        from voiceio.core.decoders.faster_whisper import MAX_RESTARTS
         import time as _time
         t, mock_proc = self._make()
 
@@ -136,18 +136,18 @@ class TestTimeoutRaises:
     """Timeout/invalid response raise DecodeError (never fake silence)."""
 
     def _make(self):
-        from voiceio.transcriber import Transcriber
+        from voiceio.core.decoders.faster_whisper import Transcriber
         mock_proc = MagicMock()
         mock_proc.stdout.readline.return_value = "READY\n"
         mock_proc.poll.return_value = None
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
             t = Transcriber(ModelConfig())
         return t, mock_proc
 
     def test_timeout_raises(self):
         import numpy as np
         import pytest
-        from voiceio.transcriber import DecodeError
+        from voiceio.core.decoders.faster_whisper import DecodeError
         t, mock_proc = self._make()
         with patch.object(t, "_read_with_timeout", return_value=None), \
              patch.object(t, "_kill_worker"), patch.object(t, "_ensure_worker"):
@@ -157,7 +157,7 @@ class TestTimeoutRaises:
     def test_invalid_response_raises(self):
         import numpy as np
         import pytest
-        from voiceio.transcriber import DecodeError
+        from voiceio.core.decoders.faster_whisper import DecodeError
         t, mock_proc = self._make()
         with patch.object(t, "_read_with_timeout", return_value="not json{"):
             with pytest.raises(DecodeError):
@@ -175,14 +175,14 @@ class TestWorkerStartTimeout:
 
     def test_start_raises_instead_of_hanging(self):
         import threading
-        from voiceio.transcriber import Transcriber, DecodeError
+        from voiceio.core.decoders.faster_whisper import Transcriber, DecodeError
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.stdout.readline.side_effect = lambda: threading.Event().wait()
 
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc), \
-             patch("voiceio.transcriber.WORKER_START_TIMEOUT", 0.1):
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc), \
+             patch("voiceio.core.decoders.faster_whisper.WORKER_START_TIMEOUT", 0.1):
             with pytest.raises(DecodeError, match="failed to start"):
                 Transcriber(ModelConfig())
 
@@ -190,13 +190,13 @@ class TestWorkerStartTimeout:
         assert mock_proc.terminate.called or mock_proc.kill.called
 
     def test_start_raises_on_garbage_handshake(self):
-        from voiceio.transcriber import Transcriber, DecodeError
+        from voiceio.core.decoders.faster_whisper import Transcriber, DecodeError
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.stdout.readline.return_value = "Traceback: boom\n"
 
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
             with pytest.raises(DecodeError, match="failed to start"):
                 Transcriber(ModelConfig())
 
@@ -207,12 +207,12 @@ class TestDecodeTimeoutIsLazy:
 
     def test_decode_timeout_does_not_reload_inline(self):
         import numpy as np
-        from voiceio.transcriber import Transcriber, DecodeError
+        from voiceio.core.decoders.faster_whisper import Transcriber, DecodeError
 
         mock_proc = MagicMock()
         mock_proc.stdout.readline.return_value = "READY\n"
         mock_proc.poll.return_value = None
-        with patch("voiceio.transcriber.subprocess.Popen", return_value=mock_proc):
+        with patch("voiceio.core.decoders.faster_whisper.subprocess.Popen", return_value=mock_proc):
             t = Transcriber(ModelConfig())
 
         with patch.object(t, "_read_with_timeout", return_value=None), \
@@ -230,17 +230,17 @@ class TestWorkerModelLoad:
     """A cached model must load without touching the network."""
 
     def test_prefers_local_cache(self):
-        from voiceio import worker
+        from voiceio.core.decoders.faster_whisper import worker
 
-        with patch("voiceio.worker.WhisperModel") as wm:
+        with patch("voiceio.core.decoders.faster_whisper.worker.WhisperModel") as wm:
             worker.load_model("small", device="auto", compute_type="int8")
         assert wm.call_args.kwargs["local_files_only"] is True
 
     def test_falls_back_to_network_when_not_cached(self):
-        from voiceio import worker
+        from voiceio.core.decoders.faster_whisper import worker
 
         sentinel = object()
-        with patch("voiceio.worker.WhisperModel",
+        with patch("voiceio.core.decoders.faster_whisper.worker.WhisperModel",
                    side_effect=[OSError("not cached"), sentinel]) as wm:
             got = worker.load_model("small")
         assert got is sentinel
@@ -273,7 +273,7 @@ def test_describe_transcript_never_contains_text():
 def test_promptless_distil_models_take_no_bias():
     from voiceio.config import ModelConfig
     from voiceio.core.decoders.base import BiasMode
-    from voiceio.transcriber import Transcriber
+    from voiceio.core.decoders.faster_whisper import Transcriber
     assert Transcriber(ModelConfig(name="distil-small.en")).capabilities.bias == BiasMode.NONE
     assert Transcriber(ModelConfig(name="distil-large-v3")).capabilities.bias != BiasMode.NONE
     assert Transcriber(ModelConfig(name="small")).capabilities.bias != BiasMode.NONE

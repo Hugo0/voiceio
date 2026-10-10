@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from voiceio import worker
+from voiceio.core.decoders.faster_whisper import worker
 
 
 def _seg(text="ok", ratio=1.5, logprob=-0.3, no_speech=0.01):

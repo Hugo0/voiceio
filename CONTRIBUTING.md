@@ -25,7 +25,7 @@ voiceio/
 │   │                #   → commands → corrections → postcorrect → llm → prefix)
 │   ├── bias.py      #   BiasProvider: vocabulary/hotwords/prompt per request
 │   └── decoders/    #   Decoder protocol (base), model catalog, interim/final lanes,
-│                    #   sherpa-onnx + whisper.cpp adapters (faster-whisper: transcriber.py)
+│                    #   faster_whisper/ (subprocess worker, crash recovery), sherpa-onnx, whisper.cpp
 ├── learn/           # Personalization: store (corpus), importer, teacher (label), review,
 │                    #   augment, metrics, evaluate (offline + streaming), train (LoRA →
 │                    #   CTranslate2), clean
@@ -37,8 +37,6 @@ voiceio/
 ├── streaming.py     # Real-time transcription session with word-level corrections
 ├── audio_source.py  # Where streaming gets samples (microphone, socket, file)
 ├── recorder.py      # Microphone capture with 1s pre-buffer ring (desktop extra)
-├── transcriber.py   # faster-whisper decoder in a subprocess with crash recovery
-├── worker.py        # The Whisper worker subprocess
 ├── vad.py           # Voice Activity Detection (Silero ONNX / RMS fallback)
 ├── vocabulary.py    # vocabulary.txt, ranked to fit the hotword token budget
 ├── vocab_stats.py   # Per-term usage stats that drive the ranking

@@ -95,11 +95,11 @@ def test_usage_decoder_counts_incidents_on_the_current_release(tmp_path, monkeyp
     monkeypatch.setattr(config, "LOG_DIR", tmp_path)
     (config.LOG_DIR / "voiceio.log.1").write_text(
         f"{day} 01:00 voiceio INFO === voiceio v0.9.11 startup ===\n"
-        f"{day} 01:01 voiceio.transcriber WARNING Transcription timed out after 30s, killing worker\n"
-        f"{day} 01:01 voiceio.transcriber WARNING Worker died, restarting (attempt 1/3)\n")
+        f"{day} 01:01 voiceio.core.decoders.faster_whisper WARNING Transcription timed out after 30s, killing worker\n"
+        f"{day} 01:01 voiceio.core.decoders.faster_whisper WARNING Worker died, restarting (attempt 1/3)\n")
     (config.LOG_DIR / "voiceio.log").write_text(
         f"{day} 02:00 voiceio INFO === voiceio v{__version__} startup ===\n"
-        f"{day} 02:05 voiceio.transcriber WARNING Worker died, restarting (attempt 1/3)\n")
+        f"{day} 02:05 voiceio.core.decoders.faster_whisper WARNING Worker died, restarting (attempt 1/3)\n")
     ok, finding = next((ok, f) for ok, f, _ in usage_findings(config.Config())
                        if f.startswith("decoder"))
     assert ok

@@ -362,7 +362,7 @@ def _run_eval(model: str | None, ds: Path, *, limit: int | None = None,
 def _live_hotwords() -> str:
     """The hotword string dictation prepends to every decode right now."""
     from voiceio.core.bias import BiasProvider
-    from voiceio.transcriber import Transcriber
+    from voiceio.core.decoders.faster_whisper import Transcriber
     from voiceio.vocabulary import VocabularyLoader
     model = _cfg().model
     return BiasProvider(VocabularyLoader(model)).bias_for(Transcriber.capabilities).hotwords or ""

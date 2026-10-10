@@ -110,8 +110,8 @@ def test_sherpa_mbs_passes_unbounded_hotwords(monkeypatch, tmp_path):
 
 
 def test_lanes_share_the_thread_budget(monkeypatch):
-    import voiceio.transcriber as tr
-    from voiceio.worker import auto_cpu_threads
+    import voiceio.core.decoders.faster_whisper as tr
+    from voiceio.core.decoders.faster_whisper.worker import auto_cpu_threads
     monkeypatch.setattr("os.cpu_count", lambda: 16)
     assert (auto_cpu_threads(1), auto_cpu_threads(2)) == (4, 4)
     monkeypatch.setattr("os.cpu_count", lambda: 8)

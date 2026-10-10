@@ -40,7 +40,7 @@ class WhisperTeacher:
     def __init__(self, model: str = DEFAULT_TEACHER, *, device: str = "auto",
                  compute_type: str = "int8", vocabulary: Iterable[str] = (),
                  language: str = "en"):
-        from voiceio.worker import load_model
+        from voiceio.core.decoders.faster_whisper.worker import load_model
         self.name = f"teacher:{model}"
         # A background batch job (see cli.learn._yield_cpu): use every core idle.
         self._model = load_model(model, device=device, compute_type=compute_type,

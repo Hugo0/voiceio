@@ -4,7 +4,7 @@ Communicates with the parent process via stdin (JSON requests) and
 stdout (JSON responses). Loads the model once, then processes requests
 in a loop for low-latency repeated transcriptions.
 
-Usage: python3 -m voiceio.worker '{"model": "base", ...}'
+Usage: python3 -m voiceio.core.decoders.faster_whisper.worker '{"model": "base", ...}'
 """
 from __future__ import annotations
 
