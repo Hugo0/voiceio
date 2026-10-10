@@ -60,6 +60,10 @@ def test_config_show_redacts_secrets_and_set_writes(monkeypatch, capsys):
     assert "sk-secret" not in out and "•••" in out
     run(monkeypatch, capsys, "config", "set", "output.streaming_freeze_secs", "8")
     assert config.load().output.streaming_freeze_secs == 8
+    assert run(monkeypatch, capsys, "config", "get", "output.streaming_freeze_secs").strip() == "8"
+    assert run(monkeypatch, capsys, "config", "get", "output.streaming").strip() == "true"
+    with pytest.raises(SystemExit, match="secret"):
+        run(monkeypatch, capsys, "config", "get", "autocorrect.api_key")
 
 
 def test_service_unit_runs_the_run_subcommand():

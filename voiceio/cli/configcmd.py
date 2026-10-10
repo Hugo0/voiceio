@@ -17,6 +17,9 @@ def register(sub: argparse._SubParsersAction) -> None:
         func=cmd_show)
     cs.add_parser("path", help="Print the config file path").set_defaults(func=cmd_path)
     cs.add_parser("edit", help="Open config.toml in $EDITOR").set_defaults(func=cmd_edit)
+    g = cs.add_parser("get", help="Print one effective value (defaults applied): config get SECTION.KEY")
+    g.add_argument("key")
+    g.set_defaults(func=cmd_get)
     s = cs.add_parser("set", help="Set one value: config set SECTION.KEY VALUE")
     s.add_argument("key")
     s.add_argument("value")
@@ -45,6 +48,18 @@ def cmd_edit(args: argparse.Namespace) -> None:
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano"
     subprocess.call([editor, str(CONFIG_PATH)])
     load(path=CONFIG_PATH)  # surfaces parse warnings right away
+
+
+def cmd_get(args: argparse.Namespace) -> None:
+    from voiceio.config import load
+    section, _, key = args.key.rpartition(".")
+    if key in ("api_key", "token"):
+        raise SystemExit(f"{args.key} is a secret; read it from `voiceio config path`")
+    try:
+        value = getattr(getattr(load(), section), key)
+    except AttributeError:
+        raise SystemExit(f"no such setting: {args.key}") from None
+    print(str(value).lower() if isinstance(value, bool) else value)
 
 
 def cmd_set(args: argparse.Namespace) -> None:
