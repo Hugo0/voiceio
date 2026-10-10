@@ -479,6 +479,15 @@ def usage_findings(cfg=None) -> list[tuple[bool, str, str]]:
         pass
 
     try:
+        from voiceio.corrections import CorrectionDict, risky_rules
+        risky = len(risky_rules(CorrectionDict().list_all()))
+        if risky:
+            out.append((False, f"corrections: {risky} rule(s) may rewrite the wrong words",
+                        "review them: voiceio corrections audit"))
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
         from voiceio.learn.clean import clean
         junk = sum(r.removed for r in clean(apply=False))
         if junk:
