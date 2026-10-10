@@ -29,13 +29,14 @@ _CHAINS: dict[tuple[str, str], list[str]] = {
 
 def _get_chain(platform: Platform) -> list[str]:
     """Get the preference chain for this platform."""
-    key = (platform.display_server, platform.desktop)
-    if key in _CHAINS:
-        return _CHAINS[key]
-    key = (platform.display_server, "*")
-    if key in _CHAINS:
-        return _CHAINS[key]
-    return ["clipboard"]
+    chain = (_CHAINS.get((platform.display_server, platform.desktop))
+             or _CHAINS.get((platform.display_server, "*"))
+             or ["clipboard"])
+    if getattr(platform, "input_method", "") != "fcitx":
+        # Only reachable through a running fcitx5; elsewhere it only adds a
+        # failed probe and a red line in `voiceio doctor`.
+        chain = [name for name in chain if name != "fcitx-bridge"]
+    return chain
 
 
 def resolve(platform: Platform, override: str | None = None, **kwargs) -> list[tuple[str, TyperBackend | None, ProbeResult]]:
