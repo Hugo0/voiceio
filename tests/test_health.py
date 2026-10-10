@@ -71,3 +71,16 @@ def test_all_ok_property():
 
     report.audio_ok = False
     assert report.all_ok is False
+
+
+def test_usage_latency_judges_the_current_release(monkeypatch):
+    import json
+
+    from voiceio import __version__, config
+    from voiceio.health import usage_findings
+    config.HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    rows = [{"text": "x", "latency": {"finalize_total": 20.0}, "v": "0.9.11"}] * 30 \
+        + [{"text": "x", "latency": {"finalize_total": 2.0}, "v": __version__}] * 12
+    config.HISTORY_PATH.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    finding = next(f for ok, f, _ in usage_findings(config.Config()) if f.startswith("stop→text"))
+    assert "median 2.0s" in finding and f"on {__version__}" in finding

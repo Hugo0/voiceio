@@ -432,38 +432,52 @@ def usage_findings(cfg=None) -> list[tuple[bool, str, str]]:
     """
     import json
     import statistics
+    import time
 
     from voiceio import config
     out: list[tuple[bool, str, str]] = []
 
-    waits = []
+    from voiceio import __version__
+    waits: list[tuple[float, str | None]] = []
     if config.HISTORY_PATH.exists():
         for line in config.HISTORY_PATH.read_text(encoding="utf-8").splitlines()[-400:]:
             try:
-                lat = json.loads(line).get("latency") or {}
+                row = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            lat = row.get("latency") or {}
             if "finalize_total" in lat:
-                waits.append(lat["finalize_total"])
-    if len(waits) >= 10:
-        p50 = statistics.median(waits)
-        p90 = statistics.quantiles(waits, n=10)[-1]
-        out.append((p90 <= 10, f"stop→text: median {p50:.1f}s, p90 {p90:.1f}s "
-                               f"(last {len(waits)} dictations)",
+                waits.append((lat["finalize_total"], row.get("v")))
+    # Judge this release on its own dictations once there are enough of them.
+    current = [w for w, v in waits if v == __version__]
+    if len(current) >= 10:
+        sample, scope = current, f"last {len(current)} on {__version__}"
+    else:
+        sample, scope = [w for w, _ in waits], f"last {len(waits)} dictations"
+        if waits and not current:
+            scope += f", all before {__version__}"
+    if len(sample) >= 10:
+        p50 = statistics.median(sample)
+        p90 = statistics.quantiles(sample, n=10)[-1]
+        out.append((p90 <= 10, f"stop→text: median {p50:.1f}s, p90 {p90:.1f}s ({scope})",
                     _latency_hint(cfg or config.load())))
 
     log_files = sorted(config.LOG_DIR.glob("voiceio.log*")) if config.LOG_DIR.exists() else []
+    cutoff = time.strftime("%Y-%m-%d", time.localtime(time.time() - 7 * 86400))
     deaths = timeouts = 0
     for path in log_files:
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
-        deaths += text.count("Worker died")
-        timeouts += text.count("Transcription timed out")
+        for line in lines:
+            if line[:10] < cutoff:        # log lines start with an ISO date
+                continue
+            deaths += "Worker died" in line
+            timeouts += "Transcription timed out" in line
     if log_files:
         out.append((deaths + timeouts < 5,
-                    f"decoder: {deaths} worker restarts, {timeouts} timeouts in recent logs",
+                    f"decoder: {deaths} worker restarts, {timeouts} timeouts in the last 7 days",
                     f"stack dumps of hung decodes: {config.LOG_DIR / 'worker.log'}"))
 
     try:

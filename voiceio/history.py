@@ -53,7 +53,10 @@ def append(
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         config._chmod(p.parent, config._SECURE_DIR)
-        entry: dict = {"ts": time.time(), "text": text.strip()}
+        from voiceio import __version__
+        # The version lets `doctor` judge the current release on its own
+        # numbers instead of months of older ones.
+        entry: dict = {"ts": time.time(), "text": text.strip(), "v": __version__}
         if raw is not None and raw.strip() != entry["text"]:
             entry["raw"] = raw.strip()
         if segments:
