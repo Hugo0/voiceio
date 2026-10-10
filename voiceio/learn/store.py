@@ -40,10 +40,18 @@ def labels_path() -> Path:
     return learn_dir() / "labels.jsonl"
 
 
+# Imported audio lives in the learn dir, out of reach of recording retention.
+IMPORT_PREFIX = "import/"
+
+
+def imports_path() -> Path:
+    return learn_dir() / "imports.jsonl"
+
+
 @dataclass(frozen=True)
 class Clip:
-    """One retained utterance."""
-    audio: str              # file name under config.RECORDINGS_DIR
+    """One retained or imported utterance."""
+    audio: str              # name under RECORDINGS_DIR, or "import/…" under learn_dir()
     ts: float
     duration: float
     raw: str                # decoder output (before the text pipeline)
@@ -52,6 +60,8 @@ class Clip:
 
     @property
     def path(self) -> Path:
+        if self.audio.startswith(IMPORT_PREFIX):
+            return learn_dir() / self.audio
         return config.RECORDINGS_DIR / self.audio
 
 
@@ -60,8 +70,29 @@ def _strip_prefix(text: str) -> str:
     return text[len("[voice]"):].lstrip() if text.startswith("[voice]") else text
 
 
+def _rows(path: Path) -> Iterator[dict]:
+    if not path.exists():
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+
 def clips() -> Iterator[Clip]:
-    """Every history entry whose recording still exists."""
+    """Every history entry whose recording still exists, then every import."""
+    yield from _history_clips()
+    for row in _rows(imports_path()):
+        clip = Clip(audio=row["audio"], ts=row.get("ts", 0.0),
+                    duration=row.get("duration", 0.0), raw="", final="",
+                    source=row.get("source", "import"))
+        if clip.path.exists():
+            yield clip
+
+
+def _history_clips() -> Iterator[Clip]:
     path = config.HISTORY_PATH
     if not path.exists():
         return

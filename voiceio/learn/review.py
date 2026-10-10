@@ -56,7 +56,7 @@ def queue(clips: list[Clip], labels: dict[str, Label], terms: list[str]) -> list
                         if any(sw[j:j + len(tw)] == tw for j in range(len(sw)))), None)
             if hit:
                 vocab.append(Item(clip, lab, i, f"vocabulary: {hit}"))
-            elif not _contains(sw, live):
+            elif live and not _contains(sw, live):  # imports have no live decode
                 disagree.append(Item(clip, lab, i, "teacher and live decode disagree"))
     return vocab + disagree
 

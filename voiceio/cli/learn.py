@@ -22,6 +22,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     c.add_argument("--apply", action="store_true", help="rewrite the files (backups first)")
     c.set_defaults(func=cmd_clean)
 
+    im = lsub.add_parser("import", help="Add your own recordings from elsewhere (e.g. phone voice notes)")
+    im.add_argument("folder", type=Path, help="searched recursively for audio files")
+    im.add_argument("--source", default="import",
+                    help="tag for where these came from, e.g. phone (default: import)")
+    im.set_defaults(func=cmd_import)
+
     lab = lsub.add_parser("label", help="Transcribe retained clips with a stronger teacher model")
     lab.add_argument("--teacher", default=None, help="model name or path (default large-v3-turbo)")
     lab.add_argument("--limit", type=int, default=None)
@@ -85,7 +91,10 @@ def cmd_status(args: argparse.Namespace) -> None:
     hours = sum(c.duration for c in clips) / 3600
     human = sum(1 for c in clips if c.audio in labels and labels[c.audio].reviewed)
     teacher = sum(1 for c in clips if c.audio in labels) - human
-    print(f"captured   {len(clips)} clips with audio ({hours:.1f} h)")
+    import collections
+    by_source = collections.Counter(c.source for c in clips)
+    print(f"captured   {len(clips)} clips with audio ({hours:.1f} h): "
+          + ", ".join(f"{n} {s}" for s, n in by_source.most_common()))
     print(f"labeled    {teacher} by teacher, {human} reviewed by you")
     ds = store.latest_dataset()
     if ds:
@@ -114,6 +123,19 @@ def cmd_clean(args: argparse.Namespace) -> None:
         print(f"{r.path.name}: {verb} {r.removed}/{r.total} ({detail})")
     if not args.apply:
         print("\ndry run — re-run with --apply to rewrite (backups are kept)")
+
+
+def cmd_import(args: argparse.Namespace) -> None:
+    import re
+
+    from voiceio.learn import importer
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", args.source):
+        raise SystemExit("--source: letters, digits, - and _ only")
+    r = importer.import_dir(args.folder, args.source)
+    print(f"imported {r.added} clips ({r.seconds / 3600:.2f} h) as '{args.source}'"
+          f"; {r.duplicate} already imported, {r.rejected} unreadable or out of range")
+    if r.added:
+        print("next: voiceio learn label")
 
 
 def cmd_label(args: argparse.Namespace) -> None:
