@@ -15,5 +15,7 @@
 | `voiceio corrections` | Manage find/replace rules for words it still gets wrong |
 | `voiceio learn …` | Personalize: label → review → augment → build → eval → train → promote |
 | `voiceio history` | Search what you have dictated |
+| `voiceio paste-last` | Type the last dictation again into the focused app (through the running daemon's typer) |
+| `voiceio copy-last` | Copy the last dictation to the clipboard |
 | `voiceio config` | Show or set config values |
 | `voiceio uninstall` | Remove the service, IBus component, shortcuts and symlinks (asks before deleting your data) |

@@ -367,6 +367,32 @@ class VoiceIO:
             retention.discard_audio(extra["audio"])
         return True
 
+    def paste_last(self) -> None:
+        """Type the last dictation again (`voiceio paste-last`)."""
+        from voiceio import history
+        text = history.last_text()
+        if not text:
+            log.info("paste-last: no dictation in history")
+            return
+        with self._hotkey_lock:
+            if self._state != _State.IDLE:
+                log.info("paste-last: ignored while dictating")
+                return
+        self._output_thread(self._type_again, text)
+
+    def _type_again(self, text: str) -> None:
+        # IBus commits only while a recording holds the input source; idle,
+        # paste it instead (clipboard copy + the paste chord).
+        typer = self._typers.clipboard_fallback() if self._typers.typer.name == "ibus" else None
+        try:
+            if typer is not None:
+                typer.type_text(text)
+            else:
+                self._typers.type_with_fallback(text)
+            log.info("paste-last: typed %s", describe_transcript(text))
+        except Exception:
+            log.exception("paste-last failed")
+
     def _on_auto_stop(self, reason: str = "silence") -> None:
         """Called from the audio thread when the recorder auto-stops.
 
@@ -808,6 +834,7 @@ class VoiceIO:
         control.handle("press", self.on_hotkey_press)
         control.handle("release", self.on_hotkey_release)
         control.handle("cancel", self.cancel)
+        control.handle("paste-last", self.paste_last)
         if self._cancel_hotkey is not None:
             self._cancel_hotkey.start(self.cfg.hotkey.cancel_key, self.cancel)
 

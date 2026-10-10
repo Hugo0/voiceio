@@ -169,6 +169,12 @@ def read(path: Path | None = None, limit: int = 0) -> list[dict]:
         return []
 
 
+def last_text(path: Path | None = None) -> str | None:
+    """The most recent dictation, or None."""
+    entries = read(path, limit=1)
+    return (entries[0].get("text") or None) if entries else None
+
+
 def search(query: str, path: Path | None = None) -> list[dict]:
     """Search history entries by substring (case-insensitive)."""
     query_lower = query.lower()
