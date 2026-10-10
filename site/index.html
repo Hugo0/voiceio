@@ -177,6 +177,10 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 .try.loading .talk { cursor: progress; background: var(--ink); }
 .try.loading .talk .lvl { background: color-mix(in oklch, var(--signal) 45%, transparent); transition: transform .35s var(--ease-quart); }
 .try.loading .talk .recdot { display: none; }
+.dots i { font-style: normal; display: inline-block; animation: dot 1.2s ease-in-out infinite; }
+.dots i:nth-child(2) { animation-delay: .15s; }
+.dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes dot { 0%, 60%, 100% { opacity: .25; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 .try.live .talk { background: var(--miss); }
 .try.live .talk .recdot { background: var(--surface); animation: rec 1.2s ease-in-out infinite; }
 .talk kbd { font: 600 11px/1 var(--mono); border: 1px solid oklch(1 0 0 / 0.4); border-bottom-width: 2px; border-radius: 4px; padding: 3px 6px 2px; letter-spacing: 0.08em; }
@@ -187,6 +191,9 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 .try.docked .try-head, .try.docked .try-foot { display: none; }
 .try.docked .try-out { flex: 1; min-width: 0; margin: 0; padding: 4px 6px; min-height: 0; max-height: none; white-space: nowrap; overflow: hidden; font-size: 14px; line-height: 1.5; }
 .try.docked .try-out:empty::before { content: "say something"; }
+/* with text, the docked bar grows upward so the whole text shows */
+.try.docked.has-text { flex-wrap: wrap; justify-content: flex-end; border-radius: 18px; padding: 10px 10px 8px 12px; }
+.try.docked.has-text .try-out { flex: 1 0 100%; white-space: pre-wrap; max-height: 7.6em; overflow-y: auto; padding: 4px 6px 6px; }
 .try.docked .talk { flex: none; width: auto; margin: 0; padding: 11px 15px; border-radius: 999px; font-size: 11px; }
 .try.docked .try-min { display: inline-grid; order: 3; }
 .try-pill { position: fixed; z-index: 40; right: 20px; bottom: 20px; display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
@@ -256,6 +263,11 @@ h2 { font-size: clamp(30px, 5vw, 54px); max-width: 19ch; }
 .fill { height: 100%; border-radius: 999px; width: 0; transition: width 1.2s var(--ease-expo); }
 .fill.stock { background: repeating-linear-gradient(90deg, var(--muted) 0 3px, transparent 3px 5px); }
 .fill.tuned { background: var(--gain); }
+.terms { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 9px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+.terms li { padding-left: 14px; position: relative; }
+.terms li::before { content: ""; position: absolute; left: 0; top: .62em; width: 6px; height: 6px; border-radius: 1px; background: var(--signal); }
+.terms b { color: var(--ink); font-weight: 600; }
+.fine code { white-space: normal; }
 .big { font: 800 clamp(44px, 6vw, 64px)/1 var(--display); letter-spacing: -0.03em; margin-top: 18px; }
 .big small { font: 400 12px/1.4 var(--mono); letter-spacing: 0; color: var(--muted); display: block; margin-top: 8px; }
 .fine { margin-top: auto; padding-top: 18px; font-size: 11px; color: var(--faint); line-height: 1.6; }
@@ -338,7 +350,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
     <a class="brand" href="#top" aria-label="voiceio home">VOICE<span class="io">IO</span><span class="flick">_</span></a>
     <nav aria-label="Sections">
       <a href="#how">How it works</a>
-      <a href="#proof">Proof</a>
+      <a href="#learns">It learns</a>
       <a href="#private">Privacy</a>
       <a href="#install">Install</a>
       <a href="#feedback">Feedback</a>
@@ -385,7 +397,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
 
   <section class="block wrap" id="how">
     <div class="label kicker">// how it works</div>
-    <h2>Speak. It types. Tonight, it learns.</h2>
+    <h2>Speak. It types. Nothing leaves your machine.</h2>
     <div class="grid3">
       <article class="cell scan">
         <div class="cell-head"><span class="num">01</span><span class="label">speak</span></div>
@@ -394,23 +406,24 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
         <p>Press your hotkey and talk. Text streams into the focused app — editor, browser, terminal — and commits the moment you stop.</p>
       </article>
       <article class="cell scan">
-        <div class="cell-head"><span class="num">02</span><span class="label">learn</span></div>
-        <div class="art"><canvas data-shape="loop" data-gap="4"></canvas></div>
-        <h3>It trains while you sleep.</h3>
-        <p>Overnight, on your CPU, voiceio fine-tunes Whisper on your own recordings. The names and jargon you say most stop coming out wrong.</p>
+        <div class="cell-head"><span class="num">02</span><span class="label">local</span></div>
+        <div class="art"><canvas data-shape="signal" data-gap="4"></canvas></div>
+        <h3>The model runs on your computer.</h3>
+        <p>Whisper decodes your speech on your own CPU. No account, no server, no upload: it works offline, and there is no telemetry.</p>
       </article>
       <article class="cell scan">
-        <div class="cell-head"><span class="num">03</span><span class="label">prove</span></div>
-        <div class="art"><canvas data-shape="signal" data-gap="4"></canvas></div>
-        <h3>It only switches when it wins.</h3>
-        <p>Each new model is scored on clips it never trained on. It goes live only if it beats yours. Rollback is one command.</p>
+        <div class="cell-head"><span class="num">03</span><span class="label">learn</span></div>
+        <div class="art"><canvas data-shape="loop" data-gap="4"></canvas></div>
+        <h3>It learns your words.</h3>
+        <p>Keep your recordings, on your disk, and voiceio fine-tunes its model on them while you sleep. Your names and jargon stop coming out wrong.</p>
       </article>
     </div>
   </section>
 
-  <section class="block wrap" id="proof">
-    <div class="label kicker">// proof</div>
-    <h2>One night of training. 60% fewer errors.</h2>
+  <section class="block wrap" id="learns">
+    <div class="label kicker">// it learns you</div>
+    <h2>A speech model that gets better at you.</h2>
+    <p class="sub">Stock models stumble on exactly the words you say most: people, products, your stack. A vocabulary helps on day one. Fine-tuning on your own voice fixes them for good, and it all happens on your computer.</p>
     <div class="bento">
       <div class="cell b-lg scan">
         <div class="cell-head"><span class="num">01</span><span class="label">same sentence, two models</span></div>
@@ -427,29 +440,40 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
           <div class="pane-foot" id="pane-note">Underlined text is the live preview; it commits when you stop.</div>
         </figure>
         <h3 style="font-size:26px;margin-top:24px">Your names stop coming out wrong.</h3>
-        <p style="max-width:52ch">Stock models stumble on exactly the words you say most: people, products, your stack. A vocabulary helps on day one. Fine-tuning fixes them for good.</p>
+        <p style="max-width:54ch">The fine-tune learns how you say them, from your own dictation, so it gets them right without a word list.</p>
       </div>
       <div class="cell b-sm scan">
-        <div class="cell-head"><span class="num">02</span><span class="label">word error rate</span></div>
+        <div class="cell-head"><span class="num">02</span><span class="label">one example</span></div>
+        <h3 style="font-size:21px;margin-top:20px">One night: 60% fewer errors.</h3>
         <div class="meter" id="meter">
           <div><div class="row"><span>stock whisper-small</span><b>12.1%</b></div><div class="track"><div class="fill stock" data-w="60.5"></div></div></div>
           <div><div class="row"><span>after one night</span><b>4.9%</b></div><div class="track"><div class="fill tuned" data-w="24.5"></div></div></div>
         </div>
-        <div class="big">4.6×<small>faster than realtime, on a laptop CPU — quicker than stock (3.6×).</small></div>
-        <p class="fine">44 held-out clips, 50 minutes of the author's dictation, scored against a larger Whisper's transcripts.</p>
+        <div class="big">4.6×<small>faster than realtime on a laptop CPU, and quicker than stock (3.6×).</small></div>
+        <p class="fine">The author's dictation: 44 held-out clips (50 min), scored against a larger Whisper's transcripts. <code>voiceio learn eval</code> measures yours.</p>
       </div>
       <div class="cell b-sm scan">
-        <div class="cell-head"><span class="num">03</span><span class="label">measured, not promised</span></div>
-        <h3 style="font-size:21px;margin-top:20px">Run the numbers on your voice.</h3>
-        <p><code>voiceio learn eval</code> scores any model on your own clips: word errors, how often your terms come out right, and how long you wait after you stop.</p>
-        <p class="fine">Promotion needs a paired, clip-by-clip win, not a lucky average.</p>
+        <div class="cell-head"><span class="num">03</span><span class="label">on your terms</span></div>
+        <h3 style="font-size:21px;margin-top:20px">It trains when you're not using it.</h3>
+        <ul class="terms">
+          <li><b>When you say.</b> Daily or weekly, at a time you pick.</li>
+          <li><b>Only when idle.</b> It waits for a quiet machine on mains power.</li>
+          <li><b>Never a surprise.</b> A notification when it starts, with Stop and Weekly buttons.</li>
+          <li><b>Only if it wins.</b> A new model must beat yours on clips it never trained on. Rollback is one command.</li>
+        </ul>
+        <p class="fine"><code>learn schedule on --at 02:00 --every week</code></p>
       </div>
-      <div class="cell b-wide scan" id="private">
-        <div class="cell-head"><span class="num">04</span><span class="label">private by construction</span></div>
-        <h3 style="font-size:24px;margin-top:20px">What it keeps, and where. All of it on your disk.</h3>
-        <p style="max-width:64ch">No account. No server. No telemetry. Logs record sizes and timings, never your words. Everything that holds your voice is off until you turn it on.</p>
+    </div>
+  </section>
+
+  <section class="block wrap" id="private">
+    <div class="label kicker">// private by construction</div>
+    <h2>What it keeps, and where. All of it on your disk.</h2>
+    <p class="sub">No account. No server. No telemetry. Logs record sizes and timings, never your words. Everything that holds your voice is off until you turn it on, and it is plain files you can read and delete.</p>
+    <div class="bento">
+      <div class="cell b-wide scan">
         <div class="table-scroll">
-          <table class="ledger">
+          <table class="ledger" style="margin-top:0">
             <thead><tr><th>File</th><th>What it holds</th><th>Default</th></tr></thead>
             <tbody>
               <tr><td>vocabulary.txt</td><td>Your names and terms, ranked by how often you say them</td><td><span class="chip on">yours to edit</span></td></tr>
@@ -730,14 +754,14 @@ void main(){
   }
   function progress(frac, text) {
     talk.style.setProperty("--lvl", frac.toFixed(3));
-    talkLabel.textContent = text;
+    talkLabel.innerHTML = text + '<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>';
   }
 
   function ensureModel() {
     if (T.worker) return;
     T.model = "loading";
     label();
-    progress(0.02, "loading the model…");
+    progress(0.02, "loading the local model");
     setStatus("downloads once (67 MB), then it's cached");
     T.worker = new Worker("asr-worker.js", { type: "module" });
     T.worker.onmessage = onWorker;
@@ -855,7 +879,8 @@ void main(){
       const all = Object.values(T.files);
       const got = all.reduce((n, f) => n + (f.loaded || 0), 0), total = all.reduce((n, f) => n + (f.total || 0), 0);
       const frac = total ? got / total : 0;
-      progress(Math.max(0.02, frac), got >= total ? "preparing the model…" : "loading the model · " + Math.round(frac * 100) + "%");
+      // Files announce themselves one by one, so "done" only counts once the big ones are in.
+      progress(Math.max(0.02, frac), got >= total && total > 40e6 ? "preparing the local model" : "loading the local model · " + Math.round(frac * 100) + "%");
     } else if (data.type === "ready") {
       T.model = "ready";
       setLevel(0);
