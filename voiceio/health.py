@@ -247,7 +247,8 @@ def _learning_status(cfg) -> dict[str, str]:
         out["Recordings"] = f"on ({n} kept to learn from)"
     else:
         out["Recordings"] = "off (nothing to learn from)"
-    out["Nightly learning"] = "on" if service.learn_timer_enabled() else "off"
+    out["Nightly learning"] = ("off" if not service.learn_timer_enabled() else
+                               "on (auto-promote)" if service.learn_timer_auto_promotes() else "on")
     return out
 
 

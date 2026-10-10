@@ -138,6 +138,7 @@ voiceio learn train      # LoRA fine-tune (needs the `train` extra; decoder-only
 voiceio learn promote <run>   # dictate with the fine-tune; `voiceio learn rollback` undoes it
 voiceio learn maintain   # later: label what's new, and once 50+ clips piled up, retrain and compare
 voiceio learn schedule on   # …or let it run `maintain` every night, and notify you when a model wins
+                            #   (--auto-promote: switch to a winner by itself; `learn rollback` undoes it)
 ```
 
 Labeling, training and offline eval run in an idle-priority cgroup, so they never slow dictation down. Everything stays on your machine unless you choose `train --remote`.
@@ -248,7 +249,7 @@ Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
 ## Roadmap
 
 - **A landing page** — voiceio as local, open-source, private dictation that learns from you. A draft is in [`site/index.html`](site/index.html), ready for GitHub Pages.
-- **Hands-off promotion** — `learn schedule` already retrains nightly and tells you when a model wins; next is switching to it automatically, with one-command rollback.
+- **A gold test set in minutes** — `learn review --test` asks you to check the held-out clips one by one; ranking them by where the models disagree would make a useful gold set take minutes, not an hour.
 - **Unbounded vocabulary** — move to a decoder whose biasing has no token cap (see [model choice](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it)).
 - **One model everywhere** — sync your fine-tune to your phone server and laptops, peer to peer.
 

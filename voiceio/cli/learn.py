@@ -84,10 +84,14 @@ def register(sub: argparse._SubParsersAction) -> None:
                     help="new labeled clips needed before retraining (default 50)")
     mt.add_argument("--base", default="small")
     mt.add_argument("--epochs", type=int, default=4)
+    mt.add_argument("--auto-promote", action="store_true",
+                    help="switch to the fine-tune when it wins, and restart the daemon")
     mt.set_defaults(func=cmd_maintain)
 
     sc = lsub.add_parser("schedule", help="Run `maintain` every night (systemd timer)")
     sc.add_argument("state", nargs="?", choices=("on", "off"), help="omit to show")
+    sc.add_argument("--auto-promote", action="store_true",
+                    help="with on: switch to a fine-tune that wins, without asking")
     sc.set_defaults(func=cmd_schedule)
 
     pr = lsub.add_parser("promote", help="Use a trained model for dictation")
@@ -182,8 +186,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(f"models     {', '.join(runs)}")
     active = _cfg().model.name
     print(f"active     {active}")
-    from voiceio import service
-    print(f"nightly    {'on' if service.learn_timer_enabled() else 'off (voiceio learn schedule on)'}")
+    print(f"nightly    {_schedule_state()}")
     promotable = _print_scores(ds, active, runs) if ds else None
     if promotable:
         nxt = f"promote {promotable}"
@@ -454,11 +457,29 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     print(f"\n{_cfg().model.name} → {run.name} on {ds.name}:\n{table}")
     print(f"better or equal on everything — `voiceio learn promote {run.name}`" if ok
           else "not better on everything — keeping the current model")
-    if ok:   # often runs unattended at night: say so where it will be seen
-        from voiceio import feedback
+    if not ok:
+        return
+    # Often runs unattended at night: say so where it will be seen.
+    from voiceio import feedback
+    if getattr(args, "auto_promote", False):
+        cmd_promote(argparse.Namespace(run=run.name, force=False))
+        from voiceio import service
+        if service.is_installed():
+            service.restart_when_idle()
+        feedback.notify("VoiceIO: switched to a better model",
+                        f"Trained on your dictation: {run.name}. Undo: voiceio learn rollback",
+                        urgent=True)
+    else:
         feedback.notify("VoiceIO: a better model is ready",
                         f"Trained on your dictation. Use it: voiceio learn promote {run.name}",
                         urgent=True)
+
+
+def _schedule_state() -> str:
+    from voiceio import service
+    if not service.learn_timer_enabled():
+        return "off (voiceio learn schedule on)"
+    return "on (auto-promote)" if service.learn_timer_auto_promotes() else "on"
 
 
 def cmd_schedule(args: argparse.Namespace) -> None:
@@ -471,16 +492,18 @@ def cmd_schedule(args: argparse.Namespace) -> None:
         if missing := train.missing_train_deps():
             print(f"note: until {', '.join(missing)} are installed it only labels new clips;\n"
                   f"      to also retrain: {train.TRAIN_HINT}")
-        if not service.install_learn_timer():
+        if not service.install_learn_timer(auto_promote=args.auto_promote):
             raise SystemExit("could not enable the timer (needs systemd --user)")
         print("on: every night ~03:30, `voiceio learn maintain` labels new dictation at idle "
-              "priority, retrains once 50+ clips are new, and tells you if the result is better. "
-              "It never switches models by itself.")
+              "priority, retrains once 50+ clips are new, and "
+              + ("switches to the result when it wins on your held-out clips "
+                 "(undo: voiceio learn rollback)." if args.auto_promote else
+                 "tells you if the result is better. It never switches models by itself."))
     elif args.state == "off":
         service.uninstall_learn_timer()
         print("off")
     else:
-        print("on" if service.learn_timer_enabled() else "off — enable: voiceio learn schedule on")
+        print(_schedule_state())
 
 
 def _scores(result) -> dict:

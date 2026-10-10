@@ -308,3 +308,31 @@ def test_wait_summary_p90_never_exceeds_max():
     s = r.wait_summary()
     p90 = float(s.split("p90 ")[1].split("s")[0])
     assert p90 <= 6.83
+
+
+def test_maintain_auto_promote_switches_restarts_and_says_how_to_undo(monkeypatch):
+    import argparse
+    from types import SimpleNamespace
+
+    from voiceio import feedback, service
+    from voiceio.cli import learn as cli
+    from voiceio.learn import evaluate
+    for i in range(3):
+        _clip(f"{i}.wav", 3, "x")
+        store.add_label(f"{i}.wav", [Segment(0, 3, "hello there")], "teacher:fake")
+    run = store.learn_dir() / "models" / "v0001-small-x"
+    calls = []
+    monkeypatch.setattr(cli, "cmd_label", lambda a: None)
+    monkeypatch.setattr(train, "missing_train_deps", lambda: [])
+    monkeypatch.setattr(cli, "_run_eval", lambda *a, **k: SimpleNamespace(
+        wer=0.1, term_recall=0.5, repetitions=0, per_clip=[]))
+    monkeypatch.setattr(cli, "_train", lambda *a, **k: run)
+    monkeypatch.setattr(evaluate, "promotion_verdict", lambda c, b: (True, "table"))
+    monkeypatch.setattr(cli, "cmd_promote", lambda a: calls.append(("promote", a.run)))
+    monkeypatch.setattr(service, "is_installed", lambda: True)
+    monkeypatch.setattr(service, "restart_when_idle", lambda: calls.append(("restart",)))
+    monkeypatch.setattr(feedback, "notify", lambda t, b, urgent=False: calls.append(("notify", b)))
+
+    cli.cmd_maintain(argparse.Namespace(min_new=1, base="small", epochs=1, auto_promote=True))
+    assert calls[:2] == [("promote", "v0001-small-x"), ("restart",)]
+    assert "voiceio learn rollback" in calls[2][1]

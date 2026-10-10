@@ -60,3 +60,16 @@ def test_daemon_publishes_state_and_restart_waits_for_idle(monkeypatch):
     assert wait_until_idle(timeout=5, poll=0.05)      # waited for the dictation
     vio._state = _State.FINALIZING
     assert not wait_until_idle(timeout=0.2, poll=0.05)   # gives up, says so
+
+
+def test_learn_timer_auto_promote_is_opt_in(monkeypatch, tmp_path):
+    monkeypatch.setattr(service, "has_systemd", lambda: True)
+    monkeypatch.setattr(service, "_systemctl", lambda *a: True)
+    monkeypatch.setattr(service, "_find_voiceio_bin", lambda: "voiceio")
+    monkeypatch.setattr(service, "LEARN_SERVICE_PATH", tmp_path / "s.service")
+    monkeypatch.setattr(service, "LEARN_TIMER_PATH", tmp_path / "s.timer")
+    service.install_learn_timer()
+    assert not service.learn_timer_auto_promotes()
+    service.install_learn_timer(auto_promote=True)
+    assert "learn maintain --auto-promote" in service.LEARN_SERVICE_PATH.read_text()
+    assert service.learn_timer_auto_promotes()

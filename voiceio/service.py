@@ -86,8 +86,9 @@ WantedBy=graphical-session.target
 """
 
 
-def _learn_units(bin_path: str) -> tuple[str, str]:
+def _learn_units(bin_path: str, auto_promote: bool = False) -> tuple[str, str]:
     """(service, timer) for nightly learning on this machine."""
+    flags = " --auto-promote" if auto_promote else ""
     service = f"""\
 [Unit]
 Description=VoiceIO - learn from today's dictation (label, retrain when enough is new)
@@ -95,7 +96,7 @@ Documentation=https://github.com/Hugo0/voiceio#make-it-yours
 
 [Service]
 Type=oneshot
-ExecStart={bin_path} learn maintain
+ExecStart={bin_path} learn maintain{flags}
 # Background work: it gets the CPU only when nothing else wants it, so
 # dictation and everything else stay fast. The unit's own cgroup already
 # does what `learn` would otherwise re-exec into a scope for.
@@ -128,11 +129,11 @@ def _systemctl(*args: str) -> bool:
         return False
 
 
-def install_learn_timer() -> bool:
+def install_learn_timer(auto_promote: bool = False) -> bool:
     """Run `voiceio learn maintain` nightly. True when the timer is enabled."""
     if _IS_WINDOWS or not has_systemd():
         return False
-    service, timer = _learn_units(_find_voiceio_bin())
+    service, timer = _learn_units(_find_voiceio_bin(), auto_promote)
     SERVICE_DIR.mkdir(parents=True, exist_ok=True)
     LEARN_SERVICE_PATH.write_text(service)
     LEARN_TIMER_PATH.write_text(timer)
@@ -149,6 +150,20 @@ def uninstall_learn_timer() -> None:
 
 def learn_timer_enabled() -> bool:
     return LEARN_TIMER_PATH.exists() and _systemctl("is-enabled", "--quiet", LEARN_TIMER_NAME)
+
+
+def learn_timer_auto_promotes() -> bool:
+    try:
+        return "--auto-promote" in LEARN_SERVICE_PATH.read_text()
+    except OSError:
+        return False
+
+
+def restart_when_idle() -> bool:
+    """Restart the daemon once no dictation is in progress."""
+    from voiceio.cli.servicecmd import wait_until_idle
+    wait_until_idle()
+    return _systemctl("restart", SERVICE_NAME)
 
 
 def uninstall_correct_timer() -> None:
