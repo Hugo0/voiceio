@@ -76,13 +76,17 @@ _DECODER_TARGETS = (r".*decoder\.layers\.\d+\.(self_attn\.(q_proj|k_proj|v_proj|
                     r"|encoder_attn\.(q_proj|out_proj)|fc1|fc2)")
 
 
+TRAIN_HINT = "pip install 'python-voiceio[train]'"
+
+
+def missing_train_deps() -> list[str]:
+    """Training packages that aren't installed (the `train` extra)."""
+    import importlib.util
+    return [m for m in ("torch", "transformers", "peft") if importlib.util.find_spec(m) is None]
+
+
 def require_train_deps() -> None:
-    missing = []
-    for mod in ("torch", "transformers", "peft"):
-        try:
-            __import__(mod)
-        except ImportError:
-            missing.append(mod)
+    missing = missing_train_deps()
     if missing:
         raise RuntimeError(
             f"training needs {', '.join(missing)}: pip install 'python-voiceio[train]'")

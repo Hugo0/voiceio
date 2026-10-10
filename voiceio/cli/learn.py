@@ -428,6 +428,12 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     _yield_cpu()
     from voiceio.learn import evaluate
     cmd_label(argparse.Namespace(teacher=None, limit=None, relabel=False))
+    from voiceio.learn import train
+    if missing := train.missing_train_deps():
+        # Labeling alone is worth it; retraining waits for the extra. Exit 0:
+        # a nightly timer must not fail every night over an optional install.
+        print(f"labeled; fine-tuning needs {', '.join(missing)}: {train.TRAIN_HINT}")
+        return
     labels = store.load_labels()
     labeled = {c.audio for c in store.clips() if c.audio in labels}
     ds = store.latest_dataset()
@@ -457,6 +463,10 @@ def cmd_schedule(args: argparse.Namespace) -> None:
         if not config.load().data.retain_audio:
             print("note: [data] retain_audio is off, so there is nothing new to learn from;\n"
                   "      turn it on with: voiceio config set data.retain_audio true")
+        from voiceio.learn import train
+        if missing := train.missing_train_deps():
+            print(f"note: until {', '.join(missing)} are installed it only labels new clips;\n"
+                  f"      to also retrain: {train.TRAIN_HINT}")
         if not service.install_learn_timer():
             raise SystemExit("could not enable the timer (needs systemd --user)")
         print("on: every night ~03:30, `voiceio learn maintain` labels new dictation at idle "

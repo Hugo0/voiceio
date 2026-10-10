@@ -230,9 +230,25 @@ def test_maintain_waits_for_enough_new_clips(monkeypatch, capsys):
     store.add_label("new.wav", [Segment(0, 3, "a new one")], "teacher:fake")
 
     monkeypatch.setattr(cli, "cmd_label", lambda args: None)
+    monkeypatch.setattr(train, "missing_train_deps", lambda: [])
     monkeypatch.setattr(cli, "_train", lambda *a, **k: pytest.fail("must not retrain"))
     cli.cmd_maintain(argparse.Namespace(min_new=5, base="small", epochs=1))
     assert "1 new labeled clips since v0001" in capsys.readouterr().out
+
+
+def test_maintain_without_train_extra_labels_and_exits_cleanly(monkeypatch, capsys):
+    """A nightly timer must not fail every night, or spend an eval, over an
+    optional install."""
+    import argparse
+
+    from voiceio.cli import learn as cli
+    labeled = []
+    monkeypatch.setattr(cli, "cmd_label", lambda args: labeled.append(True))
+    monkeypatch.setattr(train, "missing_train_deps", lambda: ["torch", "peft"])
+    monkeypatch.setattr(store, "build_dataset", lambda: pytest.fail("must not build"))
+    monkeypatch.setattr(cli, "_run_eval", lambda *a, **k: pytest.fail("must not eval"))
+    cli.cmd_maintain(argparse.Namespace(min_new=5, base="small", epochs=1))
+    assert labeled and "python-voiceio[train]" in capsys.readouterr().out
 
 
 def test_dev_mix_is_stable_per_row():
