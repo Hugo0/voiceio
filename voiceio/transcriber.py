@@ -9,6 +9,7 @@ import base64
 import json
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -98,6 +99,14 @@ def normalize_audio(audio: np.ndarray) -> np.ndarray:
     return np.clip(audio * gain, -1.0, 1.0).astype(np.float32)
 
 
+# Distil-Whisper checkpoints before large-v3 were distilled without prompt
+# conditioning: a hotword/context prompt derails them. Measured on
+# distil-small.en (our 115-token hotwords): 0, 33, 110 or 56 words for a
+# 21-word clip depending only on max_new_tokens — WER 96% over 30 clips.
+# distil-large-v3 trained with prompts half the time and is not affected.
+_PROMPTLESS = re.compile(r"distil-(small|medium|large-v2)")
+
+
 class Transcriber:
     """faster-whisper `Decoder`. Bias travels with each request; the object
     holds no per-recording state, so concurrent sessions can share it."""
@@ -110,6 +119,8 @@ class Transcriber:
     def __init__(self, cfg: ModelConfig):
         self._cfg = cfg
         self.name = f"faster-whisper:{cfg.name}"
+        if _PROMPTLESS.search(cfg.name):
+            self.capabilities = Capabilities(bias=BiasMode.NONE)
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
         self._restarts = 0
@@ -215,6 +226,8 @@ class Transcriber:
         conditions a tail decode on the already-frozen transcript so sentences
         stay coherent across the cut.
         """
+        if not self.capabilities.bias:
+            bias = Bias()   # a model that can't take a prompt gets none at all
         with self._lock:
             self._ensure_worker()
 

@@ -268,3 +268,12 @@ def test_describe_transcript_never_contains_text():
     from voiceio.transcriber import describe_transcript
     assert describe_transcript("my secret plan") == "3 words"
     assert describe_transcript("") == "(silence)"
+
+
+def test_promptless_distil_models_take_no_bias():
+    from voiceio.config import ModelConfig
+    from voiceio.core.decoders.base import BiasMode
+    from voiceio.transcriber import Transcriber
+    assert Transcriber(ModelConfig(name="distil-small.en")).capabilities.bias == BiasMode.NONE
+    assert Transcriber(ModelConfig(name="distil-large-v3")).capabilities.bias != BiasMode.NONE
+    assert Transcriber(ModelConfig(name="small")).capabilities.bias != BiasMode.NONE
