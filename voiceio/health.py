@@ -228,7 +228,6 @@ def _check_features() -> FeatureGroups:
 def _check_ibus() -> IBusStatus:
     """Run detailed IBus health checks."""
     from pathlib import Path
-    from voiceio.ibus import SOCKET_PATH
     from voiceio.typers.ibus import (
         _ibus_daemon_running, _component_installed,
     )
@@ -236,7 +235,9 @@ def _check_ibus() -> IBusStatus:
     status = IBusStatus()
     status.component_installed = _component_installed()
     status.daemon_running = _ibus_daemon_running()
-    status.socket_reachable = SOCKET_PATH.exists()
+    # Ping, not exists(): an engine can hold a socket file yet be deaf.
+    from voiceio.ibus import ping_engine
+    status.socket_reachable = ping_engine(timeout=1.0)
 
     # Check GNOME input source
     try:
@@ -375,7 +376,8 @@ def format_report(report: HealthReport) -> str:
         for label, ok, hint in [
             ("Component installed", ibus.component_installed, "voiceio setup"),
             ("Daemon running", ibus.daemon_running, "ibus-daemon -drxR"),
-            ("Engine socket", ibus.socket_reachable, "start voiceio to activate"),
+            ("Engine answers", ibus.socket_reachable,
+             "voiceio service restart (or start voiceio)"),
             ("GNOME input source", ibus.gnome_source_configured, "voiceio setup"),
             ("Env persisted (reboot-safe)", ibus.env_persisted, "voiceio setup"),
         ]:
