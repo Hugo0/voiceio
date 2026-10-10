@@ -44,6 +44,9 @@ COMPONENT_NAME = "org.voiceio.ibus"
 # largest datagram a sender can produce (SO_SNDBUF, ~208K by default) so that
 # cannot happen.
 RECV_BYTES = 262144
+# Between commit chunks: long enough for the compositor to flush the previous
+# one to the app, short enough that a 10KB note lands in a blink.
+COMMIT_GAP_MS = 40
 
 
 class VoiceIOEngine(IBus.Engine):
@@ -90,10 +93,30 @@ class VoiceIOEngine(IBus.Engine):
         self.update_preedit_text(ibus_text, len(shown), True)
 
     def commit(self, text: str) -> None:
-        """Clear preedit and commit final text."""
+        """Clear preedit and commit final text, in size-capped chunks.
+
+        Each chunk after the first goes out on a later main-loop turn. The
+        compositor holds a commit as pending until it sends `done` from its
+        own idle handler, and a second commit before that *replaces* the
+        first — committing chunks back to back delivered only the last one
+        (a long dictation pasted as its final ~2KB).
+        """
         self.hide_preedit_text()
-        for chunk in split_utf8(text):
+        chunks = split_utf8(text)
+        if not chunks:
+            return
+        self.commit_text(IBus.Text.new_from_string(chunks[0]))
+        rest = iter(chunks[1:])
+
+        def next_chunk() -> bool:
+            chunk = next(rest, None)
+            if chunk is None:
+                return False
             self.commit_text(IBus.Text.new_from_string(chunk))
+            return True
+
+        if len(chunks) > 1:
+            GLib.timeout_add(COMMIT_GAP_MS, next_chunk)
 
     def clear(self) -> None:
         """Clear preedit without committing."""

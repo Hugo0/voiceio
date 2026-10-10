@@ -48,6 +48,19 @@ class _Recorder:
         self.preedits.append(text.string)
 
 
+timers: list = []
+
+
+def _run_timers() -> int:
+    """Fire pending GLib timeouts until each returns False; count the ticks."""
+    ticks = 0
+    for _, fn in list(timers):
+        while fn():
+            ticks += 1
+    timers.clear()
+    return ticks
+
+
 @pytest.fixture
 def engine(monkeypatch):
     ibus = types.SimpleNamespace(
@@ -59,7 +72,9 @@ def engine(monkeypatch):
     )
     repository = types.ModuleType("gi.repository")
     repository.IBus = ibus
-    repository.GLib = types.SimpleNamespace()
+    timers.clear()
+    repository.GLib = types.SimpleNamespace(
+        timeout_add=lambda ms, fn: timers.append((ms, fn)))
     repository.GObject = types.SimpleNamespace()
     gi = types.ModuleType("gi")
     gi.require_version = lambda *a, **k: None
@@ -86,6 +101,7 @@ def _nbytes(text: str) -> int:
 def test_commit_chunks_stay_under_the_limit(engine, long_note):
     rec = _Recorder()
     engine.commit(rec, long_note)
+    _run_timers()
     assert len(rec.committed) > 1
     assert all(_nbytes(c) <= MAX_TEXT_BYTES for c in rec.committed)
 
@@ -93,7 +109,23 @@ def test_commit_chunks_stay_under_the_limit(engine, long_note):
 def test_commit_delivers_the_whole_note(engine, long_note):
     rec = _Recorder()
     engine.commit(rec, long_note)
+    _run_timers()
     assert "".join(rec.committed) == long_note
+
+
+def test_commit_chunks_go_out_on_separate_main_loop_turns(engine, long_note):
+    """Back-to-back commits are coalesced by the compositor: only the last one
+    reached the app, so a long dictation pasted as its final snippet."""
+    rec = _Recorder()
+    engine.commit(rec, long_note)
+    assert len(rec.committed) == 1          # first chunk now, the rest later
+    assert _run_timers() == len(rec.committed) - 1 >= 1
+
+
+def test_short_commit_needs_no_timer(engine):
+    rec = _Recorder()
+    engine.commit(rec, "hello there")
+    assert rec.committed == ["hello there"] and timers == []
 
 
 def test_commit_hides_preedit_first(engine, long_note):
