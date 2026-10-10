@@ -480,6 +480,12 @@ class VoiceIO:
 
     def _do_start(self) -> None:
         """Transition to RECORDING."""
+        # The chime first: the checks below can take half a second after an
+        # idle or a suspend, and the 1s pre-buffer keeps the words said
+        # meanwhile.
+        cue_at = time.monotonic()
+        self._play_record_cue(start=True)
+        log.debug("Start cue %.0f ms after the hotkey", (cue_at - self._last_hotkey) * 1000)
         # Pre-flight: ensure audio stream is healthy before recording
         ok, reason = self.recorder.stream_health()
         if not ok:
@@ -533,11 +539,12 @@ class VoiceIO:
         self._record_start = time.monotonic()
         self.recorder.start()
         self.recorder.set_on_auto_stop(self._on_auto_stop)
-        self._play_record_cue(start=True)
         # Ducking lowers the whole output, voiceio's chimes included: it waits
         # for the start chime to play out, and _do_stop restores the volume
         # before the stop chime plays.
-        self._quiet.start(duck_after=self._start_cue_secs())
+        since_cue = time.monotonic() - cue_at
+        self._quiet.start(duck_after=max(0.0, self._start_cue_secs() - since_cue))
+        log.debug("Recording %.0f ms after the start cue", since_cue * 1000)
         tray.set_recording(True)
         if self._streaming:
             self._session = self.engine.session(

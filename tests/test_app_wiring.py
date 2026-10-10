@@ -346,3 +346,48 @@ class TestIBusWiring:
         vio._watchdog.check()
         vio._ibus.health_tick.assert_called_with(False)
         vio._ibus.hijacked.assert_called_once()
+
+
+class TestStartCue:
+    """The start chime plays before the pre-flight (stream health, zombie
+    reopen with its 0.4s settle) instead of after it."""
+
+    def _events(self, vio, monkeypatch, slow=0.0):
+        from voiceio import feedback
+        events = []
+        vio.cfg.feedback.sound_enabled = True
+        monkeypatch.setattr(feedback, "play_record_start", lambda: events.append("cue"))
+        monkeypatch.setattr(feedback, "cue_secs", lambda name: 0.5)
+
+        def health():
+            events.append("preflight")
+            time.sleep(slow)
+            return True, ""
+
+        vio.recorder.stream_health = health
+        real_start = vio.recorder.start
+        vio.recorder.start = lambda: (events.append("record"), real_start())
+        vio._quiet = MagicMock()
+        return events
+
+    def test_cue_comes_first(self, monkeypatch):
+        vio, _, _ = _make_vio()
+        events = self._events(vio, monkeypatch)
+        vio.on_hotkey()
+        assert events == ["cue", "preflight", "record"]
+
+    def test_duck_still_waits_for_the_cue_to_end(self, monkeypatch):
+        vio, _, _ = _make_vio()
+        self._events(vio, monkeypatch, slow=0.2)
+        vio.on_hotkey()
+        duck_after = vio._quiet.start.call_args.kwargs["duck_after"]
+        assert 0.2 <= duck_after <= 0.31     # 0.5s cue, ~0.2s of it spent on the pre-flight
+
+    def test_aborted_start_stays_idle(self, monkeypatch):
+        from voiceio.app import _State
+        vio, _, _ = _make_vio()
+        events = self._events(vio, monkeypatch)
+        vio.recorder.stream_health = lambda: (False, "dead")
+        vio.recorder.reopen_stream = MagicMock(side_effect=OSError("gone"))
+        vio.on_hotkey()
+        assert events == ["cue"] and vio._state == _State.IDLE

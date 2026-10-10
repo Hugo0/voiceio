@@ -895,6 +895,8 @@ class TestZombieStreamRecovery:
         app.recorder.has_signal.return_value = True  # healthy after reopen
         app._streaming = False
         app.cfg.data.capture_context = False
+        app._start_cue_secs.return_value = 0.0
+        app._last_hotkey = 0.0
         with patch.object(app_mod.time, "sleep"):
             app_mod.VoiceIO._do_start(app)
         app.recorder.reopen_stream.assert_called_once()
