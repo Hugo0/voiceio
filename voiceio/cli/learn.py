@@ -80,10 +80,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     t.set_defaults(func=cmd_train)
 
     mt = lsub.add_parser("maintain", help="Label new clips; retrain and compare once enough piled up")
-    mt.add_argument("--min-new", type=int, default=50,
-                    help="new labeled clips needed before retraining (default 50)")
-    mt.add_argument("--base", default="small")
-    mt.add_argument("--epochs", type=int, default=4)
+    mt.add_argument("--min-new", type=int, default=None,
+                    help="new labeled clips needed before retraining (default: [learn] min_new)")
+    mt.add_argument("--base", default=None, help="model to fine-tune (default: [learn] base)")
+    mt.add_argument("--epochs", type=int, default=None, help="default: [learn] epochs")
     mt.add_argument("--auto-promote", action="store_true",
                     help="switch to the fine-tune when it wins, and restart the daemon")
     mt.add_argument("--when-idle", action="store_true",
@@ -426,7 +426,8 @@ def _train(ds: Path, *, base: str = "small", epochs: int = 4, synthetic_share: f
     folder = store.learn_dir() / "exports" / ds.name
     counts = train.export(ds, folder, extra_train_rows=synth, hotwords=_live_hotwords())
     print(f"exported {counts} windows ({len(synth)} synthetic) to {folder}")
-    run = _models_dir() / f"{ds.name}-{base}-{time.strftime('%Y%m%d-%H%M')}"
+    # A Hugging Face id or path names the run by its last part: one directory.
+    run = _models_dir() / f"{ds.name}-{Path(base).name}-{time.strftime('%Y%m%d-%H%M')}"
     if remote:
         print("\n" + train.remote_recipe(folder, run, base))
         return None
@@ -443,12 +444,12 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     whether the result beats the current model. Never promotes by itself."""
     _yield_cpu()
     from voiceio.learn import evaluate, quiet
-    learn_cfg = _cfg().learn
+    learn_cfg = _maintain_settings(args)
     if getattr(args, "when_idle", False) and not quiet.wait_until_quiet(
             learn_cfg.max_load, learn_cfg.wait_hours):
         return
-    _announce_learning(args.min_new)
-    cmd_label(argparse.Namespace(teacher=None, limit=None, relabel=False))
+    _announce_learning(learn_cfg.min_new)
+    cmd_label(argparse.Namespace(teacher=learn_cfg.teacher or None, limit=None, relabel=False))
     from voiceio.learn import train
     if missing := train.missing_train_deps():
         # Labeling alone is worth it; retraining waits for the extra. Exit 0:
@@ -459,14 +460,14 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     labeled = {c.audio for c in store.clips() if c.audio in labels}
     ds = store.latest_dataset()
     new = len(labeled - store.dataset_clips(ds)) if ds else len(labeled)
-    if new < args.min_new:   # the first dataset too: a handful of clips trains nothing
+    if new < learn_cfg.min_new:   # the first dataset too: a handful of clips trains nothing
         since = f" since {ds.name}" if ds else ""
-        print(f"{new} new labeled clips{since}; retraining waits for {args.min_new}.")
+        print(f"{new} new labeled clips{since}; retraining waits for {learn_cfg.min_new}.")
         return
     ds = store.build_dataset()
     print(f"built {ds.name} ({new} new clips)")
     current = _run_eval(None, ds)
-    run = _train(ds, base=args.base, epochs=args.epochs)
+    run = _train(ds, base=learn_cfg.base, epochs=learn_cfg.epochs)
     candidate = _run_eval(str(run / "ct2"), ds)
     ok, table = evaluate.promotion_verdict(_scores(candidate), _scores(current))
     print(f"\n{_cfg().model.name} → {run.name} on {ds.name}:\n{table}")
@@ -496,6 +497,24 @@ def cmd_maintain(args: argparse.Namespace) -> None:
         feedback.notify("VoiceIO: a better model is ready",
                         f"Trained on your dictation. Use it: voiceio learn promote {run.name}",
                         urgent=True)
+
+
+def _maintain_settings(args: argparse.Namespace | None = None):
+    """`[learn]` with `maintain`'s flags applied, validated: an unattended run
+    must fail on a bad setting with a message, not deep inside training."""
+    import dataclasses
+    cfg = _cfg()
+    flags = {k: getattr(args, k, None) for k in ("base", "epochs", "min_new")}
+    learn = dataclasses.replace(cfg.learn, **{k: v for k, v in flags.items() if v is not None})
+    if not learn.base.strip():
+        raise SystemExit("[learn] base must name a model to fine-tune, e.g. small")
+    for key in ("epochs", "min_new"):
+        if getattr(learn, key) < 1:
+            raise SystemExit(f"[learn] {key} must be at least 1, not {getattr(learn, key)}")
+    language = cfg.model.language
+    if learn.base.endswith(".en") and language not in ("en", "auto"):
+        raise SystemExit(f"[learn] base {learn.base} is English-only; [model] language is {language}")
+    return learn
 
 
 def _announce_learning(min_new: int) -> None:
@@ -568,6 +587,7 @@ def cmd_schedule(args: argparse.Namespace) -> None:
             print(f"on, {service.learn_schedule_summary()}")
             return
     if args.state == "on":
+        min_new = _maintain_settings().min_new
         if not config.load().data.retain_audio:
             print("note: [data] retain_audio is off, so there is nothing new to learn from;\n"
                   "      turn it on with: voiceio config set data.retain_audio true")
@@ -581,7 +601,7 @@ def cmd_schedule(args: argparse.Namespace) -> None:
         print(f"on, {service.learn_schedule_summary()}: once the machine is quiet (load per CPU "
               f"≤ {learn.max_load:g}, on mains power; waits up to {learn.wait_hours:g} h), "
               "`voiceio learn maintain` labels new dictation at idle priority, retrains once "
-              "50+ clips are new, and "
+              f"{min_new}+ clips are new, and "
               + ("switches to the result when it wins on your held-out clips "
                  "(undo: voiceio learn rollback)." if args.auto_promote else
                  "tells you if the result is better. It never switches models by itself."))

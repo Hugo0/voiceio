@@ -110,3 +110,7 @@ at = "03:30"                  # when nightly learning runs (voiceio learn schedu
 every = "day"                 # "day" or "week" (Sundays)
 max_load = 0.25               # only start when 1-min load per CPU is at most this, on mains power...
 wait_hours = 3.0              # ...waiting up to this long, else try again next time
+base = "small"                # model to fine-tune: Whisper size (e.g. "medium.en") or HF checkpoint
+teacher = ""                  # model that labels new clips; empty = large-v3-turbo
+epochs = 4                    # training epochs per run
+min_new = 50                  # new labeled clips needed before retraining

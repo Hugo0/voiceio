@@ -383,3 +383,105 @@ def test_promote_and_rollback_run_on_promote_with_the_model(monkeypatch, tmp_pat
     cli.cmd_promote(argparse.Namespace(run="v0002-small-x", force=True))
     cli.cmd_rollback(argparse.Namespace())
     assert out.read_text().split() == [str(run), "small"]
+
+
+def _maintain_calls(monkeypatch, min_new_clips: int = 3) -> dict:
+    """Run-ready maintain with labeling/training/eval faked; records what they got."""
+    from types import SimpleNamespace
+
+    from voiceio.cli import learn as cli
+    for i in range(min_new_clips):
+        _clip(f"{i}.wav", 3, "x")
+        store.add_label(f"{i}.wav", [Segment(0, 3, "hello there")], "teacher:fake")
+    got: dict = {}
+    monkeypatch.setattr(cli, "cmd_label", lambda a: got.update(teacher=a.teacher))
+    monkeypatch.setattr(cli, "_announce_learning", lambda min_new: got.update(announced=min_new))
+    monkeypatch.setattr(train, "missing_train_deps", lambda: [])
+    monkeypatch.setattr(cli, "_run_eval", lambda *a, **k: SimpleNamespace(
+        wer=0.1, term_recall=0.5, repetitions=0, per_clip=[]))
+    monkeypatch.setattr(cli, "_train", lambda ds, **k: got.update(k) or store.learn_dir() / "r")
+    monkeypatch.setattr(evaluate, "promotion_verdict", lambda c, b: (False, "table"))
+    return got
+
+
+def _learn_config(**values) -> None:
+    for key, value in values.items():
+        config.set_value("learn", key, value)
+
+
+def test_maintain_trains_what_learn_config_says(monkeypatch):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    _learn_config(base="medium.en", teacher="large-v3", epochs=2, min_new=3)
+    got = _maintain_calls(monkeypatch)
+    cli.cmd_maintain(argparse.Namespace(min_new=None, base=None, epochs=None))
+    assert got == {"teacher": "large-v3", "announced": 3, "base": "medium.en", "epochs": 2}
+
+
+def test_maintain_config_min_new_gates_retraining(monkeypatch, capsys):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    _learn_config(min_new=4)
+    got = _maintain_calls(monkeypatch)
+    cli.cmd_maintain(argparse.Namespace(min_new=None, base=None, epochs=None))
+    assert "base" not in got and "retraining waits for 4" in capsys.readouterr().out
+    assert got["teacher"] is None                     # empty: the default teacher
+
+
+def test_maintain_flags_override_learn_config(monkeypatch):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    _learn_config(base="medium.en", epochs=2, min_new=100)
+    got = _maintain_calls(monkeypatch)
+    cli.cmd_maintain(argparse.Namespace(min_new=3, base="tiny", epochs=7))
+    assert (got["announced"], got["base"], got["epochs"]) == (3, "tiny", 7)
+
+
+@pytest.mark.parametrize("values, message", [
+    ({"epochs": 0}, "epochs must be at least 1"),
+    ({"min_new": 0}, "min_new must be at least 1"),
+    ({"base": ""}, "base must name a model"),
+])
+def test_maintain_rejects_bad_learn_config(monkeypatch, values, message):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    _learn_config(**values)
+    got = _maintain_calls(monkeypatch)
+    with pytest.raises(SystemExit, match=message):
+        cli.cmd_maintain(argparse.Namespace(min_new=None, base=None, epochs=None))
+    assert got == {}                                  # refused before any work
+
+
+def test_english_only_base_needs_english(monkeypatch):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    _learn_config(base="small.en")
+    config.set_value("model", "language", "de")
+    _maintain_calls(monkeypatch)
+    with pytest.raises(SystemExit, match="English-only"):
+        cli.cmd_maintain(argparse.Namespace(min_new=None, base=None, epochs=None))
+
+
+def test_english_only_bases_train_without_language_prefix():
+    assert train.HF_BASE["medium.en"] == "openai/whisper-medium.en"
+    cfg = train.TrainConfig(language="en")
+    assert train._prefix(51865, cfg) == {"language": "en", "task": "transcribe"}
+    assert train._prefix(51864, cfg) == {}            # *.en: <|startoftranscript|> only
+
+
+def test_schedule_on_states_the_configured_threshold(monkeypatch, capsys):
+    import argparse
+
+    from voiceio import service
+    from voiceio.cli import learn as cli
+    _learn_config(min_new=20)
+    monkeypatch.setattr(train, "missing_train_deps", lambda: [])
+    monkeypatch.setattr(service, "install_learn_timer", lambda auto_promote: True)
+    monkeypatch.setattr(service, "learn_schedule_summary", lambda: "daily at 03:30")
+    cli.cmd_schedule(argparse.Namespace(state="on", at=None, every=None, auto_promote=False))
+    assert "retrains once 20+ clips are new" in capsys.readouterr().out

@@ -42,6 +42,8 @@ HF_BASE = {
     "tiny": "openai/whisper-tiny", "base": "openai/whisper-base",
     "small": "openai/whisper-small", "medium": "openai/whisper-medium",
     "large-v3": "openai/whisper-large-v3", "large-v3-turbo": "openai/whisper-large-v3-turbo",
+    "tiny.en": "openai/whisper-tiny.en", "base.en": "openai/whisper-base.en",
+    "small.en": "openai/whisper-small.en", "medium.en": "openai/whisper-medium.en",
 }
 
 
@@ -195,6 +197,14 @@ def decoder_batch(seqs: list[tuple[list[int], int]], pad: int):
 
 # ── train ────────────────────────────────────────────────────────────────
 
+def _prefix(vocab_size: int, cfg: TrainConfig) -> dict:
+    """Tokenizer prefix matching what faster-whisper feeds at inference. An
+    English-only model (vocabulary < 51865, CTranslate2's own test) is
+    decoded from <|startoftranscript|> alone: training it behind
+    <|en|><|transcribe|> would teach a prefix it never sees."""
+    return {"language": cfg.language, "task": "transcribe"} if vocab_size >= 51865 else {}
+
+
 def lr_schedule(total_steps: int, warmup: float = 0.1):
     """Linear warmup over the first `warmup` share of steps, then linear decay
     to zero — a few hundred steps on a few hours of audio overshoot without."""
@@ -220,8 +230,8 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
         torch.set_num_threads(max(1, (os.cpu_count() or 2) // 2))
     decoder_only = cfg.decoder_only if cfg.decoder_only is not None else device == "cpu"
     base_id = HF_BASE.get(cfg.base, cfg.base)
-    processor = WhisperProcessor.from_pretrained(base_id, language=cfg.language, task="transcribe")
     model = WhisperForConditionalGeneration.from_pretrained(base_id)
+    processor = WhisperProcessor.from_pretrained(base_id, **_prefix(model.config.vocab_size, cfg))
     model.config.forced_decoder_ids = None
     model = get_peft_model(model, LoraConfig(
         r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=0.05,

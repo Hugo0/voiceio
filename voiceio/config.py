@@ -258,6 +258,14 @@ class LearnConfig:
     # at the next scheduled run.
     max_load: float = 0.25
     wait_hours: float = 3.0
+    # What a scheduled run trains (`voiceio learn maintain`'s flags override):
+    # the Whisper size or Hugging Face checkpoint to fine-tune, e.g. "medium.en";
+    # the model that labels new clips (empty: large-v3-turbo); epochs per run;
+    # and how many new labeled clips it waits for before retraining.
+    base: str = "small"
+    teacher: str = ""
+    epochs: int = 4
+    min_new: int = 50
 
 
 @dataclass
