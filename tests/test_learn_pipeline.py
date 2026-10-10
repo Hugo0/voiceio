@@ -171,3 +171,9 @@ def test_build_drops_suspect_teacher_segments_but_trusts_humans():
         == ["ship the Kalshi bot"]
     human = store._train_windows(store.load_labels()["h.wav"], {})
     assert [store._merge(g).text for g in human] == ["ship it Thank you."]
+
+
+def test_lr_schedule_warms_up_then_decays_to_zero():
+    f = train.lr_schedule(100)
+    assert f(0) == 0.1 and f(9) == 1.0
+    assert f(10) == 1.0 and 0.0 < f(55) < 1.0 and f(100) == 0.0

@@ -183,6 +183,18 @@ def decoder_batch(seqs: list[tuple[list[int], int]], pad: int):
 
 # ── train ────────────────────────────────────────────────────────────────
 
+def lr_schedule(total_steps: int, warmup: float = 0.1):
+    """Linear warmup over the first `warmup` share of steps, then linear decay
+    to zero — a few hundred steps on a few hours of audio overshoot without."""
+    warm = max(1, int(total_steps * warmup))
+
+    def factor(step: int) -> float:
+        if step < warm:
+            return (step + 1) / warm
+        return max(0.0, (total_steps - step) / max(1, total_steps - warm))
+    return factor
+
+
 def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
     """LoRA-fine-tune on an exported folder; returns the merged HF model dir."""
     require_train_deps()
@@ -254,7 +266,9 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
     steps = -(-len(train_rows) // cfg.batch_size)
     print(f"  {len(train_rows)} train / {len(dev_rows)} dev windows on {device}, "
           f"{'decoder-only' if decoder_only else 'full'} LoRA", flush=True)
-    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=cfg.lr)
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    opt = torch.optim.AdamW(trainable, lr=cfg.lr)
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_schedule(steps * cfg.epochs))
     rng = np.random.default_rng(cfg.seed)
     best = float("inf")
     for epoch in range(cfg.epochs):
@@ -264,7 +278,9 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
         for step, i in enumerate(range(0, len(order), cfg.batch_size), 1):
             loss = forward(order[i:i + cfg.batch_size])
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
             opt.step()
+            sched.step()
             opt.zero_grad()
             if step % 10 == 0 or step == steps:
                 eta = (time.monotonic() - t0) / step * (steps - step)
