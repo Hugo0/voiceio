@@ -64,7 +64,12 @@ PartOf=graphical-session.target
 [Service]
 Type=simple
 ExecStart={bin_path} run
-Nice=10
+# Dictation is interactive: someone is waiting on every decode. Not Nice=10 —
+# nice only ranks processes inside one cgroup, so it never shielded the
+# compositor (session.slice) and only made decodes lose to every terminal and
+# browser in app.slice (25s for 8s of audio at load 26). A cgroup weight wins
+# bursts against those siblings and is a no-op where cpu isn't delegated.
+CPUWeight=400
 Restart=on-failure
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
