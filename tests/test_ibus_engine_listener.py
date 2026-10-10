@@ -66,3 +66,12 @@ def test_listener_serves_before_the_mainloop_runs(engine_module, monkeypatch, tm
     t.join(timeout=3)
     assert not t.is_alive()
     assert not sock_path.exists()  # its own socket, so it cleans up
+
+
+def test_bind_failure_stops_the_engine(engine_module, monkeypatch, tmp_path):
+    quits = []
+    engine_module.GLib.idle_add = lambda fn, *a: quits.append(fn)
+    monkeypatch.setattr(engine_module, "SOCKET_PATH", tmp_path / "missing-dir" / "s.sock")
+    loop = types.SimpleNamespace(is_running=lambda: True, quit=lambda: None)
+    engine_module._socket_listener(loop, threading.Event())   # returns, doesn't hang
+    assert quits == [loop.quit]

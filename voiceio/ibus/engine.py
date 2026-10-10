@@ -171,10 +171,16 @@ _stopping = threading.Event()
 def _socket_listener(mainloop: GLib.MainLoop, stopping: threading.Event = _stopping) -> None:
     """Listen for commands on Unix DGRAM socket. Runs in a thread."""
     global _bound_ino
-    SOCKET_PATH.unlink(missing_ok=True)
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-    sock.bind(str(SOCKET_PATH))
-    _bound_ino = SOCKET_PATH.stat().st_ino
+    try:
+        SOCKET_PATH.unlink(missing_ok=True)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.bind(str(SOCKET_PATH))
+        _bound_ino = SOCKET_PATH.stat().st_ino
+    except OSError:
+        # Without a socket the engine is deaf: exit so the watchdog respawns it.
+        log.exception("Socket listener could not bind — stopping the engine")
+        GLib.idle_add(mainloop.quit)
+        return
     sock.settimeout(1.0)
     log.info("Socket listener started at %s", SOCKET_PATH)
 
