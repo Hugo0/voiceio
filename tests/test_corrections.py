@@ -163,3 +163,18 @@ def test_risky_rules_flags_rewrites_not_typo_fixes():
 def test_risky_rules_tolerates_auto_language():
     from voiceio.corrections import risky_rules
     assert risky_rules({"virtualize": "wake you"}, language="auto")
+
+
+def test_rule_evidence_judges_rules_by_reference_labels():
+    from voiceio.corrections import rule_evidence
+    from voiceio.learn.store import Clip, Label, Segment
+
+    def clip(name, raw, ref):
+        return Clip(name, 0, 2, raw=raw, final=raw), Label(name, (Segment(0, 2, ref),), "teacher:x", 0)
+
+    pairs = [clip("a", "make it composable", "make it composable"),     # rule wrong
+             clip("b", "we use kalchi", "we use Kalshi"),               # rule right
+             clip("c", "nothing here", "nothing here")]
+    clips, labels = [c for c, _ in pairs], {lab.audio: lab for _, lab in pairs}
+    ev = rule_evidence({"composable": "comparable", "kalchi": "Kalshi"}, clips, labels)
+    assert ev == {"composable": (0, 1), "kalchi": (1, 0)}

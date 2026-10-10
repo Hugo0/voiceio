@@ -38,14 +38,30 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 def cmd_audit(args: argparse.Namespace) -> None:
     from voiceio.config import load
-    from voiceio.corrections import CorrectionDict, risky_rules
-    risky = risky_rules(CorrectionDict().list_all(), load().model.language or "en")
+    from voiceio.corrections import CorrectionDict, risky_rules, rule_evidence
+    rules = CorrectionDict().list_all()
+    from voiceio.learn import store
+    evidence = rule_evidence(rules, store.clips(), store.load_labels())
+    contradicted = {w: e for w, e in evidence.items() if e[1] > e[0]}
+    if contradicted:
+        print("Contradicted by your own audio (the reference kept the original word):")
+        for wrong, (sup, con) in sorted(contradicted.items(), key=lambda x: -x[1][1]):
+            print(f"  {wrong!r:24} → {rules[wrong]!r:24} wrong {con}×, right {sup}×")
+        print()
+    supported = sum(1 for s, c in evidence.values() if s > c)
+    if supported:
+        print(f"{supported} rule(s) confirmed by your own audio.\n")
+    risky = [r for r in risky_rules(rules, load().model.language or "en")
+             if r[0] not in contradicted]
     if not risky:
-        print("Every correction looks like a plain mishearing fix.")
+        if not contradicted:
+            print("Every correction looks like a plain mishearing fix.")
         return
+    print("Worth a second look:")
     for wrong, right, why in risky:
         print(f"  {wrong!r:24} → {right!r:24} {why}")
-    print(f"\n{len(risky)} rule(s) to review. Remove one: voiceio corrections remove WORD")
+    print(f"\n{len(risky) + len(contradicted)} rule(s) to review. "
+          "Remove one: voiceio corrections remove WORD")
 
 
 def cmd_add(args: argparse.Namespace) -> None:

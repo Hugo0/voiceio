@@ -230,3 +230,26 @@ def risky_rules(rules: dict[str, str], language: str = "en") -> list[tuple[str, 
         if why:
             out.append((sim - zipf / 10, wrong, right, ", ".join(why)))
     return [(w, r, why) for _, w, r, why in sorted(out)]
+
+
+def rule_evidence(rules: dict[str, str], clips, labels) -> dict[str, tuple[int, int]]:
+    """For each rule that fired on a labeled dictation: (supported,
+    contradicted) — whether the reference transcript has the replacement or
+    kept the original word. Your own audio is the judge here, not word lists."""
+    import re
+    out: dict[str, list[int]] = {}
+    for clip in clips:
+        lab = labels.get(clip.audio)
+        if lab is None or not clip.raw:
+            continue
+        raw, ref = clip.raw.lower(), lab.text.lower()
+        for wrong, right in rules.items():
+            pat = re.compile(rf"\b{re.escape(wrong.lower())}\b")
+            if not pat.search(raw):
+                continue
+            counts = out.setdefault(wrong, [0, 0])
+            if pat.search(ref):
+                counts[1] += 1
+            elif right.lower() in ref:
+                counts[0] += 1
+    return {w: (s, c) for w, (s, c) in out.items()}
