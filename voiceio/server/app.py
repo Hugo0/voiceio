@@ -1,4 +1,4 @@
-"""HTTP + WebSocket surface over `VoiceEngine`.
+"""HTTP + WebSocket surface over `ServerRuntime`.
 
 Routes
     GET  /health          → model, device, uptime, TTS engine
@@ -29,17 +29,17 @@ from aiohttp import WSMsgType, web
 
 from voiceio.server.config import SAMPLE_RATE, ServerConfig
 from voiceio.privacy import describe_transcript
-from voiceio.server.engine import (
+from voiceio.server.runtime import (
     AudioTooLong,
     DecodeError,
     TTSUnavailable,
-    VoiceEngine,
+    ServerRuntime,
 )
 
 log = logging.getLogger("voiceio.server")
 
 CONFIG = web.AppKey("config", ServerConfig)
-ENGINE = web.AppKey("engine", VoiceEngine)
+RUNTIME = web.AppKey("runtime", ServerRuntime)
 EXECUTOR = web.AppKey("executor", ThreadPoolExecutor)
 LOCK = web.AppKey("lock", asyncio.Lock)
 STREAM_SEM = web.AppKey("stream_sem", asyncio.Semaphore)
@@ -53,14 +53,14 @@ def _error(status: int, message: str) -> web.Response:
 
 # ── health ───────────────────────────────────────────────────────────────
 async def handle_health(request: web.Request) -> web.Response:
-    engine: VoiceEngine = request.app[ENGINE]
-    health = engine.health()
+    runtime: ServerRuntime = request.app[RUNTIME]
+    health = runtime.health()
     return web.json_response(health, status=200 if health["ok"] else 503)
 
 
 # ── buffered transcription ───────────────────────────────────────────────
 async def handle_transcribe(request: web.Request) -> web.Response:
-    engine: VoiceEngine = request.app[ENGINE]
+    runtime: ServerRuntime = request.app[RUNTIME]
     cfg: ServerConfig = request.app[CONFIG]
     t0 = time.monotonic()
 
@@ -83,7 +83,7 @@ async def handle_transcribe(request: web.Request) -> web.Response:
         # and queueing here keeps latency honest instead of thrashing the CPU.
         async with request.app[LOCK]:
             result = await loop.run_in_executor(
-                request.app[EXECUTOR], engine.transcribe, data,
+                request.app[EXECUTOR], runtime.transcribe, data,
             )
     except AudioTooLong as exc:
         log.warning("rejected long audio: %s", exc)
@@ -129,7 +129,7 @@ async def handle_ws_transcribe(request: web.Request) -> web.WebSocketResponse:
     disconnects still gets its audio finalized server-side (for vocabulary
     statistics), it just is not around to read the result.
     """
-    engine: VoiceEngine = request.app[ENGINE]
+    runtime: ServerRuntime = request.app[RUNTIME]
     cfg: ServerConfig = request.app[CONFIG]
 
     ws = web.WebSocketResponse(heartbeat=30.0, max_msg_size=cfg.max_bytes)
@@ -145,11 +145,11 @@ async def handle_ws_transcribe(request: web.Request) -> web.WebSocketResponse:
         return ws
 
     async with sem:
-        await _run_stream(ws, engine, cfg, request.app)
+        await _run_stream(ws, runtime, cfg, request.app)
     return ws
 
 
-async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
+async def _run_stream(ws, runtime: ServerRuntime, cfg: ServerConfig, app) -> None:
     loop = asyncio.get_running_loop()
     outbox: asyncio.Queue = asyncio.Queue()
     t0 = time.monotonic()
@@ -159,7 +159,7 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
     def on_interim(text: str) -> None:
         loop.call_soon_threadsafe(outbox.put_nowait, text)
 
-    session, source, _typer = engine.new_streaming_session(on_interim=on_interim)
+    session, source, _typer = runtime.new_streaming_session(on_interim=on_interim)
 
     async def pump() -> None:
         """Forward interim text to the client as it appears."""
@@ -187,7 +187,7 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
         "sample_rate": SAMPLE_RATE,
         "format": "pcm_s16le",
         "channels": 1,
-        "model": engine.model_cfg.name,
+        "model": runtime.model_cfg.name,
     })
 
     overrun = False
@@ -247,7 +247,7 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
                 "ms": round((time.monotonic() - t0) * 1000),
             })
         if text:   # after the reply: retention must not add to the user's wait
-            await loop.run_in_executor(app[EXECUTOR], engine.commit, audio, text,
+            await loop.run_in_executor(app[EXECUTOR], runtime.commit, audio, text,
                                        session.raw_final_text or "")
         log.info("streaming %.1fs audio → %s", secs, describe_transcript(text))
         if not ws.closed:
@@ -257,7 +257,7 @@ async def _run_stream(ws, engine: VoiceEngine, cfg: ServerConfig, app) -> None:
 # ── text to speech ───────────────────────────────────────────────────────
 async def handle_tts(request: web.Request) -> web.Response:
     """JSON {text, voice?, speed?} → audio/wav."""
-    engine: VoiceEngine = request.app[ENGINE]
+    runtime: ServerRuntime = request.app[RUNTIME]
 
     try:
         body = await request.json()
@@ -278,7 +278,7 @@ async def handle_tts(request: web.Request) -> web.Response:
     loop = asyncio.get_running_loop()
     try:
         wav, rate, name = await loop.run_in_executor(
-            request.app[EXECUTOR], engine.synthesize, text, voice, speed,
+            request.app[EXECUTOR], runtime.synthesize, text, voice, speed,
         )
     except TTSUnavailable as exc:
         return _error(503, str(exc))
@@ -340,8 +340,8 @@ async def guard_middleware(request: web.Request, handler):
 
 
 def build_app(cfg: ServerConfig | None = None,
-              engine: VoiceEngine | None = None) -> web.Application:
-    """The aiohttp application. Pass `engine` to inject a pre-built or fake one
+              runtime: ServerRuntime | None = None) -> web.Application:
+    """The aiohttp application. Pass `runtime` to inject a pre-built or fake one
     (tests do); otherwise it is constructed on startup, which is where the
     multi-second model load belongs."""
     cfg = cfg or ServerConfig()
@@ -359,15 +359,15 @@ def build_app(cfg: ServerConfig | None = None,
     app.router.add_get("/ws/transcribe", handle_ws_transcribe)
     app.router.add_post("/tts", handle_tts)
 
-    if engine is not None:
-        app[ENGINE] = engine
+    if runtime is not None:
+        app[RUNTIME] = runtime
 
     async def _startup(app: web.Application) -> None:
-        if ENGINE not in app:
-            app[ENGINE] = VoiceEngine(cfg)
+        if RUNTIME not in app:
+            app[RUNTIME] = ServerRuntime(cfg)
 
     async def _cleanup(app: web.Application) -> None:
-        eng = app.get(ENGINE)
+        eng = app.get(RUNTIME)
         if eng is not None:
             eng.shutdown()
         app[EXECUTOR].shutdown(wait=False)

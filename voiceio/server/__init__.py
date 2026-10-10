@@ -14,7 +14,7 @@ Install with the extra that carries the HTTP dependency:
 
 Public API:
     ServerConfig      — configuration, `ServerConfig.from_env()` for $VOICE_*
-    VoiceEngine       — the model + pipeline, no HTTP; usable on its own
+    ServerRuntime     — core.Engine + TTS, health, retention; no HTTP
     build_app(cfg)    — an aiohttp Application
     run(cfg)          — build and serve, blocking
 
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from voiceio.server.config import ServerConfig
 
-__all__ = ["ServerConfig", "VoiceEngine", "build_app", "run"]
+__all__ = ["ServerConfig", "ServerRuntime", "build_app", "run"]
 
 
 def __getattr__(name: str):
@@ -37,8 +37,8 @@ def __getattr__(name: str):
         from voiceio.server import app as _app
 
         return getattr(_app, name)
-    if name == "VoiceEngine":
-        from voiceio.server.engine import VoiceEngine
+    if name == "ServerRuntime":
+        from voiceio.server.runtime import ServerRuntime
 
-        return VoiceEngine
+        return ServerRuntime
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

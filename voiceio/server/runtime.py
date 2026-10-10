@@ -93,8 +93,10 @@ def wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
     return buf.getvalue()
 
 
-class VoiceEngine:
-    """One loaded model plus the owner's vocabulary, corrections and pipeline."""
+class ServerRuntime:
+    """What a server adds around `core.Engine` (which does the dictation):
+    config overrides from the environment, text-to-speech, health, and
+    opt-in retention. One per process."""
 
     def __init__(self, cfg: ServerConfig | None = None) -> None:
         from voiceio import config as vio_config

@@ -25,7 +25,7 @@ from aiohttp.test_utils import TestClient, TestServer  # noqa: E402
 
 from voiceio.server.app import build_app  # noqa: E402
 from voiceio.server.config import ServerConfig  # noqa: E402
-from voiceio.server.engine import (  # noqa: E402
+from voiceio.server.runtime import (  # noqa: E402
     AudioTooLong,
     DecodeError,
     TTSUnavailable,
@@ -113,7 +113,7 @@ def run_with_client(coro_fn, engine=None, cfg=None):
     cfg = cfg or ServerConfig()
 
     async def main():
-        app = build_app(cfg, engine=engine)
+        app = build_app(cfg, runtime=engine)
         server = TestServer(app)
         client = TestClient(server)
         await client.start_server()
@@ -533,9 +533,9 @@ def test_retain_is_opt_in_and_tags_phone(tmp_path):
     from voiceio import config
     from voiceio.core.engine import Engine
     from voiceio.core.pipeline import Pipeline
-    from voiceio.server.engine import VoiceEngine
+    from voiceio.server.runtime import ServerRuntime
 
-    eng = VoiceEngine.__new__(VoiceEngine)   # no model load
+    eng = ServerRuntime.__new__(ServerRuntime)   # no model load
     eng.vio_cfg = config.Config()
     eng.model_cfg = eng.vio_cfg.model
     bias = MagicMock()
