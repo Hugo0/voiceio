@@ -1,5 +1,8 @@
 # Cross-origin isolation lets the in-browser speech model use WASM threads.
 # "credentialless" keeps cross-origin fonts and the CDN working without CORP headers.
+# No referrer: nothing about visits leaks to third parties, and Hugging Face
+# refuses model downloads whose Referer is a *.workers.dev address.
 /*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
+  Referrer-Policy: no-referrer

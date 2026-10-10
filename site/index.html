@@ -6,6 +6,7 @@
 <title>voiceio — dictation that learns you</title>
 <meta name="description" content="Local, open-source voice dictation for Linux that fine-tunes itself on your voice, overnight, on your own machine.">
 <meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#f5f6f8">
 <link rel="canonical" href="https://voiceio-site.voiceio-v1.workers.dev/">
 <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt">
@@ -146,15 +147,15 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 .try.live { border-color: color-mix(in oklch, var(--miss) 45%, transparent);
             box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.7), 0 0 0 5px color-mix(in oklch, var(--miss) 9%, transparent), 0 28px 60px -34px color-mix(in oklch, var(--ink) 60%, transparent); }
 .try-head { display: flex; gap: 10px; align-items: center; }
-.try-head .label:first-child { color: var(--ink); margin-right: auto; }
-.try-min { display: none; width: 22px; height: 22px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: 500 14px/1 var(--mono); cursor: pointer; }
+.try-head .label { color: var(--ink); }
+.try-min { display: none; flex: none; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: 500 14px/1 var(--mono); cursor: pointer; }
 .try-min:hover { background: var(--bg-2); color: var(--ink); }
 .try-load { margin-top: 14px; }
 .try-load[hidden] { display: none; }
 .try-load .bar { height: 5px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
 .try-load .bar i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--ink); transition: width .3s var(--ease-quart); }
 .try-load .label { margin-top: 8px; color: var(--muted); }
-.try-out { margin-top: 12px; min-height: 6.6em; max-height: 9.9em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
+.try-out { margin-top: 10px; min-height: 3.3em; max-height: 9.9em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
            font: 400 15px/1.65 var(--mono); color: var(--ink); transition: min-height .4s var(--ease-quart); }
 .try-out .ph { color: var(--faint); }
 .try-out .pre { text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 4px; color: var(--muted); }
@@ -171,11 +172,17 @@ button.pill { cursor: pointer; font-family: var(--mono); }
 .try.live .talk .recdot { background: var(--surface); animation: rec 1.2s ease-in-out infinite; }
 .talk kbd { font: 600 11px/1 var(--mono); border: 1px solid oklch(1 0 0 / 0.4); border-bottom-width: 2px; border-radius: 4px; padding: 3px 6px 2px; letter-spacing: 0.08em; }
 .try-foot { margin-top: 10px; text-align: center; min-height: 1.4em; }
-/* once the hero scrolls away, the demo follows you in the corner */
-.try.docked { position: fixed; z-index: 40; right: 20px; bottom: 20px; width: min(360px, calc(100vw - 32px)); }
-.try.docked .try-min { display: inline-grid; }
-.try.docked .try-head .label:nth-child(2) { display: none; }
-.try.docked .try-out { min-height: 3.3em; max-height: 5em; font-size: 14px; }
+/* once the hero scrolls away, the demo follows you as one slim bar */
+.try.docked { position: fixed; z-index: 40; right: 20px; bottom: 20px; width: min(440px, calc(100vw - 32px));
+              display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 18px; border-radius: 999px; }
+.try.docked .try-head, .try.docked .try-foot { display: none; }
+.try.docked .try-out { flex: 1; min-width: 0; margin: 0; min-height: 0; max-height: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: clip; font-size: 14px; line-height: 1.5; }
+.try.docked .try-out > div { overflow: hidden; text-overflow: ellipsis; }
+.try.docked .talk { flex: none; width: auto; margin: 0; padding: 11px 15px; border-radius: 999px; font-size: 11px; }
+.try.docked .try-min { display: inline-grid; order: 3; }
+.try.docked .try-load { position: absolute; left: 22px; right: 22px; top: -1px; margin: 0; }
+.try.docked .try-load .bar { height: 2px; border: 0; }
+.try.docked .try-load .label { display: none; }
 .try-pill { position: fixed; z-index: 40; right: 20px; bottom: 20px; display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
             font: 500 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--surface); background: var(--ink);
             border: 0; border-radius: 999px; padding: 12px 16px; box-shadow: 0 16px 40px -20px color-mix(in oklch, var(--ink) 70%, transparent); }
@@ -267,6 +274,16 @@ h2 { font-size: clamp(30px, 5vw, 54px); max-width: 19ch; }
 .copy { position: absolute; top: 18px; right: 18px; font: 500 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
         border: 1px solid var(--line-strong); background: transparent; color: var(--muted); border-radius: var(--radius); padding: 7px 11px; cursor: pointer; transition: color .18s, border-color .18s; }
 .copy:hover { color: var(--ink); border-color: var(--ink); }
+.how { display: inline-flex; margin-top: 40px; border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px; gap: 2px; }
+.how-tab { font: 500 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; border: 0; border-radius: 999px; padding: 9px 14px;
+           background: transparent; color: var(--muted); cursor: pointer; transition: background .2s, color .2s; }
+.how-tab[aria-selected="true"] { background: var(--ink); color: var(--surface); }
+.how + .cmds, .cmds + .cmds { margin-top: 16px; }
+.cmds[hidden] { display: none; }
+.cmd pre.prompt { white-space: pre-wrap; font-size: 13.5px; line-height: 1.7; }
+.sub a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.comments { margin-top: 36px; min-height: 120px; --sm-ink: #20232b; --sm-accent: #2f8f4e; --sm-heading-font: "Bricolage Grotesque", system-ui, sans-serif;
+            --sm-bg: transparent; --sm-border: color-mix(in oklch, var(--ink) 14%, transparent); font-family: var(--mono); font-size: 14px; }
 .after { margin-top: 18px; color: var(--muted); font-size: 13px; }
 .after a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
 
@@ -297,7 +314,8 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
   .hero .scrim { background: linear-gradient(0deg, var(--bg), transparent 30%), color-mix(in oklch, var(--bg) 62%, transparent); }
   .transcript { font-size: 15px; }
   .scroll-hint { display: none; }
-  .try.docked { left: 16px; right: 16px; bottom: 12px; width: auto; }
+  .try.docked { left: 12px; right: 12px; bottom: 12px; width: auto; }
+  .try.docked .talk kbd { display: none; }
   .try-pill { right: 16px; bottom: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -317,6 +335,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
       <a href="#proof">Proof</a>
       <a href="#private">Privacy</a>
       <a href="#install">Install</a>
+      <a href="#feedback">Feedback</a>
     </nav>
     <a class="gh" href="https://github.com/Hugo0/voiceio">GitHub <span aria-hidden="true">↗</span></a>
   </div>
@@ -346,11 +365,12 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
         </div>
         <div class="try-slot" id="try-slot">
         <aside class="try rise" id="try" style="animation-delay:320ms" aria-label="Try dictation in your browser">
-          <div class="try-head"><span class="label">// try it here</span><span class="label">nothing to install</span><button class="try-min" id="try-min" type="button" aria-label="Minimize the demo">–</button></div>
+          <div class="try-head"><span class="label">// try it here · nothing to install</span></div>
           <div class="try-load" id="try-load" hidden><div class="bar"><i id="try-bar"></i></div><div class="label" id="try-load-text">getting the speech model…</div></div>
           <div class="try-out" id="try-out" aria-live="polite"></div>
           <button class="talk" id="talk" type="button"><i class="lvl" aria-hidden="true"></i><span class="recdot" aria-hidden="true"></span><span id="talk-label">hold <kbd>space</kbd> to talk</span></button>
-          <div class="try-foot label" id="try-status">runs in this tab · audio never leaves your browser</div>
+          <button class="try-min" id="try-min" type="button" aria-label="Hide the demo">×</button>
+          <div class="try-foot label" id="try-status">runs in this tab · audio stays here</div>
         </aside>
         </div>
       </div>
@@ -441,9 +461,20 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
 
   <section class="block wrap" id="install">
     <div class="label kicker">// install</div>
-    <h2>Two commands to your first sentence.</h2>
-    <p class="sub">Wayland and X11 — GNOME, KDE, Hyprland, sway, i3. voiceio probes your desktop and picks what works; <code>voiceio doctor --fix</code> repairs the rest.</p>
-    <div class="cmds">
+    <h2>Let your agent install it.</h2>
+    <p class="sub">Linux desktops differ, and an agent with a shell reads the errors and fixes them as it goes. Paste this into Claude Code, Codex or any coding agent. It follows <a href="/llms.txt">llms.txt</a>.</p>
+    <div class="how" role="tablist" aria-label="How to install">
+      <button type="button" role="tab" class="how-tab" data-how="agent" aria-selected="true">with your agent</button>
+      <button type="button" role="tab" class="how-tab" data-how="hand" aria-selected="false">by hand</button>
+    </div>
+    <div class="cmds" data-panel="agent">
+      <div class="cmd">
+        <span class="label">prompt</span>
+        <button type="button" class="copy" data-copy="agent-prompt">copy</button>
+<pre id="agent-prompt" class="prompt">Install voiceio, local voice dictation for Linux, on this machine. Follow the agent runbook at https://voiceio-site.voiceio-v1.workers.dev/llms.txt: detect my distro, install the system packages, install python-voiceio[desktop] with pipx, and run the non-interactive setup. Before setup, ask me which hotkey I want and whether voiceio may keep my recordings so it can learn my voice. Finish with voiceio doctor and fix whatever it reports. Afterwards, offer to post a short install report (distro, desktop, what broke, what you fixed) to the public feedback board described in llms.txt.</pre>
+      </div>
+    </div>
+    <div class="cmds" data-panel="hand" hidden>
       <div class="cmd">
         <span class="label">debian / ubuntu</span>
         <button type="button" class="copy" data-copy="c1">copy</button>
@@ -462,13 +493,19 @@ footer a { text-decoration: underline; text-underline-offset: 3px; text-decorati
 <span class="p">$</span> voiceio doctor               <span class="c"># what works, what doesn't</span></pre>
       </div>
     </div>
-    <p class="after">Fedora, Arch and NixOS: see the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>. Python 3.11+. MIT licensed.</p>
+    <p class="after">Wayland and X11: GNOME, KDE, Hyprland, sway, i3. Fedora, Arch and NixOS: see the <a href="https://github.com/Hugo0/voiceio#quickstart">README</a>. Python 3.11+. MIT licensed.</p>
 
     <a class="banner scan" href="https://github.com/Hugo0/voiceio">
       <span class="label" style="color:var(--ink)">◇ star voiceio on github · issues and ideas welcome</span>
       <span class="label">open ↗</span>
     </a>
   </section>
+
+  <section class="block wrap" id="feedback">
+    <div class="label kicker">// feedback</div>
+    <h2>How did the install go?</h2>
+    <p class="sub">Your distro and desktop, what broke, what you'd change, what you wish it did. Comments are public, on <a href="https://swarmmemo.com/w/voiceio/feedback">SwarmMemo</a>; agents can post here too (see <a href="/llms.txt">llms.txt</a>). Prefer GitHub? <a href="https://github.com/Hugo0/voiceio/issues/new">Open an issue</a>.</p>
+    <div class="comments" id="swarmmemo-comments" data-room="voiceio" data-page="feedback"></div>
 </main>
 
 <button class="try-pill" id="try-pill" type="button" hidden><span class="recdot" aria-hidden="true"></span>try dictation</button>
@@ -681,15 +718,15 @@ void main(){
     if (!T.said.length && !T.preview && !T.live) {
       const ph = document.createElement("span");
       ph.className = "ph";
-      ph.textContent = T.model === "loading"
-        ? "Getting the model ready. You can already talk; it transcribes as soon as it's in."
-        : (touch ? "Hold the button" : "Hold space") + " and say something. Words appear as you speak.";
+      ph.textContent = docked() ? "say something" : (touch ? "Hold the button" : "Hold space") + " and talk. Words appear as you speak.";
       out.appendChild(ph);
+      if (docked()) { const c = document.createElement("span"); c.className = "caret"; out.appendChild(c); }
       return;
     }
     const p = document.createElement("div");
     const said = T.said.join(" ");
-    p.textContent = (said.length > 400 ? "…" + said.slice(said.indexOf(" ", said.length - 400)) : said) + (said && T.preview ? " " : "");
+    const keep = docked() ? 60 : 400;  // docked, it is one line: show the tail
+    p.textContent = (said.length > keep ? "…" + said.slice(said.indexOf(" ", said.length - keep) + 1) : said) + (said && T.preview ? " " : "");
     if (T.preview) { const s = document.createElement("span"); s.className = "pre"; s.textContent = T.preview; p.appendChild(s); }
     if (T.live) { const c = document.createElement("span"); c.className = "caret"; p.appendChild(c); }
     out.appendChild(p);
@@ -763,13 +800,13 @@ void main(){
       const got = all.reduce((n, f) => n + (f.loaded || 0), 0), total = all.reduce((n, f) => n + (f.total || 0), 0);
       const mb = (x) => (x / 1e6).toFixed(0);
       if (got >= total) showLoad("preparing the model…", 1);
-      else showLoad("downloading the speech model · " + mb(got) + " / " + mb(total) + " MB · once, then cached", got / total);
+      else showLoad("downloading the model · " + mb(got) + " / " + mb(total) + " MB · once", got / total);
       if (touch) talkLabel.textContent = "hold to talk · " + Math.round((100 * got) / Math.max(1, total)) + "%";
     } else if (data.type === "ready") {
       T.model = "ready";
       loadEl.hidden = true;
       talkLabel.innerHTML = TALK;
-      T.note = data.model + " · in this tab · audio never leaves your browser";
+      T.note = data.model + " · runs in this tab · audio stays here";
       setStatus(T.live ? "listening… release to finish" : T.note);
       render();
       flush(); tick();
@@ -828,7 +865,7 @@ void main(){
     Object.assign(T, { stream, ctx, rate: ctx.sampleRate, chunks: [], n: 0, sent: 0, preview: "", live: true });
     tryEl.classList.add("live");
     mic.wake();
-    setStatus(ready() ? "listening… release to finish" : "listening · it transcribes once the model is in");
+    setStatus(ready() ? "listening… release to finish" : "listening · transcribes once the model is in");
     render();
   }
   function stop() {
@@ -843,7 +880,7 @@ void main(){
     T.stream = T.ctx = null;
     if (secs() >= 0.3) {
       T.pending = { id: T.session, audio: audio16k() };
-      setStatus(ready() ? "finishing…" : "got it · transcribing once the model is in");
+      setStatus(ready() ? "finishing…" : "got it · transcribing when the model is in");
       flush();
     } else {
       T.preview = "";
@@ -855,21 +892,22 @@ void main(){
   // Once the hero scrolls away the card docks in the corner (it glides there),
   // and can be minimized to a pill. Space is push-to-talk only while it shows.
   let inHero = true, minimized = false;
-  function glide(change) {
-    const a = tryEl.getBoundingClientRect();
-    change();
-    const b = tryEl.getBoundingClientRect();
-    if (still) return;
-    tryEl.animate([{ transform: `translate(${a.left - b.left}px, ${a.top - b.top}px)`, width: a.width + "px" },
-                   { transform: "none", width: b.width + "px" }], { duration: 520, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
-  }
+  const docked = () => tryEl.classList.contains("docked");
+  tryEl.addEventListener("animationend", function done(e) {
+    if (e.target === tryEl) { tryEl.classList.remove("rise"); tryEl.removeEventListener("animationend", done); }
+  });
   function layout() {
-    const docked = !inHero && !minimized;
+    const dock = !inHero && !minimized;
     pill.hidden = inHero || !minimized;
     tryEl.style.visibility = !inHero && minimized ? "hidden" : "";
-    if (tryEl.classList.contains("docked") === docked) return;
-    slot.style.minHeight = docked ? slot.offsetHeight + "px" : "";
-    glide(() => tryEl.classList.toggle("docked", docked));
+    if (docked() === dock) return;
+    slot.style.minHeight = dock ? slot.offsetHeight + "px" : "";
+    tryEl.classList.toggle("docked", dock);
+    render();
+    if (!still) tryEl.animate(
+      dock ? [{ opacity: 0, transform: "translateY(24px) scale(0.96)" }, { opacity: 1, transform: "none" }]
+           : [{ opacity: 0, transform: "translateY(-10px)" }, { opacity: 1, transform: "none" }],
+      { duration: 420, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
   }
   new IntersectionObserver(([e]) => { inHero = e.isIntersecting; layout(); }, { threshold: 0 }).observe(slot);
   document.getElementById("try-min").addEventListener("click", () => { stop(); minimized = true; layout(); });
@@ -1029,10 +1067,7 @@ void main(){
   }, { threshold: 0.5 }).observe(document.getElementById("meter"));
 
   // Agent handoff: copy a prompt that points a coding agent at llms.txt.
-  const HANDOFF = "Install voiceio, local voice dictation for Linux, on this machine. " +
-    "Follow the agent runbook at https://voiceio-site.voiceio-v1.workers.dev/llms.txt: detect my distro, install the system packages, " +
-    "install python-voiceio[desktop] with pipx, and run the non-interactive setup. Before setup, ask me which hotkey I want " +
-    "and whether voiceio may keep my recordings so it can learn my voice. Finish with voiceio doctor and fix whatever it reports.";
+  const HANDOFF = document.getElementById("agent-prompt").textContent;
   const handoff = document.getElementById("handoff");
   handoff.addEventListener("click", async () => {
     const label = document.getElementById("handoff-label");
@@ -1041,6 +1076,24 @@ void main(){
     handoff.classList.add("done");
     setTimeout(() => { label.textContent = "hand off to your agent"; handoff.classList.remove("done"); }, 3200);
   });
+
+  // Install: agent prompt by default, commands one tab away.
+  document.querySelectorAll(".how-tab").forEach((t) => t.addEventListener("click", () => {
+    document.querySelectorAll(".how-tab").forEach((x) => x.setAttribute("aria-selected", String(x === t)));
+    document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== t.dataset.how));
+  }));
+
+  // Feedback comments (SwarmMemo embed) load only when the section comes near,
+  // so a visit that never gets there makes no request to it.
+  const comments = document.getElementById("swarmmemo-comments");
+  new IntersectionObserver(([e], o) => {
+    if (!e.isIntersecting) return;
+    o.disconnect();
+    const sc = document.createElement("script");
+    sc.src = "https://swarmmemo.com/embed/v1.js";
+    Object.assign(sc.dataset, { room: "voiceio", page: "feedback", url: location.origin + "/#feedback", title: "voiceio feedback", target: "#swarmmemo-comments" });
+    document.body.appendChild(sc);
+  }, { rootMargin: "600px" }).observe(comments);
 
   // copy buttons copy the commands, not the prompts or comments
   document.querySelectorAll(".copy").forEach((btn) => btn.addEventListener("click", async () => {
