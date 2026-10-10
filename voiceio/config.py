@@ -66,6 +66,9 @@ class HotkeyConfig:
     hold_ms: int = 350
     # Keep recording this long after the release, so the last word isn't cut.
     release_tail_ms: int = 250
+    # A key that abandons the dictation (e.g. "escape"), evdev/pynput only.
+    # Not grabbed: the focused app gets the key too. Empty: `voiceio cancel`.
+    cancel_key: str = ""
 
 
 @dataclass

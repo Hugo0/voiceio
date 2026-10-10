@@ -6,6 +6,7 @@
 |---|---|
 | `voiceio run` | Start the dictation daemon in the foreground (the systemd unit runs this) |
 | `voiceio toggle [--press\|--release]` | Start/stop recording on the running daemon. Bind it to a key if you don't use evdev; bind `--press` and `--release` (Hyprland `bindr`, sway `--release`) for push-to-talk |
+| `voiceio cancel` | Abandon the dictation in progress: nothing is typed, saved to history or kept as audio. Bind it to a key, or set `[hotkey] cancel_key`
 | `voiceio setup` | Guided setup (`--defaults` / `--answers '{json}'` for scripts) |
 | `voiceio doctor [--fix]` | Check every backend; `--fix` repairs what it can, asking before anything that needs sudo |
 | `voiceio service install\|uninstall\|start\|stop\|restart\|status\|logs` | systemd user unit: start on login, restart on crash; `logs -f` follows |

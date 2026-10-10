@@ -156,6 +156,10 @@ class VoiceIO:
         # IBus claim only if no newer recording has claimed it since.
         self._recording = 0
         self._session: StreamingSession | None = None
+        # The session whose final pass is running (state FINALIZING).
+        self._finalizing: StreamingSession | None = None
+        # Output generations the user cancelled: their finalizers keep nothing.
+        self._cancelled: set[int] = set()
         self._record_start: float = 0
         self._last_clip_warn: float = 0
         self._context_title: str | None = None
@@ -191,6 +195,16 @@ class VoiceIO:
                 log.info("TTS: engine=%s, hotkey=%s", self._tts_engine.name, cfg.tts.hotkey)
             else:
                 log.warning("TTS enabled but no engine available")
+
+        # Optional key that cancels a dictation (read only, never grabbed: the
+        # key also reaches the focused app). Needs a backend that sees keys.
+        self._cancel_hotkey = None
+        if cfg.hotkey.cancel_key:
+            if self._hotkey.name in ("evdev", "pynput"):
+                self._cancel_hotkey = hotkey_chain.select(platform, self._hotkey.name)
+            else:
+                log.warning("hotkey.cancel_key needs the evdev or pynput hotkey backend "
+                            "(have %s); use `voiceio cancel` instead", self._hotkey.name)
 
         self._shutdown = threading.Event()
         # IBus engine process + input-source claim (only while recording).
@@ -303,6 +317,55 @@ class VoiceIO:
         with self._hotkey_lock:
             if self._state == _State.RECORDING and self._recording == rid:
                 self._do_stop()
+
+    def cancel(self) -> None:
+        """Abandon the current dictation: type nothing, keep nothing (no
+        history, no retained audio), no commit chime. Only the stop chime
+        says the mic is off."""
+        with self._hotkey_lock:
+            self._held = None
+            if self._state == _State.RECORDING:
+                self._cancel_recording()
+            elif self._state == _State.FINALIZING and self._finalizing is not None:
+                if not self._finalizing.cancel():
+                    log.info("Cancel: the text is already out")
+                    return
+                self._cancel_output()
+            elif not self._streaming and self._outputs:
+                self._cancel_output()   # batch decode in flight
+
+    def _cancel_recording(self) -> None:
+        rid = self._recording
+        self._quiet.stop(then=lambda: self._play_record_cue(start=False))
+        self.recorder.set_on_auto_stop(None)
+        self.recorder.stop()   # the audio is dropped here
+        tray.set_recording(False)
+        session, self._session = self._session, None
+        if session is not None:
+            session.cancel()
+        self._state = _State.IDLE
+        self._typers.end(rid)
+        log.info("Recording cancelled")
+
+    def _cancel_output(self) -> None:
+        """The newest stop's finalizer: its output is suppressed (generation)
+        and it keeps nothing (_cancelled)."""
+        self._cancelled.add(self._generation)
+        self._generation += 1
+        self._finalizing = None
+        self._state = _State.IDLE
+        tray.set_processing(False)
+        log.info("Dictation cancelled while finalizing")
+
+    def _discard_cancelled(self, gen: int, extra: dict) -> bool:
+        """A cancelled output's finalizer: drop the audio it retained."""
+        if gen not in self._cancelled:
+            return False
+        self._cancelled.discard(gen)
+        if extra.get("audio"):
+            from voiceio import retention
+            retention.discard_audio(extra["audio"])
+        return True
 
     def _on_auto_stop(self, reason: str = "silence") -> None:
         """Called from the audio thread when the recorder auto-stops.
@@ -482,6 +545,7 @@ class VoiceIO:
             tray.set_processing(True)
             session = self._session
             self._session = None
+            self._finalizing = session
             # Output-ownership gate: the moment a newer recording supersedes
             # this generation, the session must stop emitting typer output.
             session.set_is_current(lambda g=gen: self._generation == g)
@@ -565,6 +629,13 @@ class VoiceIO:
             clipboard_read.copy_text(session.interim_text)
         extra = self._retention_extra(audio)
         final_text = session.stop(audio)
+        with self._hotkey_lock:
+            if self._finalizing is session:
+                self._finalizing = None
+        if self._discard_cancelled(gen, extra):
+            log.info("Cancelled dictation discarded")
+            self._typers.end(rid)
+            return
         if self._generation != gen:
             # A later recording has already stopped: this output is stale, but
             # the user's words must not vanish — keep them in history.
@@ -610,11 +681,14 @@ class VoiceIO:
         """Batch transcription (non-streaming mode)."""
         try:
             if self._generation != gen:
+                self._cancelled.discard(gen)
                 return
             extra = self._retention_extra(audio)
             result = self.engine.transcribe(audio, bias=bias)
-            # Superseded by a newer recording, or a voice command discarded
-            # it: do not touch the typer.
+            # Superseded by a newer recording, cancelled, or a voice command
+            # discarded it: do not touch the typer.
+            if self._discard_cancelled(gen, extra):
+                return
             if self._generation != gen or result.abort or not result.text:
                 return
             extra["latency"] = result.latency
@@ -733,6 +807,9 @@ class VoiceIO:
         control.start(key, self.on_hotkey)
         control.handle("press", self.on_hotkey_press)
         control.handle("release", self.on_hotkey_release)
+        control.handle("cancel", self.cancel)
+        if self._cancel_hotkey is not None:
+            self._cancel_hotkey.start(self.cfg.hotkey.cancel_key, self.cancel)
 
     def run(self) -> None:
         from voiceio.config import PID_PATH, LOG_DIR
@@ -798,6 +875,8 @@ class VoiceIO:
                 self._socket.stop()
             if self._tts_hotkey:
                 self._tts_hotkey.stop()
+            if self._cancel_hotkey is not None:
+                self._cancel_hotkey.stop()
             if self._tts_player:
                 self._tts_player.cancel()
             if self._tts_engine:

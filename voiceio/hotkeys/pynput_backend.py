@@ -75,7 +75,7 @@ class PynputHotkey:
         if len(key_name) == 1:
             target_key = keyboard.KeyCode.from_char(key_name)
         else:
-            target_key = getattr(keyboard.Key, key_name)
+            target_key = getattr(keyboard.Key, {"escape": "esc"}.get(key_name, key_name))
 
         pressed_mods: set = set()
         last_trigger = [0.0]

@@ -163,6 +163,8 @@ class StreamingSession:
         # typer output on the final path, which would otherwise corrupt the new
         # session's text on non-IBus typers. Defaults to "always current".
         self._is_current = is_current or (lambda: True)
+        self._cancelled = False
+        self._final_shown = False
         self._recorder: AudioSource | None = recorder
         self._sample_rate = recorder.sample_rate
         self._generation = generation
@@ -275,6 +277,23 @@ class StreamingSession:
             self._recorder = None
         log.debug("Streaming session stopped, typed: %s", describe_transcript(self._display.text))
         return self._display.text
+
+    def cancel(self) -> bool:
+        """Abandon the dictation: stop decoding and take back what was shown
+        (IBus preedit cleared, typed interim words deleted). False when the
+        final text is already out — too late to cancel."""
+        self._stop_event.set()
+        self._pending.set()
+        with self._apply_lock:
+            if self._final_shown:
+                return False
+            self._cancelled = True
+            self._display.clear()
+        log.debug("Streaming session cancelled (gen=%d)", self._generation)
+        return True
+
+    def _may_show_final(self) -> bool:
+        return not self._cancelled and self._is_current()
 
     def _decode_past_pending_freeze(self, audio: np.ndarray | None):
         """If a freeze is decoding on the final lane, decode the audio after
@@ -507,7 +526,7 @@ class StreamingSession:
                 self._frozen_samples = len(audio)
                 # A superseded session must not touch the typer on the final
                 # path (would corrupt the newer session's output).
-                if final and not self._is_current():
+                if final and not self._may_show_final():
                     self._display.text = ""
                     return
                 self._display.clear()
@@ -524,13 +543,18 @@ class StreamingSession:
 
     def _commit_interim_on_final(self) -> None:
         """Commit whatever interim text we have when the final pass yields none."""
-        if self._is_current():
-            self._display.commit_preview()
+        with self._apply_lock:
+            if self._may_show_final():
+                self._final_shown = True
+                self._display.commit_preview()
 
     def _apply_correction(self, new_text: str, final: bool = False) -> None:
-        # A superseded session must emit no typer output on the final path.
-        if final and not self._is_current():
-            log.debug("Final output suppressed: session superseded")
+        # A superseded or cancelled session must emit no typer output on the
+        # final path.
+        if final and not self._may_show_final():
+            log.debug("Final output suppressed: session superseded or cancelled")
             self._display.text = new_text
             return
+        if final:
+            self._final_shown = True
         self._display.apply(new_text, final=final)

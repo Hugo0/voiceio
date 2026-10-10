@@ -72,6 +72,11 @@ def save_audio(audio: np.ndarray, ts: float, cfg: DataConfig) -> str | None:
     return name
 
 
+def discard_audio(name: str) -> None:
+    """Delete one retained recording (a dictation the user cancelled)."""
+    (RECORDINGS_DIR / name).unlink(missing_ok=True)
+
+
 def prune(cfg: DataConfig) -> None:
     """Delete oldest recordings when total size exceeds the configured cap.
 

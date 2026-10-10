@@ -155,6 +155,7 @@ class EvdevHotkey:
             **{str(i): getattr(ecodes, f"KEY_{i}") for i in range(10)},
             **{f"f{i}": getattr(ecodes, f"KEY_F{i}") for i in range(1, 13)},
             "space": ecodes.KEY_SPACE,
+            "escape": ecodes.KEY_ESC,
             "pause": ecodes.KEY_PAUSE,
             "insert": ecodes.KEY_INSERT,
             "scroll_lock": ecodes.KEY_SCROLLLOCK,

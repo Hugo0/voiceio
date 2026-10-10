@@ -42,6 +42,8 @@ def main() -> None:
     edge.add_argument("--release", dest="edge", action="store_const", const="release",
                       help="key up: ends a held push-to-talk recording")
     p_toggle.set_defaults(func=lambda a: _send(a.edge or "toggle"))
+    sub.add_parser("cancel", help="Abandon the current dictation: nothing is typed or kept"
+                   ).set_defaults(func=lambda a: _send("cancel"))
 
     p_setup = sub.add_parser("setup", help="Configure voiceio (interactive wizard)")
     p_setup.add_argument("--defaults", action="store_true",
