@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Voice dictation that learns you.** Local, open source, private — and it fine-tunes itself on your own voice, on your own machine.
+**Voice dictation that learns you.** ([website](https://hugo0.github.io/voiceio/)) Local, open source, private — and it fine-tunes itself on your own voice, on your own machine.
 
 Off-the-shelf speech models stumble on exactly the words you say most: your colleagues' names, your project, your jargon. voiceio keeps (with your permission) the audio of what you dictate, has a bigger model transcribe it overnight, and trains a personal model from it — nothing uploaded, no GPU required. On the author's dictation, one overnight run on a laptop CPU cut word errors from **12.1% to 5.0%** on held-out clips and recognized more of the author's vocabulary, at the same speed. Every model is scored on clips it never trained on, and it only replaces the current one when it wins.
 
@@ -249,7 +249,6 @@ Logs: `journalctl --user -u voiceio` or `~/.local/state/voiceio/voiceio.log`.
 
 ## Roadmap
 
-- **A landing page** — voiceio as local, open-source, private dictation that learns from you. A draft is in [`site/index.html`](site/index.html), ready for GitHub Pages.
 - **Unbounded vocabulary** — move to a decoder whose biasing has no token cap (see [model choice](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it)).
 - **One model everywhere** — sync your fine-tune to your phone server and laptops, peer to peer.
 
