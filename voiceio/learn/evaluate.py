@@ -32,6 +32,7 @@ class EvalResult:
     terms_recalled: int = 0
     repetitions: int = 0
     failures: int = 0
+    gold: int = 0           # clips whose reference a human verified
     per_clip: list[dict] = field(default_factory=list)
 
     @property
@@ -49,7 +50,8 @@ class EvalResult:
     def summary(self) -> str:
         return (f"{self.decoder}: WER {self.wer:.1%}  vocab recall {self.term_recall:.1%} "
                 f"({self.terms_recalled}/{self.terms_spoken})  loops {self.repetitions}  "
-                f"failures {self.failures}  {self.rtf:.1f}x realtime  [{self.clips} clips]")
+                f"failures {self.failures}  {self.rtf:.1f}x realtime  "
+                f"[{self.clips} clips, {self.gold} human-verified]")
 
 
 def evaluate(decoder: Decoder, dataset: Path, *, bias: Bias = Bias(),
@@ -68,6 +70,7 @@ def evaluate(decoder: Decoder, dataset: Path, *, bias: Bias = Bias(),
         a = metrics.align(row["text"], hyp)
         spoken, recalled = metrics.term_hits(row["text"], hyp, list(terms))
         res.clips += 1
+        res.gold += row.get("label_source") == "human"
         res.audio_secs += len(audio) / 16000
         res.decode_secs += dt
         res.ref_words += a.ref_words

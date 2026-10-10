@@ -61,6 +61,15 @@ def queue(clips: list[Clip], labels: dict[str, Label], terms: list[str]) -> list
     return vocab + disagree
 
 
+def queue_all(clips: list[Clip], labels: dict[str, Label]) -> list[Item]:
+    """Every segment of every unreviewed clip — for building a gold test set,
+    where a reference is only trustworthy if all of it was checked."""
+    return [Item(clip, labels[clip.audio], i, "test set")
+            for clip in clips
+            if clip.audio in labels and not labels[clip.audio].reviewed
+            for i in range(len(labels[clip.audio].segments))]
+
+
 def run(items: list[Item], *, ask: Callable[[Item], str | None],
         save: Callable[[Clip, list[Segment]], None]) -> int:
     """Drive a review session. `ask` returns the corrected text for a segment

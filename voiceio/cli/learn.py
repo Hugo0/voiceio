@@ -36,6 +36,8 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     r = lsub.add_parser("review", help="Fix the teacher's text where it matters")
     r.add_argument("--limit", type=int, default=None, help="max segments this session")
+    r.add_argument("--test", action="store_true",
+                   help="verify every segment of the held-out clips (the eval's ground truth)")
     r.set_defaults(func=cmd_review)
 
     a = lsub.add_parser("augment", help="Synthesize extra examples of your hard words (local TTS)")
@@ -158,7 +160,11 @@ def cmd_review(args: argparse.Namespace) -> None:
     from voiceio.learn import review
     from voiceio.learn.teacher import load_wav
 
-    items = review.queue(list(store.clips()), store.load_labels(), _vocabulary())
+    clips, labels = list(store.clips()), store.load_labels()
+    if args.test:
+        items = review.queue_all([c for c in clips if store.split_of(c.audio) == "test"], labels)
+    else:
+        items = review.queue(clips, labels, _vocabulary())
     if args.limit:
         items = items[:args.limit]
     if not items:
