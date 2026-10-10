@@ -86,13 +86,22 @@ def register(sub: argparse._SubParsersAction) -> None:
     mt.add_argument("--epochs", type=int, default=4)
     mt.add_argument("--auto-promote", action="store_true",
                     help="switch to the fine-tune when it wins, and restart the daemon")
+    mt.add_argument("--when-idle", action="store_true",
+                    help="first wait for a quiet machine on mains power ([learn] max_load, "
+                         "wait_hours); the scheduled run uses this")
     mt.set_defaults(func=cmd_maintain)
 
-    sc = lsub.add_parser("schedule", help="Run `maintain` every night (systemd timer)")
+    sc = lsub.add_parser("schedule", help="Run `maintain` on a schedule (systemd timer)")
     sc.add_argument("state", nargs="?", choices=("on", "off"), help="omit to show")
+    sc.add_argument("--at", help="time of day, e.g. 02:00 (saved as [learn] at; default 03:30)")
+    sc.add_argument("--every", choices=("day", "week"),
+                    help="daily, or weekly on Sunday (saved as [learn] every)")
     sc.add_argument("--auto-promote", action="store_true",
                     help="with on: switch to a fine-tune that wins, without asking")
     sc.set_defaults(func=cmd_schedule)
+
+    st = lsub.add_parser("stop", help="Stop a scheduled learning run that is in progress")
+    st.set_defaults(func=cmd_stop)
 
     pr = lsub.add_parser("promote", help="Use a trained model for dictation")
     pr.add_argument("run", help="run name under learn/models (see `learn status`)")
@@ -433,7 +442,12 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     """Label what's new; once enough has piled up, rebuild, retrain and say
     whether the result beats the current model. Never promotes by itself."""
     _yield_cpu()
-    from voiceio.learn import evaluate
+    from voiceio.learn import evaluate, quiet
+    learn_cfg = _cfg().learn
+    if getattr(args, "when_idle", False) and not quiet.wait_until_quiet(
+            learn_cfg.max_load, learn_cfg.wait_hours):
+        return
+    _announce_learning(args.min_new)
     cmd_label(argparse.Namespace(teacher=None, limit=None, relabel=False))
     from voiceio.learn import train
     if missing := train.missing_train_deps():
@@ -484,15 +498,75 @@ def cmd_maintain(args: argparse.Namespace) -> None:
                         urgent=True)
 
 
+def _announce_learning(min_new: int) -> None:
+    """Tell the user a run is starting (it takes a while and uses the CPU),
+    with buttons to stop it or to learn weekly instead. Silent when there is
+    nothing to do."""
+    labels = store.load_labels()
+    clips = [c.audio for c in store.clips()]
+    to_label = sum(1 for a in clips if a not in labels)
+    ds = store.latest_dataset()
+    new = len(set(clips) - (store.dataset_clips(ds) if ds else set()))
+    retrain = new >= min_new
+    if not to_label and not retrain:
+        return
+    from voiceio import feedback
+    what = (f"Labeling {to_label} new recordings" if to_label else "") + \
+        (", then retraining" if to_label and retrain else "Retraining" if retrain else "")
+    feedback.notify_actions(
+        "VoiceIO is learning your voice",
+        f"{what}, on this computer at idle priority; dictation stays fast.",
+        {"stop": "Stop for now", "weekly": "Weekly instead"},
+        _on_learning_action)
+
+
+def _on_learning_action(key: str) -> None:
+    import signal
+
+    from voiceio import config, feedback, service
+    if key == "weekly":
+        config.set_value("learn", "every", "week")
+        service.install_learn_timer(auto_promote=service.learn_timer_auto_promotes())
+        feedback.notify("VoiceIO: learning weekly now",
+                        f"{service.learn_schedule_summary()}. This run continues; "
+                        "change it with voiceio learn schedule on --every day")
+    elif key == "stop":
+        # Under the timer, stop the unit so training subprocesses go too.
+        if not (os.environ.get("INVOCATION_ID") and service.stop_learning()):
+            os.kill(os.getpid(), signal.SIGINT)
+
+
 def _schedule_state() -> str:
     from voiceio import service
-    if not service.learn_timer_enabled():
-        return "off (voiceio learn schedule on)"
-    return "on (auto-promote)" if service.learn_timer_auto_promotes() else "on"
+    summary = service.learn_schedule_summary()
+    return "off (voiceio learn schedule on)" if summary == "off" else f"on, {summary}"
+
+
+def cmd_stop(args: argparse.Namespace) -> None:
+    from voiceio import service
+    if not service.learning_now():
+        print("no learning run in progress")
+    elif service.stop_learning():
+        print("stopped; it runs again at the next scheduled time")
+    else:
+        raise SystemExit("could not stop voiceio-learn.service")
 
 
 def cmd_schedule(args: argparse.Namespace) -> None:
     from voiceio import config, service
+    if args.at or args.every:
+        learn = config.load().learn
+        try:   # validate before saving: the timer is generated from these
+            service.learn_calendar(args.at or learn.at, args.every or learn.every)
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
+        for key in ("at", "every"):
+            if getattr(args, key):
+                config.set_value("learn", key, getattr(args, key))
+        if args.state is None and service.learn_timer_enabled():   # reschedule in place
+            service.install_learn_timer(auto_promote=service.learn_timer_auto_promotes())
+            print(f"on, {service.learn_schedule_summary()}")
+            return
     if args.state == "on":
         if not config.load().data.retain_audio:
             print("note: [data] retain_audio is off, so there is nothing new to learn from;\n"
@@ -503,8 +577,11 @@ def cmd_schedule(args: argparse.Namespace) -> None:
                   f"      to also retrain: {train.TRAIN_HINT}")
         if not service.install_learn_timer(auto_promote=args.auto_promote):
             raise SystemExit("could not enable the timer (needs systemd --user)")
-        print("on: every night ~03:30, `voiceio learn maintain` labels new dictation at idle "
-              "priority, retrains once 50+ clips are new, and "
+        learn = config.load().learn
+        print(f"on, {service.learn_schedule_summary()}: once the machine is quiet (load per CPU "
+              f"≤ {learn.max_load:g}, on mains power; waits up to {learn.wait_hours:g} h), "
+              "`voiceio learn maintain` labels new dictation at idle priority, retrains once "
+              "50+ clips are new, and "
               + ("switches to the result when it wins on your held-out clips "
                  "(undo: voiceio learn rollback)." if args.auto_promote else
                  "tells you if the result is better. It never switches models by itself."))

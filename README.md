@@ -138,9 +138,13 @@ voiceio learn eval       # score the current model on your held-out clips: WER a
 voiceio learn train      # LoRA fine-tune (needs the `train` extra; decoder-only on CPU, --full on a GPU)
 voiceio learn promote <run>   # dictate with the fine-tune; `voiceio learn rollback` undoes it
 voiceio learn maintain   # later: label what's new, and once 50+ clips piled up, retrain and compare
-voiceio learn schedule on   # …or let it run `maintain` every night, and notify you when a model wins
-                            #   (--auto-promote: switch to a winner by itself; `learn rollback` undoes it)
+voiceio learn schedule on   # …or let it run `maintain` on a schedule, and notify you when a model wins
+                            #   --at 02:00 --every week: when (default daily at 03:30)
+                            #   --auto-promote: switch to a winner by itself; `learn rollback` undoes it
+voiceio learn stop          # stop a run in progress (it goes again next time)
 ```
+
+Scheduled runs wait for a quiet machine: they start only when the 1-minute load per CPU is at most `[learn] max_load` (0.25) and you're on mains power, and give up after `wait_hours` (3) until the next run. When one starts you get a notification with **Stop for now** and **Weekly instead**.
 
 To keep a second machine (say, the server your phone dictates through) on the same model, set `[learn] on_promote = "scripts/push_model.sh HOST"`: after every switch it copies the model there and flips a `current` link the server points at.
 

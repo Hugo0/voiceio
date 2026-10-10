@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import threading
 import wave
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -149,6 +150,39 @@ def _send_notification_linux(title: str, body: str, urgent: bool = False) -> Non
         subprocess.run([*args, title, body], capture_output=True, timeout=3)
     except (subprocess.TimeoutExpired, OSError):
         pass
+
+
+def notify_actions(title: str, body: str, actions: dict[str, str],
+                   on_action: Callable[[str], None]) -> None:
+    """A notification with buttons ({key: label}); ``on_action(key)`` runs
+    when one is clicked. Linux only; elsewhere, or with a notify-send too old
+    for actions, it degrades to a plain notification. Never blocks."""
+    import sys
+    if sys.platform != "linux" or not _which("notify-send") or not _notify_send_has_actions():
+        notify(title, body)
+        return
+
+    def wait() -> None:
+        args = ["notify-send", "--app-name=VoiceIO", "--wait",
+                *(f"--action={k}={label}" for k, label in actions.items()), title, body]
+        try:
+            picked = subprocess.run(args, capture_output=True, text=True).stdout.strip()
+        except OSError:
+            return
+        if picked in actions:
+            on_action(picked)
+
+    threading.Thread(target=wait, daemon=True).start()
+
+
+@functools.lru_cache(maxsize=1)
+def _notify_send_has_actions() -> bool:
+    """--action/--wait arrived in libnotify 0.7.9."""
+    try:
+        return "--action" in subprocess.run(["notify-send", "--help"], capture_output=True,
+                                            text=True, timeout=3).stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return False
 
 
 def _send_notification_windows(title: str, body: str) -> None:

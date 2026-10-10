@@ -121,5 +121,5 @@ def test_learning_status_and_tips(monkeypatch):
     cfg.model.name = str(learn_dir() / "models" / "v0001-small-x" / "ct2")
     st = _learning_status(cfg)
     assert st["Voice model"] == "fine-tuned on you (v0001-small-x)"
-    assert st["Recordings"].startswith("on (") and st["Nightly learning"] == "off"
+    assert st["Recordings"].startswith("on (") and st["Scheduled learning"] == "off"
     assert any("learn schedule on" in t for t in _accuracy_tips(st))

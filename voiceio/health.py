@@ -247,8 +247,7 @@ def _learning_status(cfg) -> dict[str, str]:
         out["Recordings"] = f"on ({n} kept to learn from)"
     else:
         out["Recordings"] = "off (nothing to learn from)"
-    out["Nightly learning"] = ("off" if not service.learn_timer_enabled() else
-                               "on (auto-promote)" if service.learn_timer_auto_promotes() else "on")
+    out["Scheduled learning"] = service.learn_schedule_summary()
     return out
 
 
@@ -354,7 +353,7 @@ def _accuracy_tips(accuracy: dict[str, str]) -> list[str]:
         tips.append("Add names/jargon to ~/.config/voiceio/vocabulary.txt")
     if accuracy.get("Recordings", "").startswith("off"):
         tips.append("voiceio config set data.retain_audio true  — keep recordings so voiceio can learn your voice")
-    elif accuracy.get("Nightly learning") == "off":
+    elif accuracy.get("Scheduled learning") == "off":
         tips.append("voiceio learn schedule on  — retrain on your voice every night")
     return tips
 

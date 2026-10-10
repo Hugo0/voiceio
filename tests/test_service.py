@@ -36,7 +36,7 @@ def test_learn_timer_runs_maintain_at_idle_priority(monkeypatch, tmp_path):
 
     assert service.install_learn_timer()
     unit = service.LEARN_SERVICE_PATH.read_text()
-    assert "ExecStart=/opt/v/bin/voiceio learn maintain" in unit
+    assert "ExecStart=/opt/v/bin/voiceio learn maintain --when-idle" in unit
     assert "CPUWeight=idle" in unit and "VOICEIO_IDLE_SCOPE=1" in unit
     assert "Persistent=true" in service.LEARN_TIMER_PATH.read_text()
     assert ("enable", "--now", service.LEARN_TIMER_NAME) in calls
@@ -89,5 +89,28 @@ def test_learn_timer_auto_promote_is_opt_in(monkeypatch, tmp_path):
     service.install_learn_timer()
     assert not service.learn_timer_auto_promotes()
     service.install_learn_timer(auto_promote=True)
-    assert "learn maintain --auto-promote" in service.LEARN_SERVICE_PATH.read_text()
+    assert "learn maintain --when-idle --auto-promote" in service.LEARN_SERVICE_PATH.read_text()
     assert service.learn_timer_auto_promotes()
+
+
+def test_learn_schedule_comes_from_config(monkeypatch, tmp_path):
+    import pytest
+
+    from voiceio import config
+    monkeypatch.setattr(service, "has_systemd", lambda: True)
+    monkeypatch.setattr(service, "_systemctl", lambda *a: True)
+    monkeypatch.setattr(service, "_find_voiceio_bin", lambda: "voiceio")
+    monkeypatch.setattr(service, "LEARN_SERVICE_PATH", tmp_path / "s.service")
+    monkeypatch.setattr(service, "LEARN_TIMER_PATH", tmp_path / "s.timer")
+    service.install_learn_timer()
+    assert "OnCalendar=*-*-* 03:30" in service.LEARN_TIMER_PATH.read_text()
+
+    config.set_value("learn", "at", "2:05")
+    config.set_value("learn", "every", "week")
+    service.install_learn_timer()
+    assert "OnCalendar=Sun *-*-* 02:05" in service.LEARN_TIMER_PATH.read_text()
+    assert service.learn_schedule_summary() == "weekly on Sunday at 2:05"
+
+    for at, every in (("25:00", "day"), ("3pm", "day"), ("03:30", "month")):
+        with pytest.raises(ValueError):
+            service.learn_calendar(at, every)

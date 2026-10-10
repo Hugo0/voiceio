@@ -249,6 +249,15 @@ class LearnConfig:
     # rollback), with the model in $VOICEIO_MODEL — e.g. to push a fine-tune
     # to another machine: scripts/push_model.sh HOST. Empty: nothing runs.
     on_promote: str = ""
+    # When nightly learning runs (`voiceio learn schedule on`): a time of day,
+    # and "day" or "week" (weekly runs on Sunday).
+    at: str = "03:30"
+    every: str = "day"
+    # It only starts on a quiet machine on mains power: 1-minute load per CPU
+    # at most max_load. It waits up to wait_hours for that, then tries again
+    # at the next scheduled run.
+    max_load: float = 0.25
+    wait_hours: float = 3.0
 
 
 @dataclass

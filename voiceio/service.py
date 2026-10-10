@@ -86,9 +86,25 @@ WantedBy=graphical-session.target
 """
 
 
-def _learn_units(bin_path: str, auto_promote: bool = False) -> tuple[str, str]:
-    """(service, timer) for nightly learning on this machine."""
-    flags = " --auto-promote" if auto_promote else ""
+LEARN_EVERY = {"day": "*-*-*", "week": "Sun *-*-*"}
+
+
+def learn_calendar(at: str, every: str) -> str:
+    """systemd OnCalendar for `[learn] at` / `every`; ValueError when invalid."""
+    import re
+    if every not in LEARN_EVERY:
+        raise ValueError(f"every must be one of {', '.join(LEARN_EVERY)}, not {every!r}")
+    m = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", at.strip())
+    if not m:
+        raise ValueError(f"at must be a time like 03:30, not {at!r}")
+    return f"{LEARN_EVERY[every]} {int(m[1]):02d}:{m[2]}"
+
+
+def _learn_units(bin_path: str, auto_promote: bool = False,
+                 calendar: str = "*-*-* 03:30") -> tuple[str, str]:
+    """(service, timer) for scheduled learning on this machine."""
+    # --when-idle: wait for a quiet machine on mains power before starting.
+    flags = " --when-idle" + (" --auto-promote" if auto_promote else "")
     service = f"""\
 [Unit]
 Description=VoiceIO - learn from today's dictation (label, retrain when enough is new)
@@ -105,14 +121,14 @@ IOWeight=10
 Nice=19
 Environment=VOICEIO_IDLE_SCOPE=1 PYTHONUNBUFFERED=1
 """
-    timer = """\
+    timer = f"""\
 [Unit]
-Description=VoiceIO - nightly learning
+Description=VoiceIO - scheduled learning
 
 [Timer]
-OnCalendar=*-*-* 03:30
-RandomizedDelaySec=30min
-# A laptop that was asleep at 03:30 catches up when it next runs.
+OnCalendar={calendar}
+RandomizedDelaySec=15min
+# A laptop that was asleep at that time catches up when it next runs.
 Persistent=true
 
 [Install]
@@ -130,10 +146,14 @@ def _systemctl(*args: str) -> bool:
 
 
 def install_learn_timer(auto_promote: bool = False) -> bool:
-    """Run `voiceio learn maintain` nightly. True when the timer is enabled."""
+    """Run `voiceio learn maintain` on the `[learn]` schedule. True when the
+    timer is enabled."""
     if _IS_WINDOWS or not has_systemd():
         return False
-    service, timer = _learn_units(_find_voiceio_bin(), auto_promote)
+    from voiceio import config
+    learn = config.load().learn
+    service, timer = _learn_units(_find_voiceio_bin(), auto_promote,
+                                  learn_calendar(learn.at, learn.every))
     SERVICE_DIR.mkdir(parents=True, exist_ok=True)
     LEARN_SERVICE_PATH.write_text(service)
     LEARN_TIMER_PATH.write_text(timer)
@@ -150,6 +170,25 @@ def uninstall_learn_timer() -> None:
 
 def learn_timer_enabled() -> bool:
     return LEARN_TIMER_PATH.exists() and _systemctl("is-enabled", "--quiet", LEARN_TIMER_NAME)
+
+
+def learning_now() -> bool:
+    return _systemctl("is-active", "--quiet", LEARN_SERVICE_NAME)
+
+
+def stop_learning() -> bool:
+    """Stop a scheduled learning run, training included (its whole cgroup)."""
+    return _systemctl("stop", LEARN_SERVICE_NAME)
+
+
+def learn_schedule_summary() -> str:
+    """'off', or e.g. 'daily at 03:30 (auto-promote)'."""
+    if not learn_timer_enabled():
+        return "off"
+    from voiceio import config
+    learn = config.load().learn
+    when = ("weekly on Sunday" if learn.every == "week" else "daily") + f" at {learn.at}"
+    return when + (" (auto-promote)" if learn_timer_auto_promotes() else "")
 
 
 def learn_timer_auto_promotes() -> bool:
