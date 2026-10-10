@@ -220,7 +220,8 @@ def _socket_listener(mainloop: GLib.MainLoop, stopping: threading.Event = _stopp
             break
 
         msg = data.decode("utf-8", errors="replace")
-        log.debug("Received: %s", msg[:80])
+        kind, _, body = msg.partition(":")
+        log.debug("Received: %s%s", kind, f" ({len(body)} chars)" if body else "")
 
         if msg == "ping":
             # Respond to probe: send pong back
@@ -265,15 +266,15 @@ def _dispatch(msg: str) -> None:
         elif msg == "clear":
             _engine.clear()
         else:
-            log.warning("Unknown command: %s", msg[:40])
+            log.warning("Unknown command: %s", msg.partition(":")[0][:40])
     except Exception:
-        log.exception("Error dispatching command: %s", msg[:40])
+        log.exception("Error dispatching command: %s", msg.partition(":")[0])
 
 
 def _handle_command(msg: str) -> bool:
     """Handle a command on the GLib main thread. Returns False to remove from idle."""
     if _engine is None:
-        log.debug("Engine not ready, buffering command: %s", msg[:40])
+        log.debug("Engine not ready, buffering command: %s", msg.partition(":")[0])
         _pending.add(msg)
         return False
 

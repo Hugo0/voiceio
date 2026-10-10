@@ -288,11 +288,13 @@ def test_no_log_call_formats_the_transcript_itself():
 
     import voiceio
     names = {"text", "new_text", "final_text", "to_type", "_typed_text", "result",
-             "corrected", "hyp", "transcript"}
+             "corrected", "hyp", "transcript", "msg"}
 
     def leaks(node):
         if isinstance(node, ast.BoolOp):
             return any(leaks(v) for v in node.values)
+        if isinstance(node, ast.JoinedStr):
+            return any(leaks(v.value) for v in node.values if isinstance(v, ast.FormattedValue))
         if isinstance(node, ast.Subscript):
             key = node.slice
             if isinstance(key, ast.Slice):          # text[:60] is still the words
