@@ -67,6 +67,15 @@ def set_global_engine(name: str) -> None:
         pass
 
 
+def _running(pid: int) -> bool:
+    """Exists and isn't a zombie (a killed child lingers until reaped)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] not in ("Z", "X")
+    except (OSError, IndexError):
+        return False
+
+
 def kill_stale_engines(socket_path) -> None:
     """Remove the command socket and SIGTERM any running engine process."""
     import signal
@@ -80,8 +89,18 @@ def kill_stale_engines(socket_path) -> None:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
-    if pids:
-        time.sleep(0.3)
+    # Wait for them to be gone before a successor binds the socket: a slow
+    # exit used to delete the new engine's socket. SIGKILL skips cleanup.
+    deadline = time.monotonic() + 3.0
+    while pids and time.monotonic() < deadline:
+        pids = [p for p in pids if _running(p)]
+        time.sleep(0.05)
+    for pid in pids:
+        log.warning("Engine %s ignored SIGTERM; killing", pid)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
 
 
 # ── Input sources ───────────────────────────────────────────────────────

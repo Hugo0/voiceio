@@ -147,11 +147,27 @@ _engine: VoiceIOEngine | None = None
 _pending = PendingBuffer()
 
 
+# Inode of the socket file this process bound. A replaced engine exiting late
+# under load used to unlink its *successor's* socket, leaving the new engine
+# alive but unreachable (then reaped as a zombie, in a loop).
+_bound_ino: int | None = None
+
+
+def _unlink_socket_if_ours() -> None:
+    try:
+        if _bound_ino is not None and SOCKET_PATH.stat().st_ino == _bound_ino:
+            SOCKET_PATH.unlink()
+    except OSError:
+        pass
+
+
 def _socket_listener(mainloop: GLib.MainLoop) -> None:
     """Listen for commands on Unix DGRAM socket. Runs in a thread."""
+    global _bound_ino
     SOCKET_PATH.unlink(missing_ok=True)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     sock.bind(str(SOCKET_PATH))
+    _bound_ino = SOCKET_PATH.stat().st_ino
     sock.settimeout(1.0)
     log.info("Socket listener started at %s", SOCKET_PATH)
 
@@ -190,7 +206,7 @@ def _socket_listener(mainloop: GLib.MainLoop) -> None:
         GLib.idle_add(_handle_command, msg)
 
     sock.close()
-    SOCKET_PATH.unlink(missing_ok=True)
+    _unlink_socket_if_ours()
 
 
 def _flush_pending() -> None:
@@ -312,7 +328,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        SOCKET_PATH.unlink(missing_ok=True)
+        _unlink_socket_if_ours()
         READY_PATH.unlink(missing_ok=True)
         log.info("VoiceIO IBus engine stopped")
 
