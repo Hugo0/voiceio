@@ -212,8 +212,9 @@ def test_evdev_combo_edges():
 
 @pytest.fixture
 def pynput_handlers(monkeypatch):
-    pytest.importorskip("pynput")
-    from pynput import keyboard
+    # A stand-in for pynput.keyboard: the real one needs an X display at
+    # import time, which CI doesn't have.
+    import types
 
     from voiceio.hotkeys import pynput_backend
     monkeypatch.setattr(pynput_backend, "_AUTOREPEAT_SECS", 0.02)
@@ -226,7 +227,26 @@ def pynput_handlers(monkeypatch):
         def start(self):
             pass
 
-    monkeypatch.setattr(keyboard, "Listener", FakeListener)
+    class KeyCode:
+        def __init__(self, char):
+            self.char = char
+
+        def __eq__(self, other):
+            return isinstance(other, KeyCode) and other.char == self.char
+
+        def __hash__(self):
+            return hash(self.char)
+
+        @classmethod
+        def from_char(cls, char):
+            return cls(char)
+
+    names = ("ctrl ctrl_l ctrl_r alt alt_l alt_r shift shift_l shift_r cmd cmd_l cmd_r esc").split()
+    keyboard = types.SimpleNamespace(
+        Listener=FakeListener, KeyCode=KeyCode,
+        Key=types.SimpleNamespace(**{n: KeyCode("<" + n + ">") for n in names}))
+    monkeypatch.setitem(sys.modules, "pynput", types.SimpleNamespace(keyboard=keyboard))
+    monkeypatch.setitem(sys.modules, "pynput.keyboard", keyboard)
     events = []
     pynput_backend.PynputHotkey().start(
         "ctrl+v", lambda: events.append("press"), lambda: events.append("release"))
