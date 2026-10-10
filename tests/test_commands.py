@@ -152,3 +152,18 @@ class TestLeavesDictationAlone:
     def test_inner_dot_survives_a_command(self):
         assert CommandProcessor().process("go to example.com period then stop") \
             == "go to example.com. then stop"
+
+
+class TestPunctuationWordsAsNouns:
+    """Found in real dictation: "a question mark" became "a?"."""
+
+    def test_talked_about_not_dictated(self):
+        for text in ["over a period of time", "put a comma there", "a long dash",
+                     "it ends with a question mark", "the exclamation point is loud"]:
+            assert CommandProcessor().process(text) == text
+
+    def test_still_dictated(self):
+        p = CommandProcessor()
+        assert p.process("hello comma world") == "hello, world"
+        assert p.process("is it done question mark") == "is it done?"
+        assert p.process("sentence one period sentence two") == "sentence one. sentence two"

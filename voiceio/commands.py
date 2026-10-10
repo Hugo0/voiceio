@@ -35,9 +35,26 @@ DEFAULT_COMMANDS: dict[tuple[str, ...], str] = {
 }
 
 
+# After one of these a punctuation word is a noun ("over a period of time",
+# "put a comma there", "a long dash"), not a spoken command.
+_NOUN_CUES = frozenset({
+    "a", "an", "the", "this", "that", "these", "those", "each", "every", "another",
+    "long", "short", "same", "first", "last", "next", "single", "double",
+})
+_PUNCTUATION = frozenset({".", ",", "?", "!", ":", ";", "-", " -- ", '"', "(", ")"})
+
+
 def _strip_punct(word: str) -> str:
     """Strip trailing/leading punctuation for command matching."""
     return re.sub(r"[^\w]", "", word).lower()
+
+
+def _used_as_noun(words: list[str], i: int, length: int) -> bool:
+    """Is words[i:i+length] talked about rather than dictated? A determiner
+    before it or "of" after it: "a period of time", "the question mark"."""
+    prev = _strip_punct(words[i - 1]) if i > 0 else ""
+    nxt = _strip_punct(words[i + length]) if i + length < len(words) else ""
+    return prev in _NOUN_CUES or nxt == "of"
 
 
 def _normalize_spacing(text: str) -> str:
@@ -122,6 +139,8 @@ class CommandProcessor:
                 key = tuple(_strip_punct(w) for w in words[i:i + length])
                 if key in self._commands:
                     replacement = self._commands[key]
+                    if replacement in _PUNCTUATION and _used_as_noun(words, i, length):
+                        continue
                     if replacement == _UNDO_SENTINEL:
                         return ParsedCommands(_normalize_spacing(" ".join(result)), undo=True)
                     if replacement == _FLAG_SENTINEL:
