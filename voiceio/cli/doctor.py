@@ -133,23 +133,15 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     # IBus-specific fixes
     ibus_broken = [b for b in report.typer_backends
                    if b.name == "ibus" and not b.ok]
+    # Only what voiceio itself installs; a missing ibus package or daemon
+    # needs the system fix the probe's hint names.
     for b in ibus_broken:
-        if "input sources" in b.reason.lower():
-            print(f"  Fixing {b.name}: adding VoiceIO to GNOME input sources")
+        if "component" in b.reason.lower() or "input sources" in b.reason.lower():
+            print(f"  Fixing {b.name}: installing the IBus engine and input source")
             try:
-                from voiceio.typers.ibus import _ensure_gnome_input_source
-                _ensure_gnome_input_source()
+                from voiceio.ibus import install
+                fixed_any = install.ensure() or fixed_any
                 print("  Done.")
-                fixed_any = True
-            except Exception as e:
-                print(f"  Failed: {e}")
-        elif "component" in b.reason.lower():
-            print(f"  Fixing {b.name}: installing IBus component")
-            try:
-                from voiceio.typers.ibus import install_component
-                install_component()
-                print("  Done.")
-                fixed_any = True
             except Exception as e:
                 print(f"  Failed: {e}")
 

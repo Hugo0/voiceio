@@ -228,13 +228,11 @@ def _check_features() -> FeatureGroups:
 def _check_ibus() -> IBusStatus:
     """Run detailed IBus health checks."""
     from pathlib import Path
-    from voiceio.typers.ibus import (
-        _ibus_daemon_running, _component_installed,
-    )
+    from voiceio.ibus.install import component_installed, daemon_running
 
     status = IBusStatus()
-    status.component_installed = _component_installed()
-    status.daemon_running = _ibus_daemon_running()
+    status.component_installed = component_installed()
+    status.daemon_running = daemon_running()
     # Ping, not exists(): an engine can hold a socket file yet be deaf.
     from voiceio.ibus import ping_engine
     status.socket_reachable = ping_engine(timeout=1.0)

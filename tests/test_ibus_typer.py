@@ -120,7 +120,7 @@ class TestIBusTyper:
 
     def test_probe_no_gi(self):
         with patch("voiceio.typers.ibus.shutil.which", return_value="/usr/bin/ibus"), \
-             patch("voiceio.typers.ibus._has_ibus_gi", return_value=False):
+             patch("voiceio.ibus.install.has_ibus_gi", return_value=False):
             typer = IBusTyper()
             result = typer.probe()
             assert not result.ok
@@ -128,8 +128,8 @@ class TestIBusTyper:
 
     def test_probe_no_daemon(self):
         with patch("voiceio.typers.ibus.shutil.which", return_value="/usr/bin/ibus"), \
-             patch("voiceio.typers.ibus._has_ibus_gi", return_value=True), \
-             patch("voiceio.typers.ibus._ibus_daemon_running", return_value=False):
+             patch("voiceio.ibus.install.has_ibus_gi", return_value=True), \
+             patch("voiceio.ibus.install.daemon_running", return_value=False):
             typer = IBusTyper()
             result = typer.probe()
             assert not result.ok
@@ -137,10 +137,10 @@ class TestIBusTyper:
 
     def test_probe_success(self):
         with patch("voiceio.typers.ibus.shutil.which", return_value="/usr/bin/ibus"), \
-             patch("voiceio.typers.ibus._has_ibus_gi", return_value=True), \
-             patch("voiceio.typers.ibus._ibus_daemon_running", return_value=True), \
-             patch("voiceio.typers.ibus._component_installed", return_value=True), \
-             patch("voiceio.typers.ibus._gnome_source_configured", return_value=True):
+             patch("voiceio.ibus.install.has_ibus_gi", return_value=True), \
+             patch("voiceio.ibus.install.daemon_running", return_value=True), \
+             patch("voiceio.ibus.install.component_installed", return_value=True), \
+             patch("voiceio.ibus.install.gnome_source_configured", return_value=True):
             typer = IBusTyper()
             result = typer.probe()
             assert result.ok
@@ -152,10 +152,10 @@ class TestProbeReadOnly:
 
     def test_missing_component_does_not_install(self):
         with patch("voiceio.typers.ibus.shutil.which", return_value="/usr/bin/ibus"), \
-             patch("voiceio.typers.ibus._has_ibus_gi", return_value=True), \
-             patch("voiceio.typers.ibus._ibus_daemon_running", return_value=True), \
-             patch("voiceio.typers.ibus._component_installed", return_value=False), \
-             patch("voiceio.typers.ibus.install_component") as mock_install:
+             patch("voiceio.ibus.install.has_ibus_gi", return_value=True), \
+             patch("voiceio.ibus.install.daemon_running", return_value=True), \
+             patch("voiceio.ibus.install.component_installed", return_value=False), \
+             patch("voiceio.ibus.install.install_component") as mock_install:
             typer = IBusTyper()
             result = typer.probe()
             assert not result.ok
@@ -164,10 +164,10 @@ class TestProbeReadOnly:
 
     def test_ok_result_is_cached(self):
         with patch("voiceio.typers.ibus.shutil.which", return_value="/usr/bin/ibus"), \
-             patch("voiceio.typers.ibus._has_ibus_gi", return_value=True), \
-             patch("voiceio.typers.ibus._ibus_daemon_running", return_value=True) as mock_daemon, \
-             patch("voiceio.typers.ibus._component_installed", return_value=True), \
-             patch("voiceio.typers.ibus._gnome_source_configured", return_value=True):
+             patch("voiceio.ibus.install.has_ibus_gi", return_value=True), \
+             patch("voiceio.ibus.install.daemon_running", return_value=True) as mock_daemon, \
+             patch("voiceio.ibus.install.component_installed", return_value=True), \
+             patch("voiceio.ibus.install.gnome_source_configured", return_value=True):
             typer = IBusTyper()
             assert typer.probe().ok
             assert typer.probe().ok
@@ -176,8 +176,8 @@ class TestProbeReadOnly:
 
     def test_failure_is_not_cached(self):
         with patch("voiceio.typers.ibus.shutil.which", return_value="/usr/bin/ibus"), \
-             patch("voiceio.typers.ibus._has_ibus_gi", return_value=True), \
-             patch("voiceio.typers.ibus._ibus_daemon_running", return_value=False) as mock_daemon:
+             patch("voiceio.ibus.install.has_ibus_gi", return_value=True), \
+             patch("voiceio.ibus.install.daemon_running", return_value=False) as mock_daemon:
             typer = IBusTyper()
             assert not typer.probe().ok
             assert not typer.probe().ok
@@ -185,18 +185,18 @@ class TestProbeReadOnly:
             assert mock_daemon.call_count == 2
 
     def test_ensure_installed_installs_when_missing(self):
-        with patch("voiceio.typers.ibus._component_installed", return_value=False), \
-             patch("voiceio.typers.ibus.install_component", return_value=True) as mock_install, \
-             patch("voiceio.typers.ibus._ensure_gnome_input_source") as mock_src:
+        with patch("voiceio.ibus.install.component_installed", return_value=False), \
+             patch("voiceio.ibus.install.install_component", return_value=True) as mock_install, \
+             patch("voiceio.ibus.install.ensure_gnome_input_source") as mock_src:
             typer = IBusTyper()
             assert typer.ensure_installed() is True
             mock_install.assert_called_once()
             mock_src.assert_called_once()
 
     def test_ensure_installed_skips_install_when_present(self):
-        with patch("voiceio.typers.ibus._component_installed", return_value=True), \
-             patch("voiceio.typers.ibus.install_component") as mock_install, \
-             patch("voiceio.typers.ibus._ensure_gnome_input_source") as mock_src:
+        with patch("voiceio.ibus.install.component_installed", return_value=True), \
+             patch("voiceio.ibus.install.install_component") as mock_install, \
+             patch("voiceio.ibus.install.ensure_gnome_input_source") as mock_src:
             typer = IBusTyper()
             assert typer.ensure_installed() is True
             mock_install.assert_not_called()
@@ -220,7 +220,7 @@ class TestStreamingTyperProtocol:
 def test_component_path_derives_system_dirs(monkeypatch):
     """NixOS keeps engines under the profile, not /usr/share; dropping them
     from IBUS_COMPONENT_PATH would hide every other input method."""
-    from voiceio.typers import ibus as ibus_mod
+    from voiceio.ibus import install as ibus_mod
     monkeypatch.setattr(ibus_mod.shutil, "which",
                         lambda _: "/run/current-system/sw/bin/ibus")
     monkeypatch.setenv("XDG_DATA_DIRS", "/run/current-system/sw/share:/etc/profiles/per-user/u/share")
@@ -235,8 +235,8 @@ def test_probe_reports_fcitx_instead_of_starting_ibus(monkeypatch):
     from voiceio.platform import Platform
     from voiceio.typers import ibus as ibus_mod
     monkeypatch.setattr(ibus_mod.shutil, "which", lambda _: "/usr/bin/ibus")
-    monkeypatch.setattr(ibus_mod, "_has_ibus_gi", lambda: True)
-    monkeypatch.setattr(ibus_mod, "_ibus_daemon_running", lambda: False)
+    monkeypatch.setattr("voiceio.ibus.install.has_ibus_gi", lambda: True)
+    monkeypatch.setattr("voiceio.ibus.install.daemon_running", lambda: False)
     plat = Platform(os="linux", display_server="wayland", desktop="hyprland",
                     input_method="fcitx")
     monkeypatch.setattr("voiceio.platform.detect", lambda: plat)
@@ -249,20 +249,20 @@ def test_probe_reports_fcitx_instead_of_starting_ibus(monkeypatch):
 def test_stale_launcher_counts_as_not_installed(tmp_path, monkeypatch):
     """A launcher baking a dead interpreter path (moved venv, GC'd Nix store
     path) must be rewritten, not trusted because the file exists."""
-    from voiceio.typers import ibus as ibus_mod
+    from voiceio.ibus import install as ibus_mod
     monkeypatch.setattr(ibus_mod, "LAUNCHER_PATH", tmp_path / "launcher")
     monkeypatch.setattr(ibus_mod, "COMPONENT_DEST", tmp_path / "voiceio.xml")
-    monkeypatch.setattr(ibus_mod, "_system_python", lambda: "/usr/bin/python3")
+    monkeypatch.setattr(ibus_mod, "system_python", lambda: "/usr/bin/python3")
     ibus_mod.LAUNCHER_PATH.write_text(ibus_mod._launcher_script())
     ibus_mod.COMPONENT_DEST.write_text(ibus_mod._component_xml())
-    assert ibus_mod._component_installed()
+    assert ibus_mod.component_installed()
     ibus_mod.LAUNCHER_PATH.write_text(
         ibus_mod._launcher_script().replace("/usr/bin/python3", "/nix/store/gone/bin/python3"))
-    assert not ibus_mod._component_installed()
+    assert not ibus_mod.component_installed()
 
 
 def test_refresh_stale_launcher_rewrites_only_stale_paths(tmp_path, monkeypatch):
-    from voiceio.typers import ibus as m
+    from voiceio.ibus import install as m
     monkeypatch.setattr(m, "LAUNCHER_DIR", tmp_path)
     monkeypatch.setattr(m, "LAUNCHER_PATH", tmp_path / "voiceio-ibus-engine")
     monkeypatch.setattr(m, "COMPONENT_DEST", tmp_path / "voiceio.xml")
@@ -270,5 +270,5 @@ def test_refresh_stale_launcher_rewrites_only_stale_paths(tmp_path, monkeypatch)
     m.COMPONENT_DEST.write_text(m._component_xml())
     m.LAUNCHER_PATH.write_text('INSTALL_PY="/old/venv/bin/python3"\n')  # pre-upgrade
     assert m.refresh_stale_launcher()
-    assert m._component_installed()
+    assert m.component_installed()
     assert not m.refresh_stale_launcher()            # current: no rewrite

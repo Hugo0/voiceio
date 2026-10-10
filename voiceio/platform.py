@@ -374,8 +374,8 @@ def _probe_ibus() -> bool:
     if shutil.which("ibus") is None:
         return False
     try:
-        from voiceio.typers.ibus import _has_ibus_gi
-        return _has_ibus_gi()
+        from voiceio.ibus.install import has_ibus_gi
+        return has_ibus_gi()
     except Exception:
         return False
 

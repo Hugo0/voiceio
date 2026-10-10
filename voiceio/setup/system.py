@@ -93,8 +93,8 @@ def _check_system() -> dict:
     # IBus Python bindings (check system Python, not venv)
     checks["ibus_gi"] = False
     if checks["ibus"]:
-        from voiceio.typers.ibus import _has_ibus_gi
-        checks["ibus_gi"] = _has_ibus_gi()
+        from voiceio.ibus.install import has_ibus_gi
+        checks["ibus_gi"] = has_ibus_gi()
 
     # Audio
     try:

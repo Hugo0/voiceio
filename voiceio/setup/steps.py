@@ -312,11 +312,9 @@ def _select_output_backend(state: SetupState) -> None:
 
     if checks["ibus"] and checks["ibus_gi"]:
         print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: IBus (best quality, auto-selected){RESET}")
-        from voiceio.typers.ibus import install_component, _ensure_gnome_input_source
-        if install_component():
-            print(f"  {GREEN}✓{RESET} {DIM}IBus engine component installed{RESET}")
-            _ensure_gnome_input_source()
-            print(f"  {GREEN}✓{RESET} {DIM}Added VoiceIO to GNOME input sources{RESET}")
+        from voiceio.ibus import install
+        if install.ensure():
+            print(f"  {GREEN}✓{RESET} {DIM}IBus engine installed and added to input sources{RESET}")
         else:
             print(f"  {YELLOW}⚠{RESET}  {DIM}Could not install IBus component, will use fallback{RESET}")
 

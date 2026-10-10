@@ -39,8 +39,8 @@ _STARTUP_GRACE_SECS = 120.0
 
 
 def _ibus_env() -> dict[str, str]:
-    from voiceio.typers.ibus import _ibus_env as env
-    return env()
+    from voiceio.ibus.install import ibus_env
+    return ibus_env()
 
 
 def query_global_engine() -> str | None:
@@ -462,9 +462,9 @@ class IBusSession:
     def _spawn(self, activate: bool) -> None:
         from voiceio.config import LOG_DIR
         from voiceio.ibus import READY_PATH, SOCKET_PATH
-        from voiceio.typers.ibus import LAUNCHER_PATH
+        from voiceio.ibus.install import LAUNCHER_PATH
 
-        ibus_env = _ibus_env()
+        env = _ibus_env()
 
         prev = query_global_engine()
         if prev and prev != ENGINE_NAME:
@@ -491,7 +491,7 @@ class IBusSession:
             self._proc = subprocess.Popen(
                 [str(LAUNCHER_PATH)],
                 stdout=subprocess.DEVNULL, stderr=stderr_target,
-                env=ibus_env,
+                env=env,
             )
         except OSError as e:
             log.warning("Could not start IBus engine: %s", e)
@@ -529,7 +529,7 @@ class IBusSession:
         activate_proc = subprocess.Popen(
             ["ibus", "engine", ENGINE_NAME],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            env=ibus_env,
+            env=env,
         )
 
         # Phase 3: wait for the engine instance
@@ -635,11 +635,11 @@ class IBusSession:
 
     def wait_for_daemon(self, polls: int = 30, interval: float = 0.5) -> bool:
         """Poll for ibus-daemon (it may start after us at login)."""
-        from voiceio.typers.ibus import _ibus_daemon_running
+        from voiceio.ibus.install import daemon_running
         log.info("IBus preferred but not available yet, waiting for ibus-daemon...")
         for i in range(polls):
             time.sleep(interval)
-            if _ibus_daemon_running():
+            if daemon_running():
                 log.info("IBus daemon ready after %.1fs, re-probing typers", (i + 1) * interval)
                 return True
         return False

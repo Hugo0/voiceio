@@ -170,9 +170,8 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     # ── IBus engine component (best-effort) ─────────────────────────────
     if checks["is_linux"] and checks["ibus"] and checks["ibus_gi"]:
         try:
-            from voiceio.typers.ibus import _ensure_gnome_input_source, install_component
-            if install_component():
-                _ensure_gnome_input_source()
+            from voiceio.ibus import install
+            if install.ensure():
                 _progress("ibus", status="installed")
         except Exception as e:  # noqa: BLE001 — best-effort, never fatal
             _progress("ibus", status="skipped", reason=repr(str(e)))
