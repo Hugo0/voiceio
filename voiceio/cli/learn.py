@@ -174,10 +174,38 @@ def cmd_status(args: argparse.Namespace) -> None:
         if _models_dir().exists() else []
     if runs:
         print(f"models     {', '.join(runs)}")
-    print(f"active     {_cfg().model.name}")
-    nxt = ("label" if teacher + human < len(clips) else
-           "review" if human == 0 else "build" if not ds else "eval / train")
+    active = _cfg().model.name
+    print(f"active     {active}")
+    promotable = _print_scores(ds, active, runs) if ds else None
+    if promotable:
+        nxt = f"promote {promotable}"
+    else:
+        nxt = ("label" if teacher + human < len(clips) else
+               "review" if human == 0 else "build" if not ds else "eval / train")
     print(f"\nnext: voiceio learn {nxt}")
+
+
+def _print_scores(ds: Path, active: str, runs: list[str]) -> str | None:
+    """Scores on `ds` for the active model and each fine-tune; returns the
+    run that beats the active model on everything, if any."""
+    from voiceio.learn import evaluate
+    current = evaluate.latest(active, ds.name)
+    rows = [(active + " (active)", current)] + [
+        (run, evaluate.latest(str(_models_dir() / run / "ct2"), ds.name)) for run in runs]
+    if not any(r for _, r in rows):
+        return None
+    print(f"\nscores on {ds.name} test clips:")
+    best = None
+    for name, r in rows:
+        if r is None:
+            print(f"  {name:<34} not evaluated — voiceio learn eval --model …")
+            continue
+        print(f"  {name:<34} WER {r['wer']:.1%}  vocab {r['term_recall']:.0%}  "
+              f"loops {r['repetitions']}  [{r.get('gold', 0)}/{r['clips']} human-verified]")
+        if current and r is not current and evaluate.promotion_verdict(r, current)[0]:
+            if best is None or r["wer"] < best[1]["wer"]:
+                best = (name, r)
+    return best[0] if best else None
 
 
 def cmd_clean(args: argparse.Namespace) -> None:

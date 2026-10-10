@@ -243,3 +243,25 @@ def test_clip_without_windows_is_not_new_forever():
     store.add_label("long.wav", [Segment(0, 40, "one very long segment")], "teacher:fake")
     ds = store.build_dataset()           # >28s segment: no windows, still considered
     assert "long.wav" in store.dataset_clips(ds)
+
+
+def test_status_shows_scores_and_suggests_a_winning_run(capsys):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    _clip("s.wav", 3, "x")
+    store.add_label("s.wav", [Segment(0, 3, "hi")], "teacher:fake")
+    ds = store.build_dataset()
+    run = store.learn_dir() / "models" / "v0001-small-x"
+    (run / "ct2").mkdir(parents=True)
+    runs = store.learn_dir() / "runs"
+    runs.mkdir()
+    for i, (dec, wer, rec) in enumerate([("faster-whisper:small", 0.10, 0.5),
+                                         (f"faster-whisper:{run / 'ct2'}", 0.08, 0.8)]):
+        (runs / f"eval-2026010{i}.json").write_text(json.dumps({
+            "decoder": dec, "dataset": ds.name, "mode": "offline", "wer": wer,
+            "term_recall": rec, "repetitions": 0, "clips": 5, "gold": 0}))
+    cli.cmd_status(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "small (active)" in out and "WER 8.0%" in out
+    assert "next: voiceio learn promote v0001-small-x" in out
