@@ -265,3 +265,18 @@ def test_retention_is_written_only_when_asked(cfg_paths):
     assert config.load(cfg_paths).data.retain_audio is False      # off unless chosen
     configfile._write_config(**kw, retain_audio=True)
     assert config.load(cfg_paths).data.retain_audio is True
+
+
+def test_setup_offers_nightly_learning_once(monkeypatch):
+    from voiceio import service
+    from voiceio.setup import steps
+    installed = []
+    monkeypatch.setattr(service, "has_systemd", lambda: True)
+    monkeypatch.setattr(service, "learn_timer_enabled", lambda: bool(installed))
+    monkeypatch.setattr(service, "install_learn_timer", lambda: installed.append(1) or True)
+    asked = []
+    monkeypatch.setattr(steps, "_ask_yn", lambda q, default=True: asked.append(q) or True)
+    state = steps.SetupState(checks={"is_linux": True})
+    steps._offer_nightly_learning(state)
+    steps._offer_nightly_learning(state)      # already on: not asked again
+    assert installed == [1] and len(asked) == 1

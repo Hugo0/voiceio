@@ -504,11 +504,31 @@ def _step_finalize(state: SetupState) -> None:
     state.retain_audio = _ask_yn("Keep recordings so voiceio can learn your voice?",
                                  default=state.cur.data.retain_audio if state.cur else True)
     _write_config(**state.config_kwargs())
+    if state.retain_audio:
+        _offer_nightly_learning(state)
     _setup_desktop_shortcut(state)
     _install_autostart(state)
     _verify_hotkey(state)
     if state.autostart:
         _start_service()
+
+
+def _offer_nightly_learning(state: SetupState) -> None:
+    """The recordings are only worth keeping if something learns from them."""
+    from voiceio import service
+    if not state.checks["is_linux"] or not service.has_systemd() or service.learn_timer_enabled():
+        return
+    print(f"  {DIM}Every night at idle priority: transcribe new recordings with a bigger model,")
+    print(f"  retrain once enough are new, and tell you if the result is better.{RESET}")
+    if not _ask_yn("Learn from them every night?", default=True):
+        return
+    if service.install_learn_timer():
+        print(f"  {GREEN}✓{RESET} {DIM}Nightly learning on (voiceio learn schedule off to stop){RESET}")
+        from voiceio.learn import train
+        if missing := train.missing_train_deps():
+            print(f"  {DIM}Retraining also needs {', '.join(missing)}: {train.TRAIN_HINT}{RESET}")
+    else:
+        print(f"  {YELLOW}⚠{RESET}  {DIM}Could not enable it; try: voiceio learn schedule on{RESET}")
 
 
 def _setup_desktop_shortcut(state: SetupState) -> None:
