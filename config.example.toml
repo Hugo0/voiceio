@@ -25,7 +25,7 @@ cpu_threads = 0               # 0 = half your logical cores, 4–8
 decode_lanes = 2              # 2 = separate preview process, so stopping never waits on it
 decoding = ""                 # sherpa-onnx only: greedy_search | modified_beam_search
 vocabulary_file = ""          # empty = ~/.config/voiceio/vocabulary.txt
-screen_vocabulary = false     # bias each dictation toward rare names on screen: the focused
+screen_vocabulary = true      # bias each dictation toward rare names on screen: the focused
                               # window's title and the selected text, read locally at start
                               # (never stored or sent). Window titles: X11 apps, Hyprland,
                               # sway, niri; GNOME/KDE Wayland only for X11 apps
