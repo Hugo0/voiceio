@@ -693,6 +693,67 @@ class TestSegmentFreeze:
         # Display untouched: interim text already covers this audio
         s._display.typer.type_text.assert_not_called()
 
+    def test_pause_freezes_tail_up_to_the_reported_pause(self):
+        from voiceio.streaming import _PAUSE_CUT_BACKOFF_SECS
+        s, tr, rec = self._make_session(freeze_secs=8.0)
+        audio = np.concatenate([_loud(4.5), _silent(0.7)])
+        rec.get_audio_so_far.return_value = audio
+        s._on_vad_pause()           # the recorder's VAD heard a pause here
+        rec.get_audio_so_far.return_value = np.concatenate([audio, _loud(0.5)])
+        tr.transcribe.return_value = "hello there friend"
+        s._transcribe_and_apply()
+        # Frozen long before freeze_secs, cut inside the pause
+        assert s._frozen_samples == len(audio) - int(_PAUSE_CUT_BACKOFF_SECS * SR)
+        assert s._frozen_raw == "hello there friend"
+        assert tr.transcribe.call_args.kwargs["final"] is True
+        assert len(tr.transcribe.call_args.args[0]) == s._frozen_samples
+        assert s.trace[-1]["cut"] == "pause"
+        s._display.typer.type_text.assert_not_called()
+
+    def test_pause_freeze_ignores_backpressure(self):
+        s, tr, rec = self._make_session(freeze_secs=8.0)
+        audio = np.concatenate([_loud(4.5), _silent(0.7)])
+        rec.get_audio_so_far.return_value = audio
+        s._last_decode_end = len(audio)   # an interim just covered all of it
+        s._last_decode_secs = 5.0
+        s._on_vad_pause()
+        tr.transcribe.return_value = "hello there friend"
+        s._transcribe_and_apply()
+        assert s._frozen_raw == "hello there friend"
+
+    def test_pause_after_too_little_speech_is_not_frozen(self):
+        from voiceio.streaming import _PAUSE_FREEZE_MIN_SECS
+        s, tr, rec = self._make_session(freeze_secs=8.0)
+        rec.get_audio_so_far.return_value = np.concatenate(
+            [_loud(_PAUSE_FREEZE_MIN_SECS - 1), _silent(0.7)])
+        s._on_vad_pause()
+        tr.transcribe.return_value = "hello"
+        s._transcribe_and_apply()
+        assert s._frozen_samples == 0
+        assert tr.transcribe.call_args.kwargs["final"] is False  # an interim
+        assert s._pause_at is None   # consumed: a later pause is judged afresh
+
+    def test_no_pause_freeze_when_freezing_disabled(self):
+        s, tr, rec = self._make_session(freeze_secs=0)
+        rec.get_audio_so_far.return_value = np.concatenate([_loud(6), _silent(0.7)])
+        s._on_vad_pause()
+        tr.transcribe.return_value = "hello there friend"
+        s._transcribe_and_apply()
+        assert s._frozen_samples == 0
+
+    def test_stop_after_pause_freeze_decodes_only_the_rest(self):
+        s, tr, rec = self._make_session(freeze_secs=8.0)
+        audio = np.concatenate([_loud(4.5), _silent(0.7)])
+        rec.get_audio_so_far.return_value = audio
+        s._on_vad_pause()
+        tr.transcribe.return_value = "hello there friend"
+        s._transcribe_and_apply()
+        final_audio = np.concatenate([audio, _loud(1.0)])
+        tr.transcribe.return_value = "bye"
+        s.stop(final_audio)
+        assert len(tr.transcribe.call_args.args[0]) == len(final_audio) - s._frozen_samples
+        assert s.raw_final_text == "hello there friend bye"
+
     def test_no_freeze_when_tail_is_speech(self):
         s, tr, rec = self._make_session(freeze_secs=2.0)
         rec.get_audio_so_far.return_value = _loud(3)
@@ -1073,3 +1134,4 @@ def test_stop_decodes_tail_in_parallel_with_inflight_freeze():
     release_freeze.set()
     stopper.join(5)
     assert ("result", "frozen part tail part") in calls
+

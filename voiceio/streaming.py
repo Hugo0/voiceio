@@ -46,6 +46,15 @@ _FREEZE_SILENCE_FLOOR = 1e-4  # digital silence is always quiet
 # spot beats re-decoding an ever-growing tail at stop (observed: 17 long
 # dictations never froze, one decoding 121s of audio after stop).
 _FREEZE_SEARCH_SECS = 8.0
+# Pause freezes: when the recorder reports a speech pause (its VAD heard
+# silence_duration of non-speech), the tail up to that pause is frozen as soon
+# as it holds this much audio, rather than waiting for freeze_secs. Stop then
+# decodes only the speech after the last pause instead of up to
+# freeze_secs + search span of it.
+_PAUSE_FREEZE_MIN_SECS = 4.0
+# The pause is reported once the silence has lasted a while: cut this far
+# before that point so the cut sits inside the silence, not at its edge.
+_PAUSE_CUT_BACKOFF_SECS = 0.3
 # Whisper conditions on ~224 prompt tokens; more frozen context is wasted.
 _FREEZE_CONTEXT_CHARS = 400
 
@@ -197,6 +206,8 @@ class StreamingSession:
         # been beam-decoded into _frozen_raw and is never decoded again.
         # Interim and final passes only decode the tail after this offset.
         self._freeze_secs = freeze_secs
+        # Sample offset of the latest speech pause the recorder reported.
+        self._pause_at: int | None = None
         self._frozen_samples = 0
         self._frozen_raw = ""
         self._frozen_segments: list[dict] = []
@@ -318,7 +329,12 @@ class StreamingSession:
             return None
 
     def _on_vad_pause(self) -> None:
-        """Called from audio thread on speech pause. Signals worker."""
+        """Called from audio thread on speech pause. Signals worker, and
+        remembers where the pause is: a clean place to freeze."""
+        recorder = self._recorder
+        audio = recorder.get_audio_so_far() if recorder is not None else None
+        if audio is not None:
+            self._pause_at = len(audio)
         self._pending.set()
 
     def _worker_loop(self) -> None:
@@ -353,7 +369,28 @@ class StreamingSession:
         context = self._frozen_raw[-_FREEZE_CONTEXT_CHARS:] if self._frozen_raw else None
         return self._bias.with_context(context)
 
-    def _freeze_chunk(self, audio: np.ndarray, chunk: np.ndarray) -> None:
+    def _pause_cut(self, tail_len: int) -> int | None:
+        """Tail offset to freeze at: the latest reported speech pause, once
+        the speech before it is long enough to decode on its own."""
+        pause, self._pause_at = self._pause_at, None
+        if self._freeze_secs <= 0 or pause is None:
+            return None
+        # Cut inside the pause, not at its end: speech may resume right there.
+        cut = pause - self._frozen_samples - int(_PAUSE_CUT_BACKOFF_SECS * self._sample_rate)
+        if cut < _PAUSE_FREEZE_MIN_SECS * self._sample_rate or cut > tail_len:
+            return None
+        return cut
+
+    def _long_tail_cut(self, tail: np.ndarray) -> int | None:
+        """Tail offset to freeze at once the tail outgrows freeze_secs: its
+        quietest interior window (see _find_freeze_cut)."""
+        if self._freeze_secs <= 0 or len(tail) < self._freeze_secs * self._sample_rate:
+            return None
+        # Past the whole search span with no pause found: force a cut.
+        force = len(tail) >= (self._freeze_secs + _FREEZE_SEARCH_SECS) * self._sample_rate
+        return _find_freeze_cut(tail, self._sample_rate, self._freeze_secs, force=force)
+
+    def _freeze_chunk(self, audio: np.ndarray, chunk: np.ndarray, cut: str = "long") -> None:
         """Beam-decode `chunk` (the tail up to a pause cut) and freeze it.
 
         On decode failure the boundary is left untouched — the audio will be
@@ -375,6 +412,7 @@ class StreamingSession:
         self.trace.append({
             "t": round(time.monotonic() - self._t0, 2),
             "kind": "freeze",
+            "cut": cut,
             "frozen_secs": round(self._frozen_samples / self._sample_rate, 2),
             "tail_secs": round(len(chunk) / self._sample_rate, 2),
             "secs": round(t_decode, 3),
@@ -411,30 +449,31 @@ class StreamingSession:
         tail = audio[self._frozen_samples:]
         if not final and len(tail) < self._sample_rate * min_seconds:
             return  # not enough new audio since the last freeze
-        grown_secs = (len(audio) - self._last_decode_end) / self._sample_rate
-        if not final and grown_secs < max(min_seconds, self._last_decode_secs):
-            return  # backpressure: don't decode faster than we can keep up
 
-        # Freeze: once the tail is long enough, cut it at an interior speech
-        # pause and beam-decode ONLY that chunk (its text is never decoded
-        # again). The freeze pass does not touch the display — the interim
-        # text already covers this audio; the next interim refreshes it.
-        if (not final and self._freeze_secs > 0
-                and len(tail) >= self._freeze_secs * self._sample_rate):
-            # Past the whole search span with no pause found: force a cut.
-            force = len(tail) >= (self._freeze_secs + _FREEZE_SEARCH_SECS) * self._sample_rate
-            cut = _find_freeze_cut(tail, self._sample_rate, self._freeze_secs, force=force)
-            if cut is not None:
-                with self._freeze_lock:
-                    # Stop may have won the race for the lock and already
-                    # finalized from the current boundary.
-                    if not self._stop_event.is_set():
-                        self._freeze_pending_end = self._frozen_samples + cut
-                        try:
-                            self._freeze_chunk(audio, tail[:cut])
-                        finally:
-                            self._freeze_pending_end = None
-                return
+        # Freeze: cut the tail at a speech pause and beam-decode ONLY that
+        # chunk (its text is never decoded again). The freeze pass does not
+        # touch the display — the interim text already covers this audio;
+        # the next interim refreshes it.
+        # A pause the recorder reported is frozen even under backpressure:
+        # it shrinks every later decode, the stop-time one included.
+        cut = None if final else self._pause_cut(len(tail))
+        reason = "pause"
+        if cut is None and not final:
+            grown_secs = (len(audio) - self._last_decode_end) / self._sample_rate
+            if grown_secs < max(min_seconds, self._last_decode_secs):
+                return  # backpressure: don't decode faster than we can keep up
+            cut, reason = self._long_tail_cut(tail), "long"
+        if cut is not None:
+            with self._freeze_lock:
+                # Stop may have won the race for the lock and already
+                # finalized from the current boundary.
+                if not self._stop_event.is_set():
+                    self._freeze_pending_end = self._frozen_samples + cut
+                    try:
+                        self._freeze_chunk(audio, tail[:cut], reason)
+                    finally:
+                        self._freeze_pending_end = None
+            return
 
         tail_text = ""
         tail_segments: list[dict] = []

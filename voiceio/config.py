@@ -144,12 +144,12 @@ class OutputConfig:
     # On by default: nobody wants "um" in their notes. Set false for verbatim.
     remove_disfluencies: bool = True
     voice_input_prefix: str = ""           # e.g. "[voice]" — empty disables
-    # Incremental finalization: once the un-finalized audio tail grows past
-    # this many seconds, it is cut at the nearest interior speech pause,
-    # beam-decoded and frozen during recording, so interim passes and the
-    # stop-time final decode only cover the short remaining tail. Smaller
-    # chunks decode faster (less worker blocking) at slightly more boundary
-    # risk. 0 disables (full re-decode at stop).
+    # Incremental finalization: during recording the audio is beam-decoded
+    # and frozen in chunks — at each speech pause the VAD reports, and,
+    # when no pause comes, once the un-finalized tail grows past this many
+    # seconds (cut at its quietest interior point) — so interim passes and
+    # the stop-time final decode only cover the short remaining tail.
+    # 0 disables both (full re-decode at stop).
     streaming_freeze_secs: float = 8.0
     # Mirror transcribed text to the system clipboard so it can be pasted:
     #   "off"   — never
