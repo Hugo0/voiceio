@@ -251,3 +251,41 @@ class TestDaemon:
             v.on_hotkey()
             time.sleep(0.1)
         cap.assert_not_called()
+
+
+def _fake_tmux(outputs):
+    calls = []
+
+    def run(args, timeout):
+        calls.append(args)
+        return outputs.get(args[0], "")
+    return run, calls
+
+
+def test_tmux_session_names_become_words(monkeypatch):
+    """Session names are the terminal's tabs: their slug parts are terms."""
+    from voiceio import context_terms as c
+    run, calls = _fake_tmux({"list-sessions": "s claude-swarmmemo-live\ns claude-wordle-native\nc %1\nc %2\n"})
+    monkeypatch.setattr(c, "_tmux", run)
+    monkeypatch.setattr(c.shutil, "which", lambda name: "/usr/bin/tmux")
+    text = c._read_tmux(0.2)
+    assert "swarmmemo" in text.split() and "claude-swarmmemo-live" not in text
+    # Two clients: tmux can't say which one has focus, so no pane is read.
+    assert not any(a[0] == "capture-pane" for a in calls)
+    assert "swarmmemo" in c.extract_terms([text])
+
+
+def test_tmux_pane_read_only_with_a_single_client(monkeypatch):
+    from voiceio import context_terms as c
+    run, calls = _fake_tmux({"list-sessions": "s work\nc %3\n", "capture-pane": "run xdotool now\n"})
+    monkeypatch.setattr(c, "_tmux", run)
+    monkeypatch.setattr(c.shutil, "which", lambda name: "/usr/bin/tmux")
+    text = c._read_tmux(0.2)
+    assert ["capture-pane", "-p", "-J", "-t", "%3"] in calls
+    assert "xdotool" in text
+
+
+def test_no_tmux_no_terminal_text(monkeypatch):
+    from voiceio import context_terms as c
+    monkeypatch.setattr(c.shutil, "which", lambda name: None)
+    assert c._read_tmux(0.2) == ""

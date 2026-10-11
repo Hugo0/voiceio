@@ -1,8 +1,10 @@
 """On-screen vocabulary: bias one dictation toward the names you can see.
 
 Most misrecognitions are proper nouns and jargon, and the word you are about
-to say is often already on screen: in the focused window's title or in the
-text you just selected. This reads those two sources when a recording starts,
+to say is often already on screen: in the focused window's title, in the
+text you just selected, or in the terminal you are working in (tmux: the
+visible pane and the session names, which are often the window's tabs). This
+reads those sources when a recording starts,
 picks out the terms Whisper is likely to miss (rare words, CamelCase,
 acronyms, multiword names) and hands them to `core.bias` for this one
 recording, inside a small share of the hotword budget.
@@ -30,9 +32,9 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
-# Capture deadline. Long enough for two ~20 ms subprocess reads under load,
+# Capture deadline. Long enough for a few ~20 ms subprocess reads under load,
 # short enough that the terms are in place before the first interim pass.
-CAPTURE_TIMEOUT_SECS = 0.15
+CAPTURE_TIMEOUT_SECS = 0.25
 # Only the head of a large selection is scanned: extraction stays ~10 ms.
 MAX_SCAN_CHARS = 8000
 MAX_TERMS = 8
@@ -54,10 +56,16 @@ _MIXED = re.compile(r"[a-zà-ÿ][A-ZÀ-Þ]|[A-ZÀ-Þ]{2}[a-zà-ÿ]")
 class ScreenContext:
     title: str = ""
     selection: str = ""
+    terminal: str = ""
     secs: float = 0.0
 
+    def texts(self) -> list[str]:
+        """In priority order: what was selected on purpose first."""
+        return [self.selection, self.title, self.terminal]
+
     def sources(self) -> list[str]:
-        return [n for n, v in (("title", self.title), ("selection", self.selection)) if v]
+        return [n for n, v in (("title", self.title), ("selection", self.selection),
+                               ("terminal", self.terminal)) if v]
 
 
 def _kind(word: str, zipf: Callable[[str], float]) -> int:
@@ -205,6 +213,33 @@ def _read_primary(timeout: float) -> str:
     return out.stdout[:MAX_SCAN_CHARS * 4].decode("utf-8", "replace")
 
 
+def _tmux(args: list[str], timeout: float) -> str:
+    try:
+        out = subprocess.run(["tmux", *args], capture_output=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
+    return out.stdout.decode("utf-8", "replace") if out.returncode == 0 else ""
+
+
+def _read_tmux(timeout: float) -> str:
+    """tmux session names (often the terminal's tabs, so on screen) and, when
+    exactly one client is attached, its visible pane (the newest end). With
+    several clients tmux can't say which one has focus — activity times move
+    with output too — so their panes would be a guess."""
+    if not shutil.which("tmux"):
+        return ""
+    # One tmux call for both lists: each call is a process start (~20 ms).
+    out = _tmux(["list-sessions", "-F", "s #{session_name}", ";",
+                 "list-clients", "-F", "c #{pane_id}"], timeout).splitlines()
+    # "claude-wordle-native" → words; slugs are names joined for the shell.
+    sessions = "\n".join(re.sub(r"[-_.]+", " ", line[2:]) for line in out if line.startswith("s "))
+    panes = [line[2:] for line in out if line.startswith("c ")]
+    if len(panes) != 1:
+        return sessions
+    text = _tmux(["capture-pane", "-p", "-J", "-t", panes[0]], timeout).rstrip()
+    return sessions + "\n" + text[-MAX_SCAN_CHARS // 2:]
+
+
 def _read_title(_timeout: float) -> str:
     from voiceio import retention
     return retention.active_window_title() or ""
@@ -214,7 +249,8 @@ def capture(timeout: float = CAPTURE_TIMEOUT_SECS, *,
             readers: dict[str, Callable[[float], str]] | None = None) -> ScreenContext:
     """Read the window title and selection in parallel; whatever isn't back
     by `timeout` is dropped (its thread finishes on its own). Never raises."""
-    readers = readers or {"title": _read_title, "selection": _read_primary}
+    readers = readers or {"title": _read_title, "selection": _read_primary,
+                          "terminal": _read_tmux}
     t0 = time.monotonic()
     results: dict[str, str] = {}
 
@@ -233,7 +269,7 @@ def capture(timeout: float = CAPTURE_TIMEOUT_SECS, *,
         t.join(max(0.0, deadline - time.monotonic()))
     got = dict(results)   # snapshot: a late reader must not change it
     return ScreenContext(title=got.get("title", ""), selection=got.get("selection", ""),
-                         secs=time.monotonic() - t0)
+                         terminal=got.get("terminal", ""), secs=time.monotonic() - t0)
 
 
 def describe() -> str:
@@ -250,4 +286,6 @@ def describe() -> str:
         sources.append("window title")
     elif p.is_wayland and p.desktop in ("gnome", "kde"):
         sources.append("window title of X11 apps only")
+    if shutil.which("tmux"):
+        sources.append("tmux sessions")
     return ", ".join(sources) or "no source available"

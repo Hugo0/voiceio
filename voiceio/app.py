@@ -643,7 +643,7 @@ class VoiceIO:
         screen = context_terms.capture()
         if self.cfg.data.capture_context:
             self._context_title = screen.title or None
-        terms = self.engine.screen_terms([screen.title, screen.selection])
+        terms = self.engine.screen_terms(screen.texts())
         if not terms:
             return
         bias = self.engine.bias(screen_terms=terms)

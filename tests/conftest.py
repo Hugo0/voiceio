@@ -77,7 +77,7 @@ def _quiet_desktop(monkeypatch):
 
 _DESKTOP_TOOLS = frozenset({
     "ydotool", "wtype", "xdotool", "xprop", "wl-copy", "wl-paste", "xclip", "xsel",
-    "hyprctl", "swaymsg", "niri",
+    "hyprctl", "swaymsg", "niri", "tmux",
 })
 
 
