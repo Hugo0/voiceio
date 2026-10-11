@@ -417,6 +417,16 @@ def cmd_train(args: argparse.Namespace) -> None:
               f"  (compare with the current model, then `voiceio learn promote {run.name}`)")
 
 
+def _train_language() -> str:
+    """The language a fine-tune is trained under: the one dictation decodes
+    with. "auto" has no single answer, so it has to be set first."""
+    lang = _cfg().model.language or "en"
+    if lang == "auto":
+        raise SystemExit("Fine-tuning needs one language: set it with "
+                         "`voiceio config set model.language es` (your dictation language).")
+    return lang
+
+
 def _train(ds: Path, *, base: str = "small", epochs: int = 4, synthetic_share: float = 0.3,
            full: bool = False, remote: bool = False) -> Path | None:
     """Export `ds` and fine-tune on it; returns the run dir (None for --remote)."""
@@ -433,8 +443,11 @@ def _train(ds: Path, *, base: str = "small", epochs: int = 4, synthetic_share: f
         return None
     train.require_train_deps()
     hotwords = (folder / train.HOTWORDS_FILE).read_text(encoding="utf-8")
+    # The language token the model is trained under must be the one it decodes
+    # with: training a Spanish voice under "en" taught it the wrong prompt.
     hf = train.train(folder, run, train.TrainConfig(
-        base=base, epochs=epochs, decoder_only=False if full else None, hotwords=hotwords))
+        base=base, epochs=epochs, decoder_only=False if full else None, hotwords=hotwords,
+        language=_train_language()))
     train.convert(hf, run / "ct2")
     return run
 

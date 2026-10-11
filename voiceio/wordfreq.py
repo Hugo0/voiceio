@@ -41,14 +41,26 @@ _CONTRACTIONS = frozenset({
 })
 
 
+def _zipf(word: str, language: str) -> float:
+    """Zipf frequency, 0.0 for a language wordfreq has no list for. "auto"
+    (detect per dictation) has no single list either: score it as English,
+    which is where the jargon in a vocabulary list usually comes from."""
+    if language in ("", "auto"):
+        language = "en"
+    try:
+        return zipf_frequency(word.lower(), language)
+    except LookupError:
+        return 0.0
+
+
 def is_common(word: str, language: str = "en", threshold: float = _ZIPF_COMMON_THRESHOLD) -> bool:
     """Check if a word is common (high frequency). Used for suggesting corrections."""
-    return zipf_frequency(word.lower(), language) >= threshold
+    return _zipf(word, language) >= threshold
 
 
 def rank(word: str, language: str = "en") -> int | None:
     """Get approximate frequency rank. None if not found."""
-    z = zipf_frequency(word.lower(), language)
+    z = _zipf(word, language)
     if z == 0.0:
         return None
     # Convert zipf to approximate rank (higher zipf = lower rank number)
@@ -61,7 +73,7 @@ def is_known(word: str, language: str = "en") -> bool:
     wl = word.lower()
     if wl in _CONTRACTIONS:
         return True
-    return zipf_frequency(wl, language) >= _ZIPF_KNOWN_THRESHOLD
+    return _zipf(wl, language) >= _ZIPF_KNOWN_THRESHOLD
 
 
 def extract_words(text: str) -> list[str]:

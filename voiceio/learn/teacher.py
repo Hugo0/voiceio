@@ -45,7 +45,7 @@ class WhisperTeacher:
         # A background batch job (see cli.learn._yield_cpu): use every core idle.
         self._model = load_model(model, device=device, compute_type=compute_type,
                                  cpu_threads=max(4, (os.cpu_count() or 8) // 2))
-        self._language = language
+        self._language = None if language in ("", "auto") else language   # None: detect
         terms = [t for t in vocabulary if t]
         # Prompt, not hotwords: hotwords are capped at 223 tokens; a prompt
         # of the most important terms still biases spelling. The tokenizer
