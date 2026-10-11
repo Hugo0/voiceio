@@ -23,6 +23,21 @@ _NO_CASE_LANGUAGES = frozenset({"zh", "ja", "ko", "ar", "he", "th", "hi", "bn", 
 _FILLER_RE = re.compile(
     r"[^\S\n]*,?[^\S\n]*\b(?:[Uu]h[-\s]?huh|[Mm]hm|[Uu]h+m*|[Uu]m+|[Hh]m{2,})\b[^\S\n]*,?[^\S\n]*",
 )
+# A word (2+ letters, not part of a dotted name or an ellipsis) ending in "."
+# and followed by a lowercase word: a segment boundary, not a sentence end.
+_SEGMENT_STOP_RE = re.compile(r"(?<![.\w])([A-Za-zÀ-ɏ]{2,})\.(\s+)(?=[a-zà-ÿ])")
+_ABBREVIATIONS = frozenset({
+    "etc", "vs", "approx", "cf", "al", "mr", "mrs", "ms", "dr", "st", "jr", "sr",
+    "inc", "ltd", "co", "fig", "eq", "vol", "no", "pp", "ca", "min", "max", "sec",
+})
+
+
+def _not_an_ending(word: str) -> bool:
+    """The word before a "." is an abbreviation or a dotted name, not a
+    sentence's last word."""
+    return "." in word or word.lower() in _ABBREVIATIONS
+
+
 # A re-decode artifact is a whole duplicated sentence; require this many words
 # so emphatic short repeats ("No. No.", "Stop. Stop.") are preserved.
 _MIN_DEDUP_WORDS = 4
@@ -95,14 +110,28 @@ def cleanup(text: str, language: str = "en") -> str:
     text = re.sub(r"\s+([.,;:?!])", r"\1", text)
 
     if language not in _NO_CASE_LANGUAGES:
+        # Whisper closes every segment with "." even mid-sentence, and the next
+        # segment then carries on in lowercase ("a bit bigger. and remove the
+        # latch"): on real dictation that was 1 in 4 notes. A lowercase
+        # continuation means the sentence did not end, so it gets a comma —
+        # before the capitalization below would make the false stop permanent.
+        text = _SEGMENT_STOP_RE.sub(
+            lambda m: m.group(0) if m.group(1).lower() in _ABBREVIATIONS
+            else m.group(1) + "," + m.group(2),
+            text,
+        )
+
+
         # Capitalize first character
         text = text[0].upper() + text[1:]
 
         # Capitalize after sentence-ending punctuation (an ellipsis is a
-        # pause, not an ending)
+        # pause, not an ending, and so is the dot of "etc.", "e.g." or a name
+        # like "hugo0.com")
         text = re.sub(
-            r"(?<!\.\.)([.?!]\s+)([a-z\u00E0-\u00FF])",
-            lambda m: m.group(1) + m.group(2).upper(),
+            r"(\S*)(?<!\.\.)([.?!]\s+)([a-z\u00E0-\u00FF])",
+            lambda m: m.group(0) if m.group(2)[0] == "." and _not_an_ending(m.group(1))
+            else m.group(1) + m.group(2) + m.group(3).upper(),
             text,
         )
 

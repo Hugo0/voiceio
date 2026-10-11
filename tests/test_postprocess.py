@@ -102,7 +102,20 @@ class TestCapitalization:
         assert cleanup("hello world") == "Hello world"
 
     def test_after_period(self):
-        assert cleanup("hello. world") == "Hello. World"
+        assert cleanup("hello? world") == "Hello? World"
+        assert cleanup("Hello. World") == "Hello. World"
+
+    def test_lowercase_after_a_segment_stop_is_a_comma(self):
+        # Whisper ends each segment with "." and continues the sentence in
+        # lowercase; capitalizing it made a false stop permanent.
+        assert cleanup("a bit bigger. and remove the latch.") == "A bit bigger, and remove the latch."
+        assert cleanup("hello. world") == "Hello, world"
+
+    def test_abbreviations_and_dotted_names_keep_their_dot(self):
+        assert cleanup("pears etc. and more") == "Pears etc. and more"
+        assert cleanup("use e.g. this one") == "Use e.g. this one"
+        assert cleanup("go to hugo0.com. and then") == "Go to hugo0.com. and then"
+        assert cleanup("I paused... and then") == "I paused... and then"
 
     def test_after_question_mark(self):
         assert cleanup("really? yes") == "Really? Yes"
@@ -184,7 +197,7 @@ class TestEdgeCases:
         assert result == "..."
 
     def test_unicode_accents(self):
-        assert cleanup("café. résumé") == "Café. Résumé"
+        assert cleanup("café? résumé") == "Café? Résumé"
 
 
 class TestWordMatchCompatibility:
