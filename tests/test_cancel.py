@@ -156,14 +156,17 @@ def test_cancel_too_late_changes_nothing(tmp_path):
     session = MagicMock()
     session.cancel.return_value = False          # final text already typed
     session.stop.side_effect = lambda audio: (in_stop.set(), release.wait(5), "words")[2]
+    # The finalizer goes on to copy the text from its own thread; left real, it
+    # lands on whatever clipboard a later test has patched in.
+    vio._copy_result_async = MagicMock()
     _finalizing(vio, tmp_path, session)
     assert in_stop.wait(5)
     gen = vio._generation
     vio.cancel()
     assert vio._state == _State.FINALIZING and vio._generation == gen
     release.set()
-    for _ in range(200):
-        if vio._state == _State.IDLE:
+    for _ in range(500):
+        if vio._state == _State.IDLE and not vio._outputs:
             break
         time.sleep(0.01)
     vio.engine.commit.assert_called_once()
