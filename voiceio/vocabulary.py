@@ -110,7 +110,7 @@ def select_terms(
     """
     import time
 
-    from voiceio.tokens import count_tokens
+    from voiceio.tokens import count_tokens, fit_prefix
 
     if not terms or token_budget <= 0:
         return []
@@ -121,20 +121,7 @@ def select_terms(
         key=lambda it: (-_score(it[1], stats, now), it[0]),
     )]
 
-    # Binary-search the longest ranked prefix that fits. Costing terms one by
-    # one and summing overcounts badly — BPE merges across the ", " separators,
-    # so per-term counts double-count the joins and spend the budget ~2x too
-    # fast. Measuring the joined string is the only honest count, and a prefix
-    # search needs ~log2(n) encodes instead of n.
-    lo, hi = 0, len(ranked)
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        if count_tokens(", ".join(ranked[:mid]), model_name) <= token_budget:
-            lo = mid
-        else:
-            hi = mid - 1
-
-    selected = ranked[:lo]
+    selected = fit_prefix(ranked, token_budget, model_name)
     # Emit in ranked order — faster-whisper truncates hotwords from the tail, so
     # anything dropped downstream is the lowest-scoring term.
     if len(selected) < len(terms):
@@ -276,6 +263,10 @@ class VocabularyLoader:
         self._mtime = mtime
         self._loaded_all = True
         self._selection_valid = False  # terms changed → re-rank
+
+    @property
+    def model_name(self) -> str:
+        return self._model_cfg.name
 
     def get_all(self) -> list[str]:
         """Every term, untruncated — for postcorrect, which has no token budget."""

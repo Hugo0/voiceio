@@ -156,6 +156,8 @@ class StreamingSession:
         self._decoder = decoder
         # Captured once per session: vocabulary/prompt changes made while this
         # recording runs apply to the next one, never halfway through this.
+        # The one exception is set_bias(): on-screen terms read just after
+        # the start.
         self._bias = bias or Bias()
         self._display = TypedText(typer)
         # Output-ownership gate: the app sets this so a superseded session (its
@@ -277,6 +279,12 @@ class StreamingSession:
             self._recorder = None
         log.debug("Streaming session stopped, typed: %s", describe_transcript(self._display.text))
         return self._display.text
+
+    def set_bias(self, bias: Bias) -> None:
+        """Bias for passes that START from now on (one in flight keeps the
+        one it began with): the on-screen terms, captured off the hotkey path
+        after the session started."""
+        self._bias = bias
 
     def cancel(self) -> bool:
         """Abandon the dictation: stop decoding and take back what was shown

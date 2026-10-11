@@ -42,6 +42,7 @@ voiceio/
 ├── power.py         # on_battery() from sysfs (idle audio policy, nightly learning)
 ├── vad.py           # Voice Activity Detection (Silero ONNX / RMS fallback)
 ├── vocabulary.py    # vocabulary.txt, ranked to fit the hotword token budget
+├── context_terms.py # On-screen vocabulary: terms from window title + selection, per dictation
 ├── vocab_stats.py   # Per-term usage stats that drive the ranking
 ├── tokens.py        # Exact Whisper token counting
 ├── prompt.py        # initial_prompt from recent transcript context

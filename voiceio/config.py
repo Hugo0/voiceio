@@ -90,6 +90,10 @@ class ModelConfig:
     # "modified_beam_search" (required for hotwords).
     decoding: str = ""
     vocabulary_file: str = ""  # path to vocabulary.txt
+    # Bias each dictation toward rare names on screen: the focused window's
+    # title and the selected text (voiceio/context_terms.py). Read locally
+    # when recording starts; never stored or sent anywhere.
+    screen_vocabulary: bool = False
     # Beam width of the passes whose text you keep (freezes and the final
     # tail); interim previews are always greedy. 1 is greedy: faster stop.
     beam_size: int = 5

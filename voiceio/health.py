@@ -224,6 +224,12 @@ def _check_features() -> FeatureGroups:
             else:
                 groups.accuracy["Vocabulary"] = "none"
 
+        if cfg.model.screen_vocabulary:
+            from voiceio.context_terms import describe as describe_screen
+            groups.accuracy["Screen vocabulary"] = f"on ({describe_screen()})"
+        else:
+            groups.accuracy["Screen vocabulary"] = "off"
+
         groups.accuracy.update(_learning_status(cfg))
 
         if cfg.postcorrect.enabled:

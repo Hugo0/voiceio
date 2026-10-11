@@ -168,6 +168,10 @@ class VoiceIO:
         threading.Thread(
             target=retention.prune, args=(cfg.data,), daemon=True,
         ).start()
+        if cfg.model.screen_vocabulary:
+            # Word frequency tables load in ~1s; not on the first dictation.
+            from voiceio.context_terms import warm
+            threading.Thread(target=warm, args=(cfg.model.language,), daemon=True).start()
 
         # Hotkey deduplication
         self._hotkey_lock = threading.Lock()
@@ -557,10 +561,12 @@ class VoiceIO:
         # `voiceio vocab`/`corrections` apply from the next recording.
         bias = self.engine.bias()
         self._recording_bias = bias
-        if self.cfg.data.capture_context:
-            # Snapshot the dictation target now — focus may change by finalize
+        if self.cfg.data.capture_context or self.cfg.model.screen_vocabulary:
+            # Snapshot the dictation target now — focus may change by finalize.
+            # Off this thread: the chime and the mic never wait on it.
             self._context_title = None
-            threading.Thread(target=self._capture_context, daemon=True).start()
+            threading.Thread(target=self._capture_context, args=(self._recording,),
+                             daemon=True, name="screen-context").start()
         self._record_start = time.monotonic()
         self.recorder.start()
         self.recorder.set_on_auto_stop(self._on_auto_stop)
@@ -627,9 +633,29 @@ class VoiceIO:
             # No finalizer will run to release the input source, so do it here.
             self._typers.end(rid)
 
-    def _capture_context(self) -> None:
+    def _capture_context(self, rid: int) -> None:
         from voiceio import retention
-        self._context_title = retention.active_window_title()
+        if not self.cfg.model.screen_vocabulary:
+            self._context_title = retention.active_window_title()
+            return
+        from voiceio import context_terms
+        t0 = time.monotonic()
+        screen = context_terms.capture()
+        if self.cfg.data.capture_context:
+            self._context_title = screen.title or None
+        terms = self.engine.screen_terms([screen.title, screen.selection])
+        if not terms:
+            return
+        bias = self.engine.bias(screen_terms=terms)
+        with self._hotkey_lock:
+            if self._recording != rid or self._state != _State.RECORDING:
+                return
+            self._recording_bias = bias
+            if self._session is not None:
+                self._session.set_bias(bias)
+        # A count only: these are words from the user's screen.
+        log.debug("Screen vocabulary: %d term(s) from %s, ready %.0f ms after start",
+                  len(terms), "+".join(screen.sources()), (time.monotonic() - t0) * 1000)
 
     def _retention_extra(self, audio: np.ndarray | None) -> dict:
         """Save the utterance audio (before transcription, so it survives

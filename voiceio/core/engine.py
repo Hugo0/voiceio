@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -107,11 +107,17 @@ class Engine:
     def recent(self, n: int = 3) -> list[str]:
         return self._bias.recent(n)
 
-    def bias(self) -> Bias:
+    def bias(self, screen_terms: Sequence[str] = ()) -> Bias:
         """Biasing for the next recording/request. Corrections and vocabulary
-        are mtime-cached, so edits apply without a restart."""
+        are mtime-cached, so edits apply without a restart. `screen_terms`
+        (from `screen_terms()`) take a small share of the hotword budget."""
         self.corrections.load()
-        return self._bias.bias_for(self.decoder.capabilities)
+        return self._bias.bias_for(self.decoder.capabilities, screen_terms)
+
+    def screen_terms(self, texts: Sequence[str]) -> list[str]:
+        """On-screen terms worth biasing this dictation toward (see
+        context_terms), minus what the hotwords already carry."""
+        return self._bias.screen_terms(texts, self.decoder.capabilities)
 
     def record_usage(self, text: str) -> None:
         """Feed a committed utterance back: prompt history + vocab usage."""

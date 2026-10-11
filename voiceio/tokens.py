@@ -70,6 +70,23 @@ def truncate_to_tokens(text: str, max_tokens: int, model_name: str) -> str:
     space = cut.find(" ")
     return cut[space + 1:] if 0 <= space < 20 else cut
 
+def fit_prefix(terms: list[str], budget: int, model_name: str) -> list[str]:
+    """The longest prefix of `terms` whose ", "-joined form fits `budget`.
+
+    Measured joined, never summed per term: BPE merges across the separators,
+    so per-term counts double-count the joins and spend the budget ~2x too
+    fast. A binary search needs ~log2(n) encodes instead of n.
+    """
+    lo, hi = 0, len(terms)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if count_tokens(", ".join(terms[:mid]), model_name) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return terms[:lo]
+
+
 # Fallback ratio when no tokenizer is available. Measured over Hugo's actual
 # vocabulary (proper nouns/technical terms), NOT prose — deliberately
 # pessimistic so an estimate never over-fills the budget.
