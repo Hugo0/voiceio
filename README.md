@@ -45,7 +45,7 @@ voiceio learn schedule on             # learn from your recordings while the mac
 voiceio learn status                  # what it learned and how each model scores
 ```
 
-Scheduled learning runs daily or weekly at a time you pick, only on an idle machine on mains power, with a notification you can stop. It never switches models unless the new one wins, and `voiceio learn rollback` undoes a switch. Details: [docs/learning.md](docs/learning.md).
+Scheduled learning runs daily or weekly at a time you pick, on mains power and only while you're away from the computer: it stops within seconds when you come back and resumes later where it was. You get a notification with a button to stop it. It never switches models unless the new one wins, and `voiceio learn rollback` undoes a switch. Details: [docs/learning.md](docs/learning.md).
 
 ## Configure
 

@@ -39,12 +39,12 @@ def load_wav(path: Path) -> np.ndarray:
 class WhisperTeacher:
     def __init__(self, model: str = DEFAULT_TEACHER, *, device: str = "auto",
                  compute_type: str = "int8", vocabulary: Iterable[str] = (),
-                 language: str = "en"):
+                 language: str = "en", threads: int = 0):
         from voiceio.core.decoders.faster_whisper.worker import load_model
         self.name = f"teacher:{model}"
-        # A background batch job (see cli.learn._yield_cpu): use every core idle.
+        # A background batch job (see cli.learn._yield_cpu); `[learn] threads`.
         self._model = load_model(model, device=device, compute_type=compute_type,
-                                 cpu_threads=max(4, (os.cpu_count() or 8) // 2))
+                                 cpu_threads=threads or max(4, (os.cpu_count() or 8) // 2))
         self._language = None if language in ("", "auto") else language   # None: detect
         terms = [t for t in vocabulary if t]
         # Prompt, not hotwords: hotwords are capped at 223 tokens; a prompt

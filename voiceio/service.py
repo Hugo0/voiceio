@@ -103,7 +103,8 @@ def learn_calendar(at: str, every: str) -> str:
 def _learn_units(bin_path: str, auto_promote: bool = False,
                  calendar: str = "*-*-* 03:30") -> tuple[str, str]:
     """(service, timer) for scheduled learning on this machine."""
-    # --when-idle: wait for a quiet machine on mains power before starting.
+    # --when-idle: work only while nobody is using the computer, and stop
+    # within seconds when they're back (voiceio.learn.quiet).
     flags = " --when-idle" + (" --auto-promote" if auto_promote else "")
     service = f"""\
 [Unit]
@@ -113,12 +114,22 @@ Documentation=https://github.com/Hugo0/voiceio#make-it-yours
 [Service]
 Type=oneshot
 ExecStart={bin_path} learn maintain{flags}
-# Background work: it gets the CPU only when nothing else wants it, so
-# dictation and everything else stay fast. The unit's own cgroup already
-# does what `learn` would otherwise re-exec into a scope for.
+# The run itself waits until you're away and stops when you're back. These
+# are the second line, for whatever else runs meanwhile: CPU only when no
+# other cgroup wants it (CPUWeight=idle) and SCHED_IDLE inside its own, disk
+# last, and a memory ceiling so it can't push the desktop into swap: past
+# MemoryHigh the kernel reclaims from this unit, not from everything else,
+# and should memory still run out, the OOM killer picks this first. The
+# unit's own cgroup already does what `learn` would otherwise re-exec into a
+# scope for. (The io settings are no-ops where the io controller isn't
+# delegated or the disk has no I/O scheduler.)
 CPUWeight=idle
-IOWeight=10
+CPUSchedulingPolicy=idle
 Nice=19
+IOWeight=1
+IOSchedulingClass=idle
+MemoryHigh=25%
+OOMScoreAdjust=500
 Environment=VOICEIO_IDLE_SCOPE=1 PYTHONUNBUFFERED=1
 """
     timer = f"""\
@@ -128,7 +139,8 @@ Description=VoiceIO - scheduled learning
 [Timer]
 OnCalendar={calendar}
 RandomizedDelaySec=15min
-# A laptop that was asleep at that time catches up when it next runs.
+# A laptop that was off at that time catches up when it next runs; that
+# run, too, waits until you're away.
 Persistent=true
 
 [Install]
@@ -159,6 +171,15 @@ def install_learn_timer(auto_promote: bool = False) -> bool:
     LEARN_TIMER_PATH.write_text(timer)
     _systemctl("daemon-reload")
     return _systemctl("enable", "--now", LEARN_TIMER_NAME)
+
+
+def refresh_learn_timer() -> bool:
+    """Rewrite the learning units for this version when they're on, keeping
+    the auto-promote choice: an upgrade must not leave an old unit running.
+    False when they are off (nothing to do)."""
+    if not learn_timer_enabled():
+        return False
+    return install_learn_timer(auto_promote=learn_timer_auto_promotes())
 
 
 def uninstall_learn_timer() -> None:
@@ -288,6 +309,7 @@ def install_service() -> bool:
         )
         log.info("Enabled %s", SERVICE_NAME)
         uninstall_correct_timer()
+        refresh_learn_timer()
         install_symlinks()  # the CLI must run the same install as the service
         return True
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:

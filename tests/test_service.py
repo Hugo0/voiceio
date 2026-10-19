@@ -38,7 +38,13 @@ def test_learn_timer_runs_maintain_at_idle_priority(monkeypatch, tmp_path):
     unit = service.LEARN_SERVICE_PATH.read_text()
     assert "ExecStart=/opt/v/bin/voiceio learn maintain --when-idle" in unit
     assert "CPUWeight=idle" in unit and "VOICEIO_IDLE_SCOPE=1" in unit
-    assert "Persistent=true" in service.LEARN_TIMER_PATH.read_text()
+    # Defence in depth behind the presence watch: idle CPU class inside the
+    # cgroup too, idle disk, a memory ceiling, first in line for the OOM killer.
+    for line in ("CPUSchedulingPolicy=idle", "Nice=19", "IOSchedulingClass=idle", "IOWeight=1",
+                 "MemoryHigh=25%", "OOMScoreAdjust=500"):
+        assert f"\n{line}\n" in unit, line
+    timer = service.LEARN_TIMER_PATH.read_text()
+    assert "Persistent=true" in timer and "OnCalendar=*-*-* 03:30" in timer
     assert ("enable", "--now", service.LEARN_TIMER_NAME) in calls
 
     service.uninstall_learn_timer()
@@ -114,3 +120,29 @@ def test_learn_schedule_comes_from_config(monkeypatch, tmp_path):
     for at, every in (("25:00", "day"), ("3pm", "day"), ("03:30", "month")):
         with pytest.raises(ValueError):
             service.learn_calendar(at, every)
+
+
+def test_reinstalling_the_service_refreshes_learning_units_that_are_on(monkeypatch, tmp_path):
+    """An upgrade must not leave last version's learning unit running."""
+    monkeypatch.setattr(service, "has_systemd", lambda: True)
+    monkeypatch.setattr(service, "_systemctl", lambda *a: True)
+    monkeypatch.setattr(service, "_find_voiceio_bin", lambda: "voiceio")
+    monkeypatch.setattr(service, "LEARN_SERVICE_PATH", tmp_path / "s.service")
+    monkeypatch.setattr(service, "LEARN_TIMER_PATH", tmp_path / "s.timer")
+    assert not service.refresh_learn_timer()               # off: stays off
+    assert not service.LEARN_SERVICE_PATH.exists()
+
+    service.LEARN_TIMER_PATH.write_text("old")
+    service.LEARN_SERVICE_PATH.write_text("ExecStart=voiceio learn maintain --auto-promote\n")
+    assert service.refresh_learn_timer()
+    unit = service.LEARN_SERVICE_PATH.read_text()
+    assert "MemoryHigh=" in unit and "--when-idle --auto-promote" in unit
+
+    calls = []
+    monkeypatch.setattr(service, "SERVICE_DIR", tmp_path)
+    monkeypatch.setattr(service, "SERVICE_PATH", tmp_path / service.SERVICE_NAME)
+    monkeypatch.setattr(service, "install_symlinks", lambda: [])
+    monkeypatch.setattr(service, "uninstall_correct_timer", lambda: None)
+    monkeypatch.setattr(service, "refresh_learn_timer", lambda: calls.append("refresh"))
+    monkeypatch.setattr(service.subprocess, "run", lambda *a, **k: None)
+    assert service.install_service() and calls == ["refresh"]

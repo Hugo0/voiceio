@@ -518,7 +518,7 @@ def _offer_nightly_learning(state: SetupState) -> None:
     from voiceio import service
     if not state.checks["is_linux"] or not service.has_systemd() or service.learn_timer_enabled():
         return
-    print(f"  {DIM}Every night at idle priority: transcribe new recordings with a bigger model,")
+    print(f"  {DIM}Every night, only while you're away: transcribe new recordings with a bigger model,")
     print(f"  retrain once enough are new, and tell you if the result is better.{RESET}")
     if not _ask_yn("Learn from them every night?", default=True):
         return

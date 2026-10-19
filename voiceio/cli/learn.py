@@ -87,8 +87,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     mt.add_argument("--auto-promote", action="store_true",
                     help="switch to the fine-tune when it wins, and restart the daemon")
     mt.add_argument("--when-idle", action="store_true",
-                    help="first wait for a quiet machine on mains power ([learn] max_load, "
-                         "wait_hours); the scheduled run uses this")
+                    help="work only while you're away from the computer, on mains power "
+                         "([learn] away_minutes, max_load, wait_hours): stop when you're "
+                         "back, resume later; the scheduled run uses this")
     mt.set_defaults(func=cmd_maintain)
 
     sc = lsub.add_parser("schedule", help="Run `maintain` on a schedule (systemd timer)")
@@ -257,7 +258,8 @@ def cmd_label(args: argparse.Namespace) -> None:
     cfg = _cfg()
     name = args.teacher or DEFAULT_TEACHER
     print(f"Loading teacher {name}…", flush=True)
-    teacher = WhisperTeacher(name, vocabulary=_vocabulary(), language=cfg.model.language)
+    teacher = WhisperTeacher(name, vocabulary=_vocabulary(), language=cfg.model.language,
+                             threads=cfg.learn.threads)
     clips = sorted(store.clips(), key=lambda c: c.duration)
     t0 = time.monotonic()
 
@@ -427,17 +429,41 @@ def _train_language() -> str:
     return lang
 
 
+def _runs_of(ds: Path, base: str) -> list[Path]:
+    """Run dirs that fine-tuned `base` on `ds`, oldest first."""
+    import re
+    pattern = re.compile(rf"{re.escape(ds.name)}-{re.escape(Path(base).name)}-\d{{8}}-\d{{4}}")
+    root = _models_dir()
+    return sorted(p for p in root.glob(f"{ds.name}-*") if pattern.fullmatch(p.name)) \
+        if root.exists() else []
+
+
+def _finished(run: Path) -> bool:
+    return (run / "ct2" / "model.bin").exists()
+
+
+def _finished_run(ds: Path, base: str) -> Path | None:
+    return next((r for r in reversed(_runs_of(ds, base)) if _finished(r)), None)
+
+
 def _train(ds: Path, *, base: str = "small", epochs: int = 4, synthetic_share: float = 0.3,
            full: bool = False, remote: bool = False) -> Path | None:
-    """Export `ds` and fine-tune on it; returns the run dir (None for --remote)."""
+    """Export `ds` and fine-tune on it; returns the run dir (None for --remote).
+    An interrupted run of the same dataset and base carries on where it was."""
     from voiceio.learn import augment, train
-    real = len(store.read_split(ds, "train"))
-    synth = augment.rows(max_share=synthetic_share, real_rows=real)
     folder = store.learn_dir() / "exports" / ds.name
-    counts = train.export(ds, folder, extra_train_rows=synth, hotwords=_live_hotwords())
-    print(f"exported {counts} windows ({len(synth)} synthetic) to {folder}")
+    unfinished = [r for r in _runs_of(ds, base) if not _finished(r)]
+    run = unfinished[-1] if unfinished and not remote else None
+    if run is not None and all((folder / f).exists()
+                               for f in ("train.jsonl", "dev.jsonl", train.HOTWORDS_FILE)):
+        print(f"resuming {run.name} (windows exported before)")
+    else:
+        real = len(store.read_split(ds, "train"))
+        synth = augment.rows(max_share=synthetic_share, real_rows=real)
+        counts = train.export(ds, folder, extra_train_rows=synth, hotwords=_live_hotwords())
+        print(f"exported {counts} windows ({len(synth)} synthetic) to {folder}")
     # A Hugging Face id or path names the run by its last part: one directory.
-    run = _models_dir() / f"{ds.name}-{Path(base).name}-{time.strftime('%Y%m%d-%H%M')}"
+    run = run or _models_dir() / f"{ds.name}-{Path(base).name}-{time.strftime('%Y%m%d-%H%M')}"
     if remote:
         print("\n" + train.remote_recipe(folder, run, base))
         return None
@@ -447,42 +473,106 @@ def _train(ds: Path, *, base: str = "small", epochs: int = 4, synthetic_share: f
     # with: training a Spanish voice under "en" taught it the wrong prompt.
     hf = train.train(folder, run, train.TrainConfig(
         base=base, epochs=epochs, decoder_only=False if full else None, hotwords=hotwords,
-        language=_train_language()))
+        language=_train_language(), threads=_cfg().learn.threads))
     train.convert(hf, run / "ct2")
+    train.discard_resume_state(run)
     return run
+
+
+# A dataset `maintain` built and has not finished with (trained, scored,
+# decided): a stopped run picks it up again instead of waiting for min_new
+# more clips past it.
+def _pending_path() -> Path:
+    return store.learn_dir() / "maintain-pending.json"
+
+
+def _pending_dataset() -> Path | None:
+    try:
+        name = json.loads(_pending_path().read_text())["dataset"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    ds = store.learn_dir() / "datasets" / name
+    if not (ds / "manifest.json").exists():
+        _set_pending(None)
+        return None
+    return ds
+
+
+def _set_pending(ds: Path | None) -> None:
+    path = _pending_path()
+    if ds is None:
+        path.unlink(missing_ok=True)
+        return
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps({"dataset": ds.name}) + "\n")
+    os.replace(tmp, path)
 
 
 def cmd_maintain(args: argparse.Namespace) -> None:
     """Label what's new; once enough has piled up, rebuild, retrain and say
-    whether the result beats the current model. Never promotes by itself."""
+    whether the result beats the current model. Never promotes by itself.
+
+    With --when-idle this process only watches: the work runs in a child
+    that is stopped the moment you're back and started again (it resumes)
+    once you're away (voiceio.learn.quiet)."""
     _yield_cpu()
-    from voiceio.learn import evaluate, quiet
+    from voiceio.learn import quiet
     learn_cfg = _maintain_settings(args)
-    if getattr(args, "when_idle", False) and not quiet.wait_until_quiet(
-            learn_cfg.max_load, learn_cfg.wait_hours):
+    if getattr(args, "when_idle", False) and os.environ.get(quiet.WORKER_ENV) != "1":
+        store.learn_dir().mkdir(parents=True, exist_ok=True)
+        code = quiet.run_while_away(
+            quiet.worker_argv(), max_load=learn_cfg.max_load,
+            away_minutes=learn_cfg.away_minutes, wait_hours=learn_cfg.wait_hours,
+            threads=learn_cfg.threads, hold_file=store.learn_dir() / "maintain.hold")
+        if code:
+            raise SystemExit(code)
         return
-    _announce_learning(learn_cfg.min_new)
+    _maintain(args, learn_cfg)
+
+
+def _maintain(args: argparse.Namespace, learn_cfg) -> None:
+    from voiceio.learn import evaluate, quiet, train
+    if not os.environ.get(quiet.RESUMED_ENV):
+        _announce_learning(learn_cfg.min_new)
     cmd_label(argparse.Namespace(teacher=learn_cfg.teacher or None, limit=None, relabel=False))
-    from voiceio.learn import train
     if missing := train.missing_train_deps():
         # Labeling alone is worth it; retraining waits for the extra. Exit 0:
         # a nightly timer must not fail every night over an optional install.
         print(f"labeled; fine-tuning needs {', '.join(missing)}: {train.TRAIN_HINT}")
         return
-    labels = store.load_labels()
-    labeled = {c.audio for c in store.clips() if c.audio in labels}
-    ds = store.latest_dataset()
-    new = len(labeled - store.dataset_clips(ds)) if ds else len(labeled)
-    if new < learn_cfg.min_new:   # the first dataset too: a handful of clips trains nothing
-        since = f" since {ds.name}" if ds else ""
-        print(f"{new} new labeled clips{since}; retraining waits for {learn_cfg.min_new}.")
-        return
-    ds = store.build_dataset()
-    print(f"built {ds.name} ({new} new clips)")
-    current = _run_eval(None, ds)
-    run = _train(ds, base=learn_cfg.base, epochs=learn_cfg.epochs)
-    candidate = _run_eval(str(run / "ct2"), ds)
-    ok, table = evaluate.promotion_verdict(_scores(candidate), _scores(current))
+    ds = _pending_dataset()
+    if ds is not None:
+        print(f"carrying on with {ds.name}, which a stopped run had not finished")
+    else:
+        labels = store.load_labels()
+        labeled = {c.audio for c in store.clips() if c.audio in labels}
+        latest = store.latest_dataset()
+        new = len(labeled - store.dataset_clips(latest)) if latest else len(labeled)
+        if new < learn_cfg.min_new:   # the first dataset too: a handful of clips trains nothing
+            since = f" since {latest.name}" if latest else ""
+            print(f"{new} new labeled clips{since}; retraining waits for {learn_cfg.min_new}.")
+            return
+        ds = store.build_dataset()
+        _set_pending(ds)
+        print(f"built {ds.name} ({new} new clips)")
+    # Scores already saved for this dataset are reused: a resumed run doesn't
+    # spend its time again on evals it finished before it was stopped.
+    beam = _cfg().model.beam_size
+    current = evaluate.latest(_cfg().model.name, ds.name, beam=beam) or _scores(_run_eval(None, ds))
+    run = _finished_run(ds, learn_cfg.base) or _train(ds, base=learn_cfg.base,
+                                                      epochs=learn_cfg.epochs)
+    model = str(run / "ct2")
+    candidate = evaluate.latest(model, ds.name, beam=beam) or _scores(_run_eval(model, ds))
+    with quiet.hold():   # from here on: seconds of work that must not be torn
+        _set_pending(None)
+        _decide(args, run, ds, candidate, current)
+
+
+def _decide(args: argparse.Namespace, run: Path, ds: Path, candidate: dict,
+            current: dict) -> None:
+    """Report the comparison; switch models or say how to."""
+    from voiceio.learn import evaluate
+    ok, table = evaluate.promotion_verdict(candidate, current)
     print(f"\n{_cfg().model.name} → {run.name} on {ds.name}:\n{table}")
     print(f"better or equal on everything — `voiceio learn promote {run.name}`" if ok
           else "not better on everything — keeping the current model")
@@ -539,7 +629,7 @@ def _announce_learning(min_new: int) -> None:
     to_label = sum(1 for a in clips if a not in labels)
     ds = store.latest_dataset()
     new = len(set(clips) - (store.dataset_clips(ds) if ds else set()))
-    retrain = new >= min_new
+    retrain = new >= min_new or _pending_dataset() is not None
     if not to_label and not retrain:
         return
     from voiceio import feedback
@@ -547,7 +637,7 @@ def _announce_learning(min_new: int) -> None:
         (", then retraining" if to_label and retrain else "Retraining" if retrain else "")
     feedback.notify_actions(
         "VoiceIO is learning your voice",
-        f"{what}, on this computer at idle priority; dictation stays fast.",
+        f"{what}, on this computer while you're away; it stops the moment you're back.",
         {"stop": "Stop for now", "weekly": "Weekly instead"},
         _on_learning_action)
 
@@ -611,10 +701,12 @@ def cmd_schedule(args: argparse.Namespace) -> None:
         if not service.install_learn_timer(auto_promote=args.auto_promote):
             raise SystemExit("could not enable the timer (needs systemd --user)")
         learn = config.load().learn
-        print(f"on, {service.learn_schedule_summary()}: once the machine is quiet (load per CPU "
-              f"≤ {learn.max_load:g}, on mains power; waits up to {learn.wait_hours:g} h), "
+        print(f"on, {service.learn_schedule_summary()}: once you've been away from the computer "
+              f"{learn.away_minutes:g} min (or locked the screen), on mains power and with load "
+              f"per CPU ≤ {learn.max_load:g} (waiting up to {learn.wait_hours:g} h), "
               "`voiceio learn maintain` labels new dictation at idle priority, retrains once "
-              f"{min_new}+ clips are new, and "
+              f"{min_new}+ clips are new — stopping within seconds when you're back and "
+              "resuming where it was — and "
               + ("switches to the result when it wins on your held-out clips "
                  "(undo: voiceio learn rollback)." if args.auto_promote else
                  "tells you if the result is better. It never switches models by itself."))

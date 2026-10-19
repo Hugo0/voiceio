@@ -20,6 +20,7 @@ from __future__ import annotations
 import collections
 import difflib
 import json
+import os
 import statistics
 import time
 from dataclasses import asdict, dataclass, field
@@ -152,7 +153,9 @@ def save(result: EvalResult) -> Path:
                              "rtf": result.rtf, "metrics": metrics.METRICS_VERSION}
     if result.waits:
         data["stop_to_text_median"] = statistics.median(result.waits)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    tmp = path.with_name(f".{path.name}.tmp")   # whole or not at all: runs are reused
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    os.replace(tmp, path)
     return path
 
 

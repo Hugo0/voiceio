@@ -130,8 +130,10 @@ timeout_secs = 15.0
 on_promote = ""               # run after every model switch, model in $VOICEIO_MODEL (see scripts/push_model.sh)
 at = "03:30"                  # when nightly learning runs (voiceio learn schedule on --at)
 every = "day"                 # "day" or "week" (Sundays)
+away_minutes = 10.0           # work only after this long with no input (or a locked screen); stops when you're back
 max_load = 0.25               # only start when 1-min load per CPU is at most this, on mains power...
-wait_hours = 3.0              # ...waiting up to this long, else try again next time
+wait_hours = 3.0              # ...waiting up to this long each time, else try again next time
+threads = 0                   # CPU threads for labeling and training; 0 = half the logical CPUs
 base = "small"                # model to fine-tune: Whisper size (e.g. "medium.en") or HF checkpoint
 teacher = ""                  # model that labels new clips; empty = large-v3-turbo
 epochs = 4                    # training epochs per run

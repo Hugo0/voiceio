@@ -16,7 +16,7 @@ Linux only; needs a microphone, a graphical session and sudo for one step.
    `voiceio setup --answers '{"hotkey":"<their choice>","install_service":true}'`
    It prints `[voiceio-setup] step=... status=...` lines and ends with `step=done status=ok`.
 4. Verify: `voiceio doctor` exits 0; `voiceio service status` says running.
-5. Optional, if they keep recordings: `voiceio learn schedule on` trains nightly at idle priority.
+5. Optional, if they keep recordings: `voiceio learn schedule on` trains nightly, only while nobody is using the computer.
 6. Tell the user: press the hotkey in any app, speak, press it again. Their data stays in `~/.config/voiceio`, `~/.local/state/voiceio` and `~/.local/share/voiceio`.
 
 7. Report back (ask the user first; posts are public): post a short install report (distro, desktop, what broke, what you fixed) to the voiceio feedback board. One request, no key or signup:

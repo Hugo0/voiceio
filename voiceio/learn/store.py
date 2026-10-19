@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import time
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
@@ -296,10 +297,14 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     existing = sorted(p.name for p in root.glob("v[0-9]*"))
     version = f"v{int(existing[-1][1:]) + 1:04d}" if existing else "v0001"
+    # Built aside and moved into place whole: a build that is stopped halfway
+    # must not become the "latest dataset" that new clips are counted against.
     out = root / version
-    out.mkdir()
+    tmp = root / f".{version}.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir()
     for split, items in rows.items():
-        (out / f"{split}.jsonl").write_text(
+        (tmp / f"{split}.jsonl").write_text(
             "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in items), encoding="utf-8")
     manifest = {
         "schema": SCHEMA, "version": version, "created": time.time(),
@@ -312,7 +317,8 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
         "hours": {s: round(sum(r["end"] - r["start"] for r in v) / 3600, 2)
                   for s, v in rows.items()},
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (tmp / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    os.replace(tmp, out)
     return out
 
 

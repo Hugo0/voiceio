@@ -17,6 +17,11 @@ decoder — where vocabulary spelling is learned. Measured on a Ryzen 7940HS
 under load (whisper-small): ~1.1s per window vs ~18s for a full step. Full LoRA also adapts
 the encoder to a voice and microphone; use it where there is a GPU.
 
+Training is resumable: the loop checkpoints its progress about once a minute
+(and the frozen encoder's outputs live in a file), so a run that is stopped
+— the scheduled one is, the moment you come back to the computer — carries
+on where it was instead of starting over.
+
 A fine-tuned model inherits the base model's license; Whisper is MIT.
 """
 from __future__ import annotations
@@ -66,6 +71,7 @@ class TrainConfig:
     # (and learns with) the biasing channel instead of eroding it.
     hotwords: str = ""
     prompt_share: float = 0.5
+    threads: int = 0            # CPU threads; 0 = half the logical CPUs
 
 
 # Full: every attention/MLP projection. Decoder-only additionally skips the
@@ -195,7 +201,7 @@ def decoder_batch(seqs: list[tuple[list[int], int]], pad: int):
             [y + [-100] * (width - len(y)) for y in labels])
 
 
-# ── train ────────────────────────────────────────────────────────────────
+# ── setup ────────────────────────────────────────────────────────────────
 
 def _prefix(vocab_size: int, cfg: TrainConfig) -> dict:
     """Tokenizer prefix matching what faster-whisper feeds at inference. An
@@ -217,8 +223,191 @@ def lr_schedule(total_steps: int, warmup: float = 0.1):
     return factor
 
 
+# ── resumable state ──────────────────────────────────────────────────────
+
+CHECKPOINT = "checkpoint.pt"
+ENCODER_CACHE = "encoder-cache"     # .f16 (outputs), .filled (flags), .json (what for)
+CHECKPOINT_SECS = 60.0
+
+
+def fingerprint(folder: Path, cfg: TrainConfig, **resolved) -> str:
+    """What saved progress is valid for: these windows, targets and settings.
+    Anything else starts over rather than resuming into a mismatch."""
+    import dataclasses
+    import hashlib
+    h = hashlib.sha256()
+    for name in ("train.jsonl", "dev.jsonl", HOTWORDS_FILE):
+        path = folder / name
+        h.update(path.read_bytes() if path.exists() else b"")
+        h.update(b"\0")
+    settings = {k: v for k, v in dataclasses.asdict(cfg).items() if k != "threads"}
+    h.update(json.dumps({**settings, **resolved}, sort_keys=True).encode())
+    return h.hexdigest()[:16]
+
+
+class EncoderCache:
+    """Frozen-encoder output per window, in an fp16 file mapped into memory.
+
+    Computed once per run and kept across interruptions: it is a large share
+    of a CPU epoch. Mapped rather than held: at 1500 frames × d_model per
+    window it is gigabytes (~4 GB for 1700 windows of whisper-small), and
+    file-backed pages are dropped under memory pressure instead of pushing
+    the desktop into swap."""
+
+    def __init__(self, base: Path, keys: list[str], *, frames: int, width: int,
+                 fingerprint: str):
+        self.index = {k: i for i, k in enumerate(keys)}
+        shape = (max(1, len(keys)), frames, width)
+        meta = {"fingerprint": fingerprint, "shape": list(shape)}
+        data, filled, info = self.paths(base)
+        try:
+            reuse = (json.loads(info.read_text()) == meta
+                     and data.stat().st_size == int(np.prod(shape)) * 2
+                     and filled.stat().st_size == shape[0])
+        except (OSError, ValueError):
+            reuse = False
+        if not reuse:
+            info.unlink(missing_ok=True)
+        mode = "r+" if reuse else "w+"
+        self.data = np.memmap(data, dtype=np.float16, mode=mode, shape=shape)
+        self.filled = np.memmap(filled, dtype=np.uint8, mode=mode, shape=(shape[0],))
+        if not reuse:
+            info.write_text(json.dumps(meta))
+        self.reused = int(self.filled.sum()) if reuse else 0
+
+    @staticmethod
+    def paths(base: Path) -> tuple[Path, Path, Path]:
+        return tuple(base.with_name(base.name + ext) for ext in (".f16", ".filled", ".json"))
+
+    def missing(self, keys: list[str]) -> list[str]:
+        return [k for k in keys if not self.filled[self.index[k]]]
+
+    def put(self, keys: list[str], values: np.ndarray) -> None:
+        idx = [self.index[k] for k in keys]
+        self.data[idx] = values
+        self.data.flush()           # the outputs reach the file before their flags
+        self.filled[idx] = 1
+        self.filled.flush()
+
+    def get(self, keys: list[str]) -> np.ndarray:
+        return self.data[[self.index[k] for k in keys]]
+
+
+def discard_resume_state(out: Path) -> None:
+    """Drop a finished run's checkpoint and encoder cache (gigabytes)."""
+    for path in (out / CHECKPOINT, *EncoderCache.paths(out / ENCODER_CACHE)):
+        path.unlink(missing_ok=True)
+
+
+def _save_checkpoint(path: Path, state: dict) -> None:
+    import torch
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(state, tmp)
+    os.replace(tmp, path)       # stopped mid-save: the previous one stands
+
+
+def _load_checkpoint(path: Path, fp: str) -> dict | None:
+    import torch
+    if not path.exists():
+        return None
+    try:
+        state = torch.load(path, weights_only=True)
+    except Exception as e:  # noqa: BLE001 — unreadable: start over, never fail the run
+        log.warning("ignoring unreadable checkpoint %s: %s", path, e)
+        return None
+    if state.get("fingerprint") != fp:
+        print("  saved progress is for other data or settings: starting over", flush=True)
+        return None
+    return state
+
+
+def fit(model, forward, train_rows: list[dict], dev_rows: list[dict], cfg: TrainConfig, *,
+        checkpoint: Path, fp: str, order_rng: np.random.Generator,
+        mix_rng: np.random.Generator, save_best, checkpoint_secs: float = CHECKPOINT_SECS,
+        clock=time.monotonic) -> float:
+    """The training loop; returns the best dev loss. `forward(chunk, fixed=)`
+    gives a batch's loss; `save_best()` keeps the adapter of the best epoch.
+
+    Resumable at any point: every `checkpoint_secs` and after each epoch it
+    saves the trainable weights, optimizer, schedule and every random state
+    (the epoch's shuffle is replayed from the state it started with), so a
+    resumed run takes exactly the steps an uninterrupted one would have.
+    At most `checkpoint_secs` of work is lost to a stop."""
+    import torch
+    trainable = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
+    params = [p for _, p in trainable]
+    steps = -(-len(train_rows) // cfg.batch_size)
+    opt = torch.optim.AdamW(params, lr=cfg.lr)
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_schedule(steps * cfg.epochs))
+    best, first_epoch, done = float("inf"), 0, 0
+    epoch_rng = order_rng.bit_generator.state
+    if state := _load_checkpoint(checkpoint, fp):
+        with torch.no_grad():
+            for n, p in trainable:
+                p.copy_(state["params"][n])
+        opt.load_state_dict(state["opt"])
+        sched.load_state_dict(state["sched"])
+        mix_rng.bit_generator.state = state["mix_rng"]
+        torch.set_rng_state(state["torch_rng"])
+        epoch_rng, best = state["order_rng"], state["best"]
+        first_epoch, done = state["epoch"], state["step"]
+        print(f"  resuming at epoch {first_epoch + 1}/{cfg.epochs} step {done}/{steps}"
+              if first_epoch < cfg.epochs else "  resuming: training had finished", flush=True)
+
+    def save(epoch: int, step: int) -> None:
+        _save_checkpoint(checkpoint, {
+            "fingerprint": fp, "epoch": epoch, "step": step, "best": best,
+            "params": {n: p.detach().clone() for n, p in trainable},
+            "opt": opt.state_dict(), "sched": sched.state_dict(),
+            "order_rng": epoch_rng, "mix_rng": mix_rng.bit_generator.state,
+            "torch_rng": torch.get_rng_state()})
+
+    last_save = clock()
+    for epoch in range(first_epoch, cfg.epochs):
+        order_rng.bit_generator.state = epoch_rng
+        model.train()
+        order = [train_rows[i] for i in order_rng.permutation(len(train_rows))]
+        skip = done if epoch == first_epoch else 0
+        t0, timed = clock(), 0
+        for step, i in enumerate(range(0, len(order), cfg.batch_size), 1):
+            if step <= skip:
+                continue
+            loss = forward(order[i:i + cfg.batch_size])
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(params, 1.0)
+            opt.step()
+            sched.step()
+            opt.zero_grad()
+            timed += 1
+            if step % 10 == 0 or step == steps:
+                eta = (clock() - t0) / timed * (steps - step)
+                print(f"  epoch {epoch + 1}/{cfg.epochs} step {step}/{steps} "
+                      f"loss {loss.item():.3f}  ~{eta / 60:.0f} min left in epoch", flush=True)
+            if step < steps and clock() - last_save >= checkpoint_secs:
+                save(epoch, step)
+                last_save = clock()
+        model.eval()
+        with torch.no_grad():
+            losses = [forward(dev_rows[i:i + cfg.batch_size], fixed=True).item()
+                      for i in range(0, len(dev_rows), cfg.batch_size)]
+        # No dev split (tiny dataset): keep the latest epoch.
+        dev = float(np.mean(losses)) if losses else float("-inf")
+        log.info("epoch %d dev loss %.4f", epoch + 1, dev)
+        print(f"  epoch {epoch + 1}/{cfg.epochs}: dev loss {dev:.4f}", flush=True)
+        if dev <= best or not losses:
+            best = dev
+            save_best()
+        epoch_rng = order_rng.bit_generator.state     # where the next shuffle starts
+        save(epoch + 1, 0)
+        last_save = clock()
+    return best
+
+
+# ── fine-tune ────────────────────────────────────────────────────────────
+
 def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
-    """LoRA-fine-tune on an exported folder; returns the merged HF model dir."""
+    """LoRA-fine-tune on an exported folder; returns the merged HF model dir.
+    Resumes from `out`'s checkpoint when one matches this folder and config."""
     require_train_deps()
     import torch
     from peft import LoraConfig, get_peft_model
@@ -227,7 +416,7 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
     torch.manual_seed(cfg.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
-        torch.set_num_threads(max(1, (os.cpu_count() or 2) // 2))
+        torch.set_num_threads(cfg.threads or max(1, (os.cpu_count() or 2) // 2))
     decoder_only = cfg.decoder_only if cfg.decoder_only is not None else device == "cpu"
     base_id = HF_BASE.get(cfg.base, cfg.base)
     model = WhisperForConditionalGeneration.from_pretrained(base_id)
@@ -246,6 +435,9 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
             return []
         return [json.loads(line) for line in path.read_text().splitlines() if line]
 
+    train_rows, dev_rows = load_rows("train"), load_rows("dev")
+    out.mkdir(parents=True, exist_ok=True)
+    fp = fingerprint(folder, cfg, base_id=base_id, decoder_only=decoder_only, device=device)
     mix_rng = np.random.default_rng(cfg.seed + 1)
     prompt = prompt_ids(processor.tokenizer, cfg.hotwords) if cfg.hotwords.strip() else []
 
@@ -269,16 +461,22 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
         feats = processor.feature_extractor(audio, sampling_rate=16000, return_tensors="pt")
         return feats.input_features.to(device)
 
-    cache: dict[str, object] = {}
+    cache = EncoderCache(
+        out / ENCODER_CACHE, list(dict.fromkeys(r["audio"] for r in train_rows + dev_rows)),
+        frames=encoder.config.max_source_positions, width=encoder.config.d_model,
+        fingerprint=fp) if decoder_only else None
+    if cache is not None and cache.reused:
+        print(f"  {cache.reused} encoder outputs kept from before", flush=True)
 
     def encoded(chunk: list[dict]):
-        """Frozen-encoder output, computed once per window (fp16 in RAM)."""
-        missing = [r for r in chunk if r["audio"] not in cache]
-        if missing:
+        """Frozen-encoder output, computed once per window (fp16, on disk)."""
+        keys = [r["audio"] for r in chunk]
+        if missing := set(cache.missing(keys)):
+            rows = [r for r in chunk if r["audio"] in missing]
             with torch.no_grad():
-                out = encoder(features(missing)).last_hidden_state.half()
-            cache.update({r["audio"]: h for r, h in zip(missing, out)})
-        return torch.stack([cache[r["audio"]] for r in chunk]).float()
+                hidden = encoder(features(rows)).last_hidden_state.half().cpu().numpy()
+            cache.put([r["audio"] for r in rows], hidden)
+        return torch.from_numpy(cache.get(keys)).to(device).float()
 
     def forward(chunk: list[dict], *, fixed: bool = False):
         dec_in, labels = targets_for(chunk, fixed=fixed)
@@ -289,41 +487,11 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
         return model(input_features=features(chunk), decoder_input_ids=dec_in,
                      labels=labels).loss
 
-    train_rows, dev_rows = load_rows("train"), load_rows("dev")
-    steps = -(-len(train_rows) // cfg.batch_size)
     print(f"  {len(train_rows)} train / {len(dev_rows)} dev windows on {device}, "
           f"{'decoder-only' if decoder_only else 'full'} LoRA", flush=True)
-    trainable = [p for p in model.parameters() if p.requires_grad]
-    opt = torch.optim.AdamW(trainable, lr=cfg.lr)
-    sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_schedule(steps * cfg.epochs))
-    rng = np.random.default_rng(cfg.seed)
-    best = float("inf")
-    for epoch in range(cfg.epochs):
-        model.train()
-        order = [train_rows[i] for i in rng.permutation(len(train_rows))]
-        t0 = time.monotonic()
-        for step, i in enumerate(range(0, len(order), cfg.batch_size), 1):
-            loss = forward(order[i:i + cfg.batch_size])
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
-            opt.step()
-            sched.step()
-            opt.zero_grad()
-            if step % 10 == 0 or step == steps:
-                eta = (time.monotonic() - t0) / step * (steps - step)
-                print(f"  epoch {epoch + 1}/{cfg.epochs} step {step}/{steps} "
-                      f"loss {loss.item():.3f}  ~{eta / 60:.0f} min left in epoch", flush=True)
-        model.eval()
-        with torch.no_grad():
-            losses = [forward(dev_rows[i:i + cfg.batch_size], fixed=True).item()
-                      for i in range(0, len(dev_rows), cfg.batch_size)]
-        # No dev split (tiny dataset): keep the latest epoch.
-        dev = float(np.mean(losses)) if losses else float("-inf")
-        log.info("epoch %d dev loss %.4f", epoch + 1, dev)
-        print(f"  epoch {epoch + 1}/{cfg.epochs}: dev loss {dev:.4f}", flush=True)
-        if dev <= best or not losses:
-            best = dev
-            model.save_pretrained(out / "adapter")
+    best = fit(model, forward, train_rows, dev_rows, cfg, checkpoint=out / CHECKPOINT, fp=fp,
+               order_rng=np.random.default_rng(cfg.seed), mix_rng=mix_rng,
+               save_best=lambda: model.save_pretrained(out / "adapter"))
 
     from peft import PeftModel
     merged = PeftModel.from_pretrained(
@@ -346,8 +514,14 @@ def train(folder: Path, out: Path, cfg: TrainConfig = TrainConfig()) -> Path:
 def convert(hf_dir: Path, out: Path, quantization: str = "int8") -> Path:
     """HF Whisper → CTranslate2, loadable as `[model] name = "<out>"`."""
     from ctranslate2.converters import TransformersConverter
+    tmp = out.with_name(out.name + ".tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
     TransformersConverter(str(hf_dir), copy_files=["tokenizer.json", "preprocessor_config.json"]
-                          ).convert(str(out), quantization=quantization, force=True)
+                          ).convert(str(tmp), quantization=quantization, force=True)
+    # Into place whole: a run stopped mid-convert must not leave a model.bin
+    # that looks finished.
+    shutil.rmtree(out, ignore_errors=True)
+    os.replace(tmp, out)
     return out
 
 
@@ -380,6 +554,7 @@ def main(argv: list[str] | None = None) -> None:
                                                   decoder_only=False if args.full else None,
                                                   hotwords=hotwords))
     convert(hf, args.out / "ct2")
+    discard_resume_state(args.out)
     shutil.rmtree(args.out / "hf", ignore_errors=True)
     print(f"done: {args.out / 'ct2'}")
 
