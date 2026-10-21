@@ -44,7 +44,7 @@ def test_learn_timer_runs_maintain_at_idle_priority(monkeypatch, tmp_path):
                  "MemoryHigh=25%", "OOMScoreAdjust=500"):
         assert f"\n{line}\n" in unit, line
     timer = service.LEARN_TIMER_PATH.read_text()
-    assert "Persistent=true" in timer and "OnCalendar=*-*-* 03:30" in timer
+    assert "Persistent=true" in timer and "OnCalendar=Sun *-*-* 03:30" in timer
     assert ("enable", "--now", service.LEARN_TIMER_NAME) in calls
 
     service.uninstall_learn_timer()
@@ -109,7 +109,7 @@ def test_learn_schedule_comes_from_config(monkeypatch, tmp_path):
     monkeypatch.setattr(service, "LEARN_SERVICE_PATH", tmp_path / "s.service")
     monkeypatch.setattr(service, "LEARN_TIMER_PATH", tmp_path / "s.timer")
     service.install_learn_timer()
-    assert "OnCalendar=*-*-* 03:30" in service.LEARN_TIMER_PATH.read_text()
+    assert "OnCalendar=Sun *-*-* 03:30" in service.LEARN_TIMER_PATH.read_text()   # weekly by default
 
     config.set_value("learn", "at", "2:05")
     config.set_value("learn", "every", "week")

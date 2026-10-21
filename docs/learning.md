@@ -22,7 +22,7 @@ voiceio learn train      # LoRA fine-tune (needs the `train` extra; decoder-only
 voiceio learn promote <run>   # dictate with the fine-tune; `voiceio learn rollback` undoes it
 voiceio learn maintain   # later: label what's new, and once 50+ clips piled up ([learn] min_new), retrain and compare
 voiceio learn schedule on   # …or let it run `maintain` on a schedule, and notify you when a model wins
-                            #   --at 02:00 --every week: when (default daily at 03:30)
+                            #   --at 02:00 --every day: when (default weekly, Sundays at 03:30)
                             #   --auto-promote: switch to a winner by itself; `learn rollback` undoes it
 voiceio learn stop          # stop a run in progress (it goes again next time)
 ```
