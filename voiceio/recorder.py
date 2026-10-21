@@ -26,6 +26,11 @@ log = logging.getLogger(__name__)
 # exact zeros; a working mic's "silence" still noises above ~1e-4). Matches the
 # floor in has_signal(). Used only to detect a dead mic, never speech vs pause.
 _SIGNAL_FLOOR = 1e-4
+# A stream that delivered real audio and then this long of exact zeros has
+# died under us (after a suspend/resume PipeWire can re-route the capture
+# node mid-recording): reopen it rather than record silence to the end.
+_DEAD_STREAM_SECS = 1.0
+_MAX_REVIVES = 2
 
 
 class RingBuffer:
@@ -138,6 +143,10 @@ class AudioRecorder:
         # Called with a reason: "silence" (spoke then paused) or "no_speech"
         # (nothing ever heard — a muted mic or a forgotten hotkey).
         self._on_auto_stop: Callable[[str], None] | None = None
+        # Called (off the audio thread) when the stream dies mid-recording.
+        self._on_dead_stream: Callable[[], None] | None = None
+        self._revives = 0
+        self._reviving = False
 
         # Heartbeat: updated by _callback, checked by health watchdog
         self._last_callback_time: float = 0.0
@@ -281,6 +290,8 @@ class AudioRecorder:
             self._heard_speech = False
             self._heard_signal = False
             self._silent_signal_secs = 0.0
+            self._revives = 0
+            self._reviving = False
             self._pause_fired_at = 0
             self._meter_peak = 0.0
             self._meter_clipped = 0
@@ -318,6 +329,25 @@ class AudioRecorder:
     def set_on_speech_pause(self, callback: Callable[[], None] | None) -> None:
         """Set/clear the speech pause callback (used by streaming session)."""
         self._on_speech_pause = callback
+
+    def set_on_dead_stream(self, callback: Callable[[], None] | None) -> None:
+        self._on_dead_stream = callback
+
+    @property
+    def silent_signal_secs(self) -> float:
+        """Seconds of exact zeros since the last real audio (dead-mic check)."""
+        return self._silent_signal_secs
+
+    def revive_stream(self) -> None:
+        """Reopen a stream that died mid-recording; the recording goes on in
+        the new stream. Raises if the device can't be opened."""
+        try:
+            self.close_stream()
+            self._last_callback_time = 0.0
+            self.open_stream()
+        finally:
+            self._silent_signal_secs = 0.0
+            self._reviving = False
 
     def set_on_auto_stop(self, callback: Callable[[str], None] | None) -> None:
         """Set/clear the auto-stop callback (fires after sustained silence)."""
@@ -371,6 +401,14 @@ class AudioRecorder:
             self._silent_signal_secs = 0.0
         else:
             self._silent_signal_secs += frames / self.sample_rate
+            if (self._heard_signal and self._silent_signal_secs >= _DEAD_STREAM_SECS
+                    and self._on_dead_stream is not None and not self._reviving
+                    and self._revives < _MAX_REVIVES):
+                self._reviving = True
+                self._revives += 1
+                # Never from the audio thread: closing the stream waits on it.
+                threading.Thread(target=self._on_dead_stream, daemon=True,
+                                 name="revive-mic").start()
         pinned = abs_chunk >= 0.99
         if np.count_nonzero(pinned) >= 4:
             runs = np.convolve(pinned.astype(np.int8), np.ones(4, dtype=np.int8), "valid")

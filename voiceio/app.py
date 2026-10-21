@@ -359,6 +359,7 @@ class VoiceIO:
         rid = self._recording
         self._quiet.stop(then=lambda: self._play_record_cue(start=False))
         self.recorder.set_on_auto_stop(None)
+        self.recorder.set_on_dead_stream(None)
         self.recorder.stop()   # the audio is dropped here
         tray.set_recording(False)
         session, self._session = self._session, None
@@ -414,6 +415,35 @@ class VoiceIO:
             log.info("paste-last: typed %s", describe_transcript(text))
         except Exception:
             log.exception("paste-last failed")
+
+    def _revive_mic(self, rid: int) -> None:
+        """The mic stream died mid-recording (real audio, then exact zeros):
+        reopen it and keep recording. Once it fails to come back, say so —
+        recording a dead stream to the end lost a 104 s dictation after a
+        suspend/resume."""
+        with self._hotkey_lock:
+            if self._state != _State.RECORDING or self._recording != rid:
+                return
+            log.warning("Mic stream went silent mid-recording (exact zeros) — reopening")
+            try:
+                self.recorder.revive_stream()
+            except Exception:
+                log.exception("Mic reopen failed")
+        time.sleep(1.5)
+        with self._hotkey_lock:
+            if self._state != _State.RECORDING or self._recording != rid:
+                return
+            dead = self.recorder.silent_signal_secs >= 1.0
+        if dead:
+            log.warning("Mic still silent after reopening")
+            from voiceio import feedback
+            feedback.notify(
+                "VoiceIO: microphone stopped sending audio",
+                "Your words so far are kept. Stop, check the input device, and try again.",
+                urgent=True,
+            )
+        else:
+            log.info("Mic stream recovered mid-recording")
 
     def _on_auto_stop(self, reason: str = "silence") -> None:
         """Called from the audio thread when the recorder auto-stops.
@@ -570,6 +600,8 @@ class VoiceIO:
         self._record_start = time.monotonic()
         self.recorder.start()
         self.recorder.set_on_auto_stop(self._on_auto_stop)
+        rid = self._recording
+        self.recorder.set_on_dead_stream(lambda: self._revive_mic(rid))
         # Ducking lowers the whole output, voiceio's chimes included: it waits
         # for the start chime to play out, and _do_stop restores the volume
         # before the stop chime plays.
@@ -598,6 +630,7 @@ class VoiceIO:
         # restore (see _do_start), off this thread.
         self._quiet.stop(then=lambda: self._play_record_cue(start=False))
         self.recorder.set_on_auto_stop(None)
+        self.recorder.set_on_dead_stream(None)
         audio = self.recorder.stop()
         tray.set_recording(False)
         self._idle_audio.touch()
