@@ -128,6 +128,10 @@ class AudioConfig:
     # last dictation; "never": closed between dictations, opened on the hotkey.
     keep_warm: str = "auto"
     warm_minutes: float = 5.0
+    # Follow your recordings with the default mic's input volume
+    # (voiceio/mic_gain.py): down a fifth after one that clipped, up a fifth
+    # after three that were very quiet, never back to a level that clipped.
+    auto_gain: bool = True
 
 
 @dataclass
@@ -290,7 +294,7 @@ class LearnConfig:
     # When nightly learning runs (`voiceio learn schedule on`): a time of day,
     # and "day" or "week" (weekly runs on Sunday).
     at: str = "03:30"
-    every: str = "day"
+    every: str = "week"
     # It works only while nobody is using the computer: no keyboard or mouse
     # input for away_minutes (or the screen locked), on mains power, and
     # starts only when the 1-minute load per CPU is at most max_load. When

@@ -49,6 +49,7 @@ duck_volume = 1.0             # lower other sound to this fraction while recordi
 keep_warm = "auto"            # mic + chime open while idle: always | auto (on AC; on battery
                               # until warm_minutes after the last dictation) | never
 warm_minutes = 5.0            # auto, on battery: close this long after the last dictation
+auto_gain = true              # mic volume follows you: down after clipping, up after 3 very quiet takes
 
 [output]
 method = "auto"               # auto | ibus | ydotool | wtype | xdotool | clipboard | pynput
@@ -129,7 +130,7 @@ timeout_secs = 15.0
 [learn]
 on_promote = ""               # run after every model switch, model in $VOICEIO_MODEL (see scripts/push_model.sh)
 at = "03:30"                  # when nightly learning runs (voiceio learn schedule on --at)
-every = "day"                 # "day" or "week" (Sundays)
+every = "week"                # "week" (Sundays) or "day"
 away_minutes = 10.0           # work only after this long with no input (or a locked screen); stops when you're back
 max_load = 0.25               # only start when 1-min load per CPU is at most this, on mains power...
 wait_hours = 3.0              # ...waiting up to this long each time, else try again next time
