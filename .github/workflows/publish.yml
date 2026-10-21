@@ -60,5 +60,11 @@ jobs:
 
           See the README for distro packages and NixOS. Coming from 0.9.x? Read
           [UPGRADING.md](https://github.com/Hugo0/voiceio/blob/${VERSION}/UPGRADING.md).
+
+          ## SHA-256
+
+          \`\`\`
+          $(cd dist && sha256sum *)
+          \`\`\`
           NOTES
           )"
