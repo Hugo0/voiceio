@@ -111,6 +111,8 @@ class VoiceIO:
         self._recording_bias = Bias()
         from voiceio.quiet_audio import QuietAudio
         self._quiet = QuietAudio(cfg.audio.pause_media, cfg.audio.duck_volume)
+        from voiceio.mic_gain import MicGain
+        self._mic_gain = MicGain(cfg.audio.auto_gain, cfg.audio.device)
 
         self._command_processor = CommandProcessor(enabled=cfg.commands.enabled, editing=cfg.commands.editing)
         self._streaming = cfg.output.streaming
@@ -437,10 +439,9 @@ class VoiceIO:
         if dead:
             log.warning("Mic still silent after reopening")
             from voiceio import feedback
-            feedback.notify(
+            feedback.mic_alert(
                 "VoiceIO: microphone stopped sending audio",
-                "Your words so far are kept. Stop, check the input device, and try again.",
-                urgent=True,
+                "Your words so far are kept.",
             )
         else:
             log.info("Mic stream recovered mid-recording")
@@ -457,10 +458,9 @@ class VoiceIO:
         if reason == "no_speech":
             from voiceio import feedback
             if not self.recorder.has_signal():
-                feedback.notify(
+                feedback.mic_alert(
                     "VoiceIO: microphone is muted",
-                    "Stopped — no audio is reaching voiceio. Check your mic's "
-                    "mute button and that the right input device is selected.",
+                    "Stopped — no audio is reaching voiceio.",
                 )
             else:
                 feedback.notify(
@@ -485,11 +485,9 @@ class VoiceIO:
             return
         log.warning("Recording captured no audio at all — mic muted?")
         from voiceio import feedback
-        feedback.notify(
+        feedback.mic_alert(
             "VoiceIO: microphone is muted — nothing recorded",
-            "No audio reached voiceio for that entire recording. Check your "
-            "mic's mute button and which input device is selected.",
-            urgent=True,
+            "No audio reached voiceio for that entire recording.",
         )
 
     def _request_stop(self) -> None:
@@ -576,10 +574,9 @@ class VoiceIO:
             if not self.recorder.has_signal():
                 log.warning("Mic still silent after reopen — muted or wrong device?")
                 from voiceio import feedback
-                feedback.notify(
+                feedback.mic_alert(
                     "VoiceIO: microphone appears silent",
-                    "Check that your mic is unmuted and the right input device is selected.",
-                    urgent=True,
+                    "No sound is coming from the input device.",
                 )
         elif not self.recorder.has_signal():
             log.warning("Mic appears silent or muted (pre-buffer is all zeros)")
@@ -634,7 +631,7 @@ class VoiceIO:
         audio = self.recorder.stop()
         tray.set_recording(False)
         self._idle_audio.touch()
-        self._warn_if_clipping()
+        self._check_input_level(time.monotonic() - self._record_start)
 
         self.engine.prepare_final(title=self._context_title)
 
@@ -706,13 +703,15 @@ class VoiceIO:
     _CLIP_RATIO_WARN = 0.005   # >0.5% of samples in flat-top runs
     _CLIP_WARN_INTERVAL = 300  # seconds between warnings
 
-    def _warn_if_clipping(self) -> None:
-        """Warn (rate-limited) when the mic input is saturating the ADC.
-
-        Clipping cannot be repaired in software — the gain must come down
-        before the ADC — so tell the user how to lower it.
-        """
+    def _check_input_level(self, secs: float) -> None:
+        """After a recording: fix the input gain when auto_gain can, else
+        warn (rate-limited) about clipping. Off this thread: the volume tools
+        are subprocesses."""
         meter = self.recorder.get_meter()
+        if self._mic_gain.active:
+            threading.Thread(target=self._adjust_gain, args=(meter, secs),
+                             daemon=True, name="mic-gain").start()
+            return
         if meter["clip_ratio"] < self._CLIP_RATIO_WARN:
             return
         now = time.monotonic()
@@ -729,6 +728,21 @@ class VoiceIO:
         feedback.notify(
             "VoiceIO: microphone too loud",
             "Input is clipping — lower your mic gain in system sound settings.",
+        )
+
+    def _adjust_gain(self, meter: dict[str, float], secs: float) -> None:
+        change = self._mic_gain.after_recording(meter["peak"], meter["clip_ratio"], secs)
+        if change is None or change.reason != "clipping":
+            return
+        now = time.monotonic()
+        if now - self._last_clip_warn < self._CLIP_WARN_INTERVAL:
+            return
+        self._last_clip_warn = now
+        from voiceio import feedback
+        feedback.notify(
+            "VoiceIO lowered your mic volume",
+            f"It was clipping: {change.old:.0%} → {change.new:.0%}. "
+            "Turn it off with: voiceio config set audio.auto_gain false",
         )
 
     # ── Background work ─────────────────────────────────────────────────

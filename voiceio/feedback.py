@@ -76,7 +76,7 @@ def warm_up() -> None:
 
 
 def _load_sounds() -> None:
-    for name in ("start", "stop", "commit"):
+    for name in ("start", "stop", "commit", "alert"):
         path = _SOUNDS_DIR / f"{name}.wav"
         if name in _sounds or not path.exists():
             continue
@@ -139,6 +139,18 @@ def play_record_stop() -> None:
 
 def play_commit_sound() -> None:
     _play("commit")
+
+
+# The usual cause, by far: a hardware mic switch, a mute key or a muted
+# source. Each look the same to voiceio — a stream that sends only zeros.
+MIC_HINT = "Is the mic switched off or muted (privacy switch, mute key)?"
+
+
+def mic_alert(title: str, body: str) -> None:
+    """A dead or muted mic: an alert sound as well as the notification, since
+    you are talking, not looking at the screen."""
+    _play("alert")
+    notify(title, f"{body} {MIC_HINT}", urgent=True)
 
 
 def cue_secs(name: str) -> float:
