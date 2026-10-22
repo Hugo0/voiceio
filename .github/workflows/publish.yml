@@ -20,8 +20,32 @@ jobs:
       - name: Run tests
         run: pytest tests/ -x -q
 
-  publish:
+  deb:
+    # One .deb for every Debian/Ubuntu release (it bundles its own Python).
+    # Built on the oldest supported release so evdev links the oldest glibc.
     needs: test
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git gcc libc6-dev linux-libc-dev binutils libportaudio2
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+      - name: Build wheel
+        run: uv build --wheel --out-dir dist
+      - name: Build .deb
+        run: packaging/deb/build-deb.sh dist/*.whl deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: deb/*.deb
+          if-no-files-found: error
+
+  publish:
+    needs: [test, deb]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -44,13 +68,19 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
+      # Outside dist/: the PyPI action uploads everything in dist/.
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: deb
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ github.ref_name }}"
           # --generate-notes appends the changes since the previous tag.
-          gh release create "$VERSION" dist/* --generate-notes --notes "$(cat <<NOTES
+          gh release create "$VERSION" dist/* deb/*.deb --generate-notes --notes "$(cat <<NOTES
           ## Install
 
           \`\`\`bash
@@ -58,13 +88,51 @@ jobs:
           voiceio setup
           \`\`\`
 
-          See the README for distro packages and NixOS. Coming from 0.9.x? Read
+          Debian / Ubuntu (22.04+): download \`voiceio_*.deb\` below, then
+          \`sudo apt install ./voiceio_*.deb && voiceio setup\`.
+          Arch: \`yay -S python-voiceio\`.
+
+          See the README for other distros and NixOS. Coming from 0.9.x? Read
           [UPGRADING.md](https://github.com/Hugo0/voiceio/blob/${VERSION}/UPGRADING.md).
 
           ## SHA-256
 
           \`\`\`
           $(cd dist && sha256sum *)
+          $(cd deb && sha256sum *.deb)
           \`\`\`
           NOTES
           )"
+
+  aur:
+    # Points the AUR package at the release just published to PyPI. Pushes
+    # only when the AUR_SSH_PRIVATE_KEY secret is set (see packaging/README.md);
+    # otherwise the updated PKGBUILD and .SRCINFO are attached to the release.
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install makepkg
+        run: sudo apt-get update && sudo apt-get install -y makepkg
+      - name: Update PKGBUILD and .SRCINFO
+        run: packaging/aur/update.sh "${GITHUB_REF_NAME#v}"
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd packaging/aur
+          cp .SRCINFO SRCINFO
+          gh release upload "$GITHUB_REF_NAME" PKGBUILD SRCINFO --clobber
+      - name: Push to the AUR
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        run: |
+          install -dm700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur && chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
+          git config --global user.name "voiceio release CI"
+          git config --global user.email "noreply@voiceio.dev"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes" packaging/aur/publish.sh

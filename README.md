@@ -34,6 +34,17 @@ pipx install 'python-voiceio[desktop]'
 voiceio setup        # model, hotkey, autostart
 ```
 
+**Or as a distro package** (bundles everything, nothing to compile):
+
+```bash
+# Debian / Ubuntu: download voiceio_*.deb from the latest release, then
+sudo apt install ./voiceio_*.deb
+# Arch (AUR)
+yay -S python-voiceio
+
+voiceio setup
+```
+
 Then press your hotkey, speak, and press it again (or hold it while you speak). `voiceio doctor` shows what works and `voiceio doctor --fix` repairs what it can. NixOS, other extras and installing from source: [docs/linux.md](docs/linux.md). Agent runbook: [INSTALL.md](INSTALL.md).
 
 ## Make it yours

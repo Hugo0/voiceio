@@ -1,0 +1,21 @@
+Package: voiceio
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Hugo Montenegro <h@hugo0.com>
+Installed-Size: @INSTALLED_SIZE@
+Depends: libc6 (>= 2.35), libportaudio2, ibus, gir1.2-ibus-1.0, python3, python3-gi
+Recommends: gir1.2-ayatanaappindicator3-0.1, gir1.2-gtk-3.0, libnotify-bin, wl-clipboard | xclip
+Suggests: ydotool, wtype, xdotool
+Section: sound
+Priority: optional
+Homepage: https://voiceio.dev/
+Description: local voice dictation for Linux
+ Press a hotkey, speak, and the text appears at your cursor. Speech is
+ transcribed on this computer with Whisper; nothing is sent anywhere.
+ Streams a live preview into any app through IBus on Wayland and X11.
+ .
+ This package bundles its own Python and Python libraries in
+ /usr/lib/voiceio. The distro's python3 is used only for the IBus engine and
+ the tray icon, which need its GObject bindings.
+ .
+ After installing, run `voiceio setup` as your own user.
