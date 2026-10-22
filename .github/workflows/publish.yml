@@ -23,6 +23,8 @@ jobs:
   deb:
     # One .deb for every Debian/Ubuntu release (it bundles its own Python).
     # Built on the oldest supported release so evdev links the oldest glibc.
+    # Nothing waits on it but deb-release, so a broken .deb build never holds
+    # back PyPI.
     needs: test
     runs-on: ubuntu-latest
     container: ubuntu:22.04
@@ -45,7 +47,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [test, deb]
+    needs: test
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -68,19 +70,13 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-      # Outside dist/: the PyPI action uploads everything in dist/.
-      - uses: actions/download-artifact@v4
-        with:
-          name: deb
-          path: deb
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ github.ref_name }}"
           # --generate-notes appends the changes since the previous tag.
-          gh release create "$VERSION" dist/* deb/*.deb --generate-notes --notes "$(cat <<NOTES
+          gh release create "$VERSION" dist/* --generate-notes --notes "$(cat <<NOTES
           ## Install
 
           \`\`\`bash
@@ -88,9 +84,9 @@ jobs:
           voiceio setup
           \`\`\`
 
-          Debian / Ubuntu (22.04+): download \`voiceio_*.deb\` below, then
+          Debian / Ubuntu (22.04+): download \`voiceio_*.deb\` below (attached a
+          few minutes after the release), then
           \`sudo apt install ./voiceio_*.deb && voiceio setup\`.
-          Arch: \`yay -S python-voiceio\`.
 
           See the README for other distros and NixOS. Coming from 0.9.x? Read
           [UPGRADING.md](https://github.com/Hugo0/voiceio/blob/${VERSION}/UPGRADING.md).
@@ -99,10 +95,29 @@ jobs:
 
           \`\`\`
           $(cd dist && sha256sum *)
-          $(cd deb && sha256sum *.deb)
           \`\`\`
           NOTES
           )"
+
+  deb-release:
+    needs: [publish, deb]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: deb
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" deb/*.deb --clobber
+          body="$(gh release view "$GITHUB_REF_NAME" --json body -q .body)"
+          sums="$(cd deb && sha256sum *.deb)"
+          gh release edit "$GITHUB_REF_NAME" --notes "$(printf '%s\n\n.deb SHA-256:\n\n```\n%s\n```\n' "$body" "$sums")"
 
   aur:
     # Points the AUR package at the release just published to PyPI. Pushes

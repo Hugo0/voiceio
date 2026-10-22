@@ -22,11 +22,11 @@
 
 ### Distro packages
 
-The `.deb` (attached to every [GitHub release](https://github.com/Hugo0/voiceio/releases)) and the AUR package `python-voiceio` install the same thing: voiceio with every extra (desktop, TTS) and its own Python in `/usr/lib/voiceio`, plus `/usr/bin/voiceio`. Nothing is compiled on your machine and a distro `python3` upgrade can't break it. The distro's `python3` is still used for the IBus engine and the tray icon, which need its GObject bindings.
+The `.deb` (attached to every [GitHub release](https://github.com/Hugo0/voiceio/releases) from 1.11.0) and the AUR package `python-voiceio` (coming soon) install the same thing: voiceio with every extra (desktop, TTS) and its own Python in `/usr/lib/voiceio`, plus `/usr/bin/voiceio`. Nothing is compiled on your machine and a distro `python3` upgrade can't break it. The distro's `python3` is still used for the IBus engine and the tray icon, which need its GObject bindings.
 
 ```bash
 sudo apt install ./voiceio_*.deb      # Debian 12+ / Ubuntu 22.04+, amd64
-yay -S python-voiceio                 # Arch
+yay -S python-voiceio                 # Arch, once it's on the AUR
 voiceio setup                         # as your user, as with pipx
 ```
 

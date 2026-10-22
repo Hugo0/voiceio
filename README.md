@@ -34,13 +34,11 @@ pipx install 'python-voiceio[desktop]'
 voiceio setup        # model, hotkey, autostart
 ```
 
-**Or as a distro package** (bundles everything, nothing to compile):
+**Or as a Debian/Ubuntu package** (new; bundles everything, nothing to compile):
 
 ```bash
 # Debian / Ubuntu: download voiceio_*.deb from the latest release, then
 sudo apt install ./voiceio_*.deb
-# Arch (AUR)
-yay -S python-voiceio
 
 voiceio setup
 ```
@@ -79,7 +77,7 @@ Everything lives in `~/.config/voiceio/config.toml`; [config.example.toml](confi
 - **Unbounded vocabulary**: a decoder whose biasing has no token cap (see [model choice](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it)).
 - **GPU on AMD and Intel**: let setup run a Vulkan whisper.cpp server for you.
 - **Typing without IBus on GNOME and KDE**: a libei backend.
-- **Distro packages**: AUR, .deb and .rpm.
+- **Distro packages**: AUR (packaged, not yet published) and .rpm.
 - **One model everywhere**: sync your fine-tune across your machines.
 
 ## Contributing

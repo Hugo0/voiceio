@@ -24,8 +24,7 @@ curl -fLO "$(curl -fsS https://api.github.com/repos/Hugo0/voiceio/releases/lates
   | grep -o 'https://[^"]*voiceio_[^"]*_amd64\.deb' | head -n1)"
 sudo apt install -y ./voiceio_*_amd64.deb
 
-# Arch (AUR)
-yay -S --noconfirm python-voiceio
+# Arch: no AUR package yet; use pipx (below)
 ```
 
 Verify with `voiceio --version`. Don't mix this with a pipx install: if
