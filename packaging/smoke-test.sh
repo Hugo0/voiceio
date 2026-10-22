@@ -36,6 +36,6 @@ import voiceio.ibus.engine; print('ibus engine module ok')"
 
 echo "== voiceio doctor (no audio or display here: failures there are expected)"
 voiceio doctor 2>&1 | tail -n 40 || true
-voiceio doctor --report 2>&1 | head -n 20 || true   # no tty: prints, never posts
+voiceio doctor --report 2>&1 | tail -n 12 || true   # no tty: prints, never posts
 
 echo "smoke test passed"
