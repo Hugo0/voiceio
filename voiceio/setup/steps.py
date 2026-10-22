@@ -192,9 +192,13 @@ def _print_tray_check() -> bool:
 
 def _ensure_cli_commands() -> None:
     """Install CLI symlinks to ~/.local/bin/ unless already on PATH."""
-    from voiceio.service import install_symlinks, symlinks_installed, path_hint_needed, _is_pipx_install
+    from voiceio.service import (
+        _is_pipx_install, install_symlinks, packaged_by, path_hint_needed, symlinks_installed,
+    )
     if _is_pipx_install():
         _print_check("CLI commands", True, "installed via pipx (already on PATH)")
+    elif packaged_by():
+        _print_check("CLI commands", True, f"installed by the {packaged_by()} package (/usr/bin)")
     elif not symlinks_installed():
         linked = install_symlinks()
         if linked:
@@ -627,7 +631,7 @@ _FIRST_SENTENCE = "Hello world, this is my first dictation with voiceio."
 def _print_ready_panel(hotkey: str, autostart: bool) -> None:
     """The 'you're ready' panel shown after a successful setup."""
     from voiceio.config import LOG_DIR, LOG_PATH
-    from voiceio.service import _is_pipx_install
+    from voiceio.service import _is_managed_install
 
     start_hint = (
         "  voiceio is running and will start automatically on login."
@@ -635,7 +639,7 @@ def _print_ready_panel(hotkey: str, autostart: bool) -> None:
         else f"  Start voiceio:\n    {CYAN}voiceio run{RESET}"
     )
     path_note = ""
-    if not _is_pipx_install() and not shutil.which("voiceio"):
+    if not _is_managed_install() and not shutil.which("voiceio"):
         path_note = f"  {YELLOW}ℹ{RESET}  Restart your terminal so 'voiceio' is on PATH.\n\n"
 
     print(f"""

@@ -25,6 +25,28 @@ def test_install_symlinks_relinks_and_drops_legacy(monkeypatch, tmp_path):
     assert not (local_bin / "voiceio-doctor").is_symlink()
 
 
+def test_packaged_install_links_nothing_and_serves_its_own_bin(monkeypatch, tmp_path):
+    prefix = tmp_path / "usr-lib-voiceio"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "voiceio").write_text("#!/bin/sh\n")
+    (prefix / service.PACKAGED_MARKER).write_text("deb\n")
+    local_bin = tmp_path / "local-bin"
+    monkeypatch.setattr(service, "LOCAL_BIN", local_bin)
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+
+    assert service.packaged_by() == "deb"
+    assert service.package_remove_cmd() == "sudo apt remove voiceio"
+    service.install_symlinks()
+    assert not local_bin.exists()
+    # The unit's ExecStart is the package's own path, stable across upgrades.
+    assert service._find_voiceio_bin() == str((prefix / "bin" / "voiceio").resolve())
+
+
+def test_unpackaged_install_has_no_package(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    assert service.packaged_by() is None and service.package_remove_cmd() is None
+
+
 def test_learn_timer_runs_maintain_at_idle_priority(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(service, "has_systemd", lambda: True)
