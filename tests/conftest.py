@@ -122,6 +122,42 @@ def _no_real_audio(monkeypatch, tmp_path):
     monkeypatch.setattr(sd, "OutputStream", refuse)
 
 
+_LOOPBACK = ("127.", "::1", "localhost", "0.0.0.0")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch):
+    """No test reaches the internet: a report test that forgot its mock would
+    post to the public feedback board. Loopback (the server tests, a local
+    Ollama probe) and Unix sockets still work."""
+    import socket
+
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+
+    def _check(addr):
+        if isinstance(addr, tuple) and not str(addr[0]).startswith(_LOOPBACK):
+            raise ConnectionRefusedError(f"tests must not reach the network: {addr[0]}")
+
+    def connect(self, addr):
+        _check(addr)
+        return real_connect(self, addr)
+
+    def connect_ex(self, addr):
+        _check(addr)
+        return real_connect_ex(self, addr)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+
+    from voiceio import report
+
+    def refuse(url, **kwargs):
+        raise ConnectionRefusedError(f"tests must not post reports: {url[:60]}")
+
+    monkeypatch.setattr(report, "_urlopen", refuse)
+
+
 @pytest.fixture(autouse=True)
 def _no_real_keyboards(monkeypatch):
     """The modifier guard reads the developer's real keyboards: holding Ctrl

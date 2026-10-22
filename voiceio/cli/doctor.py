@@ -10,6 +10,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--fix", action="store_true", help="Try to fix what is broken")
     p.add_argument("--live", action="store_true",
                    help="Also record from the mic and transcribe it")
+    p.add_argument("--report", action="store_true",
+                   help="Post a short anonymous report to the public feedback board "
+                        "(shows it and asks first)")
+    p.add_argument("--comment", type=str, default="",
+                   help="With --report: one line about how it went")
+    p.add_argument("--yes", "-y", action="store_true",
+                   help="With --report: post without asking (for agents, after asking the user)")
     p.set_defaults(func=_cmd_doctor)
 
 
@@ -79,6 +86,8 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
             print("Run 'voiceio doctor --fix' to tighten file permissions.")
         from voiceio.hints import hint
         hint("vocab_suggest", "Run 'voiceio vocab suggest' to find names it keeps mishearing")
+        if args.report:
+            _share_report(args, report, missing_deps, len(perm_issues))
         sys.exit(0 if (report.all_ok and not perm_issues and not missing_deps) else 1)
 
     # Auto-fix mode
@@ -188,4 +197,19 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         report = check_health()
         print(format_report(report))
 
+    if args.report:
+        _share_report(args, report, plat.check_system_deps(),
+                      len(_config.check_permissions()))
     sys.exit(0 if report.all_ok else 1)
+
+
+def _share_report(args: argparse.Namespace, report, missing_deps: list[str],
+                  perm_issues: int) -> None:
+    from voiceio.report import build_report, share
+    try:
+        text = build_report(report, missing_deps=missing_deps, perm_issues=perm_issues,
+                            comment=args.comment or "")
+    except Exception as e:  # noqa: BLE001 — the report must not take doctor down
+        print(f"\nCould not build the report ({type(e).__name__}); nothing was posted.")
+        return
+    share(text, yes=args.yes)

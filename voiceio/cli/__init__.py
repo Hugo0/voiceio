@@ -158,6 +158,8 @@ def _cmd_setup(args: argparse.Namespace) -> None:
 
     from voiceio.setup import run_wizard
     run_wizard()
+    from voiceio.report import offer_after_setup
+    offer_after_setup()
     from voiceio.hints import hint
     hint("test", "Run 'voiceio doctor --live' to try a quick recording")
 
