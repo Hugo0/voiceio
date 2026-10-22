@@ -243,8 +243,8 @@ def share(text: str, *, yes: bool = False) -> bool:
     if ok:
         print(f"Posted, thanks. See it at {BOARD_URL}")
         return True
-    print(f"Could not post it ({scrub(detail)}). Nothing was sent; "
-          f"you can paste it at {BOARD_URL}")
+    print(f"Could not confirm the post ({scrub(detail)}). Check {BOARD_URL} "
+          f"and paste it there if it's missing.")
     return False
 
 

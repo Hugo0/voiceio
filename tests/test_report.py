@@ -207,7 +207,7 @@ def test_share_yes_skips_prompt(monkeypatch, posted):
 
 def test_share_failure_is_reported_not_raised(monkeypatch, capsys):
     assert report.share("r", yes=True) is False
-    assert "Could not post" in capsys.readouterr().out
+    assert "Could not confirm the post" in capsys.readouterr().out
 
 
 # ── CLI wiring ──
