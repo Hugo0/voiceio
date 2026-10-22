@@ -1,0 +1,63 @@
+name: Package test
+
+# Installs the released .deb and builds + installs the AUR package on clean
+# containers, then runs packaging/smoke-test.sh. Runs after every release
+# (once the .deb is attached) and on demand.
+on:
+  workflow_run:
+    workflows: ["Publish to PyPI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (default: latest)"
+        required: false
+
+jobs:
+  deb:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:12"]
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download the .deb
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates python3
+          api=https://api.github.com/repos/${{ github.repository }}/releases
+          if [ -n "$TAG" ]; then api="$api/tags/$TAG"; else api="$api/latest"; fi
+          url=$(curl -fsS "$api" | python3 -c "import json,sys; print(next(a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if a['name'].endswith('.deb')))")
+          echo "$url"
+          curl -fL -o /tmp/voiceio.deb "$url"
+      - name: Install
+        run: DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/voiceio.deb
+      - name: Smoke test
+        run: packaging/smoke-test.sh
+      - name: Remove
+        run: apt-get remove -y voiceio && test ! -e /usr/bin/voiceio && test ! -e /usr/lib/voiceio
+
+  aur:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      # The PKGBUILD on main is the one for the latest release.
+      - uses: actions/checkout@v6
+      - name: Install build and runtime dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git uv ibus python-gobject portaudio
+      - name: Build with makepkg (as a normal user, as AUR helpers do)
+        run: |
+          useradd -m builder
+          cp -rL packaging/aur /home/builder/pkg && chown -R builder /home/builder/pkg
+          su builder -c "cd ~/pkg && makepkg --noconfirm"
+      - name: Install
+        run: pacman -U --noconfirm /home/builder/pkg/python-voiceio-*.pkg.tar.zst
+      - name: Smoke test
+        run: packaging/smoke-test.sh
