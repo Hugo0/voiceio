@@ -195,8 +195,12 @@ def _cmd_uninstall() -> None:
 
     # Offer to uninstall the Python package itself
     from voiceio.config import PYPI_NAME
+    from voiceio.service import package_remove_cmd
     is_pipx = "pipx" in sys.prefix
-    if is_pipx:
+    remove_cmd = package_remove_cmd()
+    if remove_cmd:
+        print(f"\nvoiceio itself came from a system package. To remove it:\n  {remove_cmd}")
+    elif is_pipx:
         answer = input("\nAlso uninstall the voiceio Python package (pipx uninstall)? [Y/n] ").strip().lower()
         if answer in ("y", "yes", ""):
             try:

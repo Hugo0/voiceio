@@ -400,6 +400,34 @@ def _is_pipx_install() -> bool:
     return "pipx/venvs" in sys.prefix
 
 
+# Written by packaging/build-bundle.sh into the bundled interpreter's prefix.
+PACKAGED_MARKER = "voiceio-packaged"
+_REMOVE_CMDS = {"deb": "sudo apt remove voiceio", "aur": "sudo pacman -R python-voiceio"}
+
+
+def packaged_by() -> str | None:
+    """The distro package that owns this install ("deb", "aur"), else None.
+
+    A packaged install lives in /usr/lib/voiceio, owned by root and the
+    package manager: no ~/.local/bin symlinks, no pip installs into it.
+    """
+    try:
+        return (Path(sys.prefix) / PACKAGED_MARKER).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def package_remove_cmd() -> str | None:
+    """How to remove the distro package that owns this install."""
+    kind = packaged_by()
+    return _REMOVE_CMDS.get(kind, f"remove the {kind} package") if kind else None
+
+
+def _is_managed_install() -> bool:
+    """pipx or a distro package already put `voiceio` on PATH."""
+    return _is_pipx_install() or packaged_by() is not None
+
+
 def _local_bin_on_path() -> bool:
     """Check if LOCAL_BIN is in the current PATH."""
     path_dirs = os.environ.get("PATH", "").split(os.pathsep)
@@ -422,6 +450,9 @@ def install_symlinks() -> list[str]:
     if _is_pipx_install():
         # pipx already placed scripts in ~/.local/bin/, nothing to do
         return [name for name in SCRIPT_NAMES if (LOCAL_BIN / name).exists()]
+    if packaged_by():
+        # The package installed them in /usr/bin.
+        return [name for name in SCRIPT_NAMES if shutil.which(name)]
 
     venv_bin = Path(sys.prefix) / "bin"
     LOCAL_BIN.mkdir(parents=True, exist_ok=True)

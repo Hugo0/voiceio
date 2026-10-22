@@ -34,6 +34,15 @@ pipx install 'python-voiceio[desktop]'
 voiceio setup        # model, hotkey, autostart
 ```
 
+**Or as a Debian/Ubuntu package** (new; bundles everything, nothing to compile):
+
+```bash
+# Debian / Ubuntu: download voiceio_*.deb from the latest release, then
+sudo apt install ./voiceio_*.deb
+
+voiceio setup
+```
+
 Then press your hotkey, speak, and press it again (or hold it while you speak). `voiceio doctor` shows what works, `voiceio doctor --fix` repairs what it can, and `voiceio doctor --report` shares an anonymous install report on the [feedback board](https://voiceio.dev/#feedback) (it shows you the text and asks first). NixOS, other extras and installing from source: [docs/linux.md](docs/linux.md). Agent runbook: [INSTALL.md](INSTALL.md).
 
 ## Make it yours
@@ -68,7 +77,7 @@ Everything lives in `~/.config/voiceio/config.toml`; [config.example.toml](confi
 - **Unbounded vocabulary**: a decoder whose biasing has no token cap (see [model choice](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it)).
 - **GPU on AMD and Intel**: let setup run a Vulkan whisper.cpp server for you.
 - **Typing without IBus on GNOME and KDE**: a libei backend.
-- **Distro packages**: AUR, .deb and .rpm.
+- **Distro packages**: AUR (packaged, not yet published) and .rpm.
 - **One model everywhere**: sync your fine-tune across your machines.
 
 ## Contributing

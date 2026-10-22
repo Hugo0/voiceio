@@ -17,6 +17,13 @@ def _check_binary(name: str) -> bool:
 
 def _install_pip_package(package: str) -> bool:
     """Offer to pip-install a package. Returns True if installed successfully."""
+    from voiceio.service import packaged_by
+    if packaged_by():
+        # Root-owned and managed by the package manager; the package bundles
+        # every extra, so a missing one means a broken install.
+        print(f"  {YELLOW}⚠{RESET}  {package} is missing from the {packaged_by()} package. "
+              f"Reinstall it, or report a bug.")
+        return False
     if not _ask_yn(f"Install {package}? (pip install {package})"):
         return False
     with Spinner(f"Installing {package}...") as sp:

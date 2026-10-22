@@ -13,6 +13,23 @@ Windows/macOS are best-effort and out of scope here. NixOS: use the flake (see R
 - `sudo` available for the one system-package step.
 - Python 3.11+.
 
+## 1a. Shortcut: distro package (Debian/Ubuntu, Arch)
+
+A package installs voiceio and its system dependencies in one step; skip
+sections 1 and 2 and go to 3. Upgrade it with the package manager, not pipx.
+
+```bash
+# Debian / Ubuntu 22.04+ (amd64): the .deb from the latest GitHub release
+curl -fLO "$(curl -fsS https://api.github.com/repos/Hugo0/voiceio/releases/latest \
+  | grep -o 'https://[^"]*voiceio_[^"]*_amd64\.deb' | head -n1)"
+sudo apt install -y ./voiceio_*_amd64.deb
+
+# Arch: no AUR package yet; use pipx (below)
+```
+
+Verify with `voiceio --version`. Don't mix this with a pipx install: if
+`pipx list` shows python-voiceio, `pipx uninstall python-voiceio` first.
+
 ## 1. Install system dependencies (distro-specific)
 
 voiceio needs a C toolchain (the `evdev` hotkey backend has **no prebuilt
