@@ -131,8 +131,6 @@ jobs:
       AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v6
-      - name: Install makepkg
-        run: sudo apt-get update && sudo apt-get install -y makepkg
       - name: Update PKGBUILD and .SRCINFO
         run: packaging/aur/update.sh "${GITHUB_REF_NAME#v}"
       - name: Attach to the release

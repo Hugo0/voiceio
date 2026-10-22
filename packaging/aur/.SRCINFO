@@ -1,6 +1,6 @@
 pkgbase = python-voiceio
 	pkgdesc = Local voice dictation for Linux: speak, and the text appears at your cursor
-	pkgver = 1.10.0
+	pkgver = 1.11.0
 	pkgrel = 1
 	url = https://voiceio.dev/
 	arch = x86_64
@@ -18,12 +18,12 @@ pkgbase = python-voiceio
 	optdepends = xdotool: typing fallback on X11
 	provides = voiceio
 	conflicts = voiceio
-	noextract = python_voiceio-1.10.0-py3-none-any.whl
+	noextract = python_voiceio-1.11.0-py3-none-any.whl
 	options = !strip
 	options = !debug
-	source = https://files.pythonhosted.org/packages/py3/p/python-voiceio/python_voiceio-1.10.0-py3-none-any.whl
+	source = https://files.pythonhosted.org/packages/py3/p/python-voiceio/python_voiceio-1.11.0-py3-none-any.whl
 	source = build-bundle.sh
-	sha256sums = 7f0268ce12337cc404d10af31cb4ca2d783d7378e8d5d9bb441ccc0634d50b31
+	sha256sums = 1bc82e8de97c833f44ae216969851e5369d9cf5eaed9a9628d16d2e6c91acb9a
 	sha256sums = 72c0cf73afdd409266b3f98ecab7823a5f14f2215d7ca44ff45fa8f3af895660
 
 pkgname = python-voiceio

@@ -4,7 +4,7 @@
 #
 #   packaging/aur/update.sh 1.11.0 [PKGREL]
 #
-# Needs: curl, python3, makepkg (on Ubuntu: sudo apt install makepkg).
+# Needs: curl, python3; makepkg if available (else .SRCINFO is patched).
 set -euo pipefail
 
 version=${1:?usage: $0 VERSION [PKGREL]}
@@ -32,5 +32,22 @@ p = re.sub(r"(?ms)^sha256sums=\(.*?\)",
 open("PKGBUILD", "w").write(p)
 PY
 
-makepkg --printsrcinfo > .SRCINFO
+# makepkg is the reference, but Ubuntu's build dies on GitHub's runners; only
+# the version, file names and checksums change between releases, so patch
+# those when it can't run.
+if ! { command -v makepkg >/dev/null && makepkg --printsrcinfo > .SRCINFO.new 2>/dev/null; }; then
+    python3 - "$version" "$pkgrel" "$wheel_sha" "$bundle_sha" > .SRCINFO.new <<'PY'
+import re, sys
+version, pkgrel, wheel_sha, bundle_sha = sys.argv[1:]
+s = open(".SRCINFO").read()
+old = re.search(r"(?m)^\tpkgver = (.*)$", s)[1]
+s = s.replace(f"python_voiceio-{old}-", f"python_voiceio-{version}-")
+s = re.sub(r"(?m)^\tpkgver = .*$", f"\tpkgver = {version}", s)
+s = re.sub(r"(?m)^\tpkgrel = .*$", f"\tpkgrel = {pkgrel}", s)
+s = re.sub(r"(?m)(^\tsha256sums = .*\n)+",
+           f"\tsha256sums = {wheel_sha}\n\tsha256sums = {bundle_sha}\n", s)
+sys.stdout.write(s)
+PY
+fi
+mv .SRCINFO.new .SRCINFO
 echo "PKGBUILD and .SRCINFO now at ${version}-${pkgrel}"
