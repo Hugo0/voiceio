@@ -34,7 +34,7 @@ pipx install 'python-voiceio[desktop]'
 voiceio setup        # model, hotkey, autostart
 ```
 
-Then press your hotkey, speak, and press it again (or hold it while you speak). `voiceio doctor` shows what works and `voiceio doctor --fix` repairs what it can. NixOS, other extras and installing from source: [docs/linux.md](docs/linux.md). Agent runbook: [INSTALL.md](INSTALL.md).
+Then press your hotkey, speak, and press it again (or hold it while you speak). `voiceio doctor` shows what works, `voiceio doctor --fix` repairs what it can, and `voiceio doctor --report` shares an anonymous install report on the [feedback board](https://voiceio.dev/#feedback) (it shows you the text and asks first). NixOS, other extras and installing from source: [docs/linux.md](docs/linux.md). Agent runbook: [INSTALL.md](INSTALL.md).
 
 ## Make it yours
 

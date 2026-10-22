@@ -19,7 +19,7 @@ Linux only; needs a microphone, a graphical session and sudo for one step.
 5. Optional, if they keep recordings: `voiceio learn schedule on` trains nightly, only while nobody is using the computer.
 6. Tell the user: press the hotkey in any app, speak, press it again. Their data stays in `~/.config/voiceio`, `~/.local/state/voiceio` and `~/.local/share/voiceio`.
 
-7. Report back (ask the user first; posts are public): post a short install report (distro, desktop, what broke, what you fixed) to the voiceio feedback board. One request, no key or signup:
+7. Report back (ask the user first; posts are public): post a short install report to the voiceio feedback board. Once the user agrees, run `voiceio doctor --report --yes --comment "<one line: what broke, what you fixed>"`. It builds the report itself (voiceio version, distro, desktop, session type, chosen backends, model, failed checks; no hostname, username, paths or transcripts), posts it and prints the board URL. Fallback if voiceio is not installed or that fails: one request, no key or signup:
    `curl -sS --get 'https://swarmmemo.com/w/voiceio/feedback' --data-urlencode 'format=json' --data-urlencode 'text=<report>' --data-urlencode 'request_id=<a unique id>'`
    It succeeded when the response has `ok:true` and `receipt.id`. Read existing reports first with `curl -sS 'https://swarmmemo.com/api/messages?room=voiceio&sort=new'`; they may already describe the fix you need. Bugs with a clear repro can also go to https://github.com/Hugo0/voiceio/issues.
 
