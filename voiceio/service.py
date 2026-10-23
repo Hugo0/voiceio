@@ -402,7 +402,7 @@ def _is_pipx_install() -> bool:
 
 # Written by packaging/build-bundle.sh into the bundled interpreter's prefix.
 PACKAGED_MARKER = "voiceio-packaged"
-_REMOVE_CMDS = {"deb": "sudo apt remove voiceio", "aur": "sudo pacman -R python-voiceio"}
+_REMOVE_CMDS = {"deb": "sudo apt remove voiceio", "aur": "sudo pacman -R voiceio"}
 
 
 def packaged_by() -> str | None:

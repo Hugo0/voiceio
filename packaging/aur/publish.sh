@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Push PKGBUILD, .SRCINFO and build-bundle.sh to the AUR (python-voiceio).
+# Push PKGBUILD, .SRCINFO and build-bundle.sh to the AUR (voiceio).
 #
 #   packaging/aur/publish.sh
 #
@@ -7,7 +7,7 @@
 # GIT_SSH_COMMAND set, as CI does). The first push creates the package.
 set -euo pipefail
 here=$(dirname "$(realpath "$0")")
-repo=${AUR_REPO:-ssh://aur@aur.archlinux.org/python-voiceio.git}
+repo=${AUR_REPO:-ssh://aur@aur.archlinux.org/voiceio.git}
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -23,4 +23,4 @@ fi
 ver=$(sed -n 's/^\tpkgver = //p' .SRCINFO)-$(sed -n 's/^\tpkgrel = //p' .SRCINFO)
 git commit -q -m "Update to $ver"
 git push -q origin HEAD:master
-echo "pushed python-voiceio $ver to the AUR"
+echo "pushed voiceio $ver to the AUR"

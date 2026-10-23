@@ -1,4 +1,4 @@
-pkgbase = python-voiceio
+pkgbase = voiceio
 	pkgdesc = Local voice dictation for Linux: speak, and the text appears at your cursor
 	pkgver = 1.11.0
 	pkgrel = 1
@@ -16,8 +16,6 @@ pkgbase = python-voiceio
 	optdepends = wtype: typing fallback on wlroots compositors
 	optdepends = ydotool: typing fallback on any Wayland compositor
 	optdepends = xdotool: typing fallback on X11
-	provides = voiceio
-	conflicts = voiceio
 	noextract = python_voiceio-1.11.0-py3-none-any.whl
 	options = !strip
 	options = !debug
@@ -26,4 +24,4 @@ pkgbase = python-voiceio
 	sha256sums = 1bc82e8de97c833f44ae216969851e5369d9cf5eaed9a9628d16d2e6c91acb9a
 	sha256sums = 72c0cf73afdd409266b3f98ecab7823a5f14f2215d7ca44ff45fa8f3af895660
 
-pkgname = python-voiceio
+pkgname = voiceio

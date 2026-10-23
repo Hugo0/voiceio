@@ -8,7 +8,7 @@
 #
 # Updated by packaging/aur/update.sh in github.com/Hugo0/voiceio; edit there.
 
-pkgname=python-voiceio
+pkgname=voiceio
 _name=python_voiceio
 pkgver=1.11.0
 pkgrel=1
@@ -27,11 +27,9 @@ optdepends=(
   'ydotool: typing fallback on any Wayland compositor'
   'xdotool: typing fallback on X11'
 )
-provides=('voiceio')
-conflicts=('voiceio')
 # Prebuilt wheels: stripping can corrupt their patchelf-ed libraries.
 options=('!strip' '!debug')
-source=("https://files.pythonhosted.org/packages/py3/${_name::1}/${pkgname}/${_name}-${pkgver}-py3-none-any.whl"
+source=("https://files.pythonhosted.org/packages/py3/${_name::1}/python-voiceio/${_name}-${pkgver}-py3-none-any.whl"
         "build-bundle.sh")
 noextract=("${_name}-${pkgver}-py3-none-any.whl")
 sha256sums=('1bc82e8de97c833f44ae216969851e5369d9cf5eaed9a9628d16d2e6c91acb9a'

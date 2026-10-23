@@ -40,7 +40,7 @@ packaging/deb/build-deb.sh dist/python_voiceio-*.whl deb
 sudo apt install ./deb/voiceio_*_amd64.deb
 ```
 
-## AUR (`python-voiceio`)
+## AUR (`voiceio`)
 
 `aur/PKGBUILD` downloads the release wheel from PyPI and runs
 `build-bundle.sh` (shipped next to it in the AUR repo; `aur/build-bundle.sh` is
@@ -77,8 +77,8 @@ secret is set.
    packaging/aur/publish.sh
    ```
 
-   Check https://aur.archlinux.org/packages/python-voiceio, then on an Arch
-   machine: `yay -S python-voiceio && voiceio --version`.
+   Check https://aur.archlinux.org/packages/voiceio, then on an Arch
+   machine: `yay -S voiceio && voiceio --version`.
 
 4. Let CI do the rest: add the private key as a repository secret,
 

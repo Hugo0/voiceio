@@ -58,6 +58,6 @@ jobs:
           cp -rL packaging/aur /home/builder/pkg && chown -R builder /home/builder/pkg
           su builder -c "cd ~/pkg && makepkg --noconfirm"
       - name: Install
-        run: pacman -U --noconfirm /home/builder/pkg/python-voiceio-*.pkg.tar.zst
+        run: pacman -U --noconfirm /home/builder/pkg/voiceio-*.pkg.tar.zst
       - name: Smoke test
         run: packaging/smoke-test.sh

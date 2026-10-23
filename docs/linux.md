@@ -22,15 +22,15 @@
 
 ### Distro packages
 
-The `.deb` (attached to every [GitHub release](https://github.com/Hugo0/voiceio/releases) from 1.11.0) and the AUR package `python-voiceio` (coming soon) install the same thing: voiceio with every extra (desktop, TTS) and its own Python in `/usr/lib/voiceio`, plus `/usr/bin/voiceio`. Nothing is compiled on your machine and a distro `python3` upgrade can't break it. The distro's `python3` is still used for the IBus engine and the tray icon, which need its GObject bindings.
+The `.deb` (attached to every [GitHub release](https://github.com/Hugo0/voiceio/releases) from 1.11.0) and the AUR package `voiceio` (coming soon) install the same thing: voiceio with every extra (desktop, TTS) and its own Python in `/usr/lib/voiceio`, plus `/usr/bin/voiceio`. Nothing is compiled on your machine and a distro `python3` upgrade can't break it. The distro's `python3` is still used for the IBus engine and the tray icon, which need its GObject bindings.
 
 ```bash
 sudo apt install ./voiceio_*.deb      # Debian 12+ / Ubuntu 22.04+, amd64
-yay -S python-voiceio                 # Arch, once it's on the AUR
+yay -S voiceio                        # Arch, once it's on the AUR
 voiceio setup                         # as your user, as with pipx
 ```
 
-`voiceio setup` writes the same per-user files as a pipx install (config, the IBus component, the systemd user service); the service runs `/usr/lib/voiceio/bin/voiceio`, a path that stays put across upgrades. After an upgrade, `systemctl --user restart voiceio` picks up the new version. To remove: `voiceio uninstall`, then `sudo apt remove voiceio` or `sudo pacman -R python-voiceio`. GPU (CUDA) decoding isn't set up by the packages; use pipx for that. How they are built: [packaging/README.md](../packaging/README.md).
+`voiceio setup` writes the same per-user files as a pipx install (config, the IBus component, the systemd user service); the service runs `/usr/lib/voiceio/bin/voiceio`, a path that stays put across upgrades. After an upgrade, `systemctl --user restart voiceio` picks up the new version. To remove: `voiceio uninstall`, then `sudo apt remove voiceio` or `sudo pacman -R voiceio`. GPU (CUDA) decoding isn't set up by the packages; use pipx for that. How they are built: [packaging/README.md](../packaging/README.md).
 
 ### NixOS
 
