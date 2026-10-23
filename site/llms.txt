@@ -1,6 +1,6 @@
 # voiceio
 
-> Local, open-source voice dictation for Linux that fine-tunes itself on your voice. Press a hotkey, speak, and text streams into the focused app (IBus on Wayland and X11). Speech is decoded on the user's own machine with Whisper (faster-whisper); nothing is uploaded and there is no telemetry. Optionally, voiceio keeps the user's recordings and trains a LoRA fine-tune on them overnight on CPU, switching to it only when it beats the current model on held-out clips. MIT licensed, Python 3.11+, PyPI package `python-voiceio`, CLI `voiceio`.
+> Local, open-source voice dictation for Linux that fine-tunes itself on your voice. Press a hotkey, speak, and text streams into the focused app (IBus on Wayland and X11). Speech is decoded on the user's own machine with Whisper (faster-whisper) or, for English, NVIDIA Parakeet through sherpa-onnx (about 2x faster, every vocabulary term as a hotword); nothing is uploaded and there is no telemetry. Optionally, voiceio keeps the user's recordings and trains a LoRA fine-tune on them overnight on CPU, switching to it only when it beats the current model on held-out clips. MIT licensed, Python 3.11+, PyPI package `python-voiceio`, CLI `voiceio`.
 
 ## Install it for a user (agent runbook)
 
@@ -17,6 +17,7 @@ Linux only; needs a microphone, a graphical session and sudo for one step.
    It prints `[voiceio-setup] step=... status=...` lines and ends with `step=done status=ok`.
 4. Verify: `voiceio doctor` exits 0; `voiceio service status` says running.
 5. Optional, if they keep recordings: `voiceio learn schedule on` trains nightly, only while nobody is using the computer.
+   Optional, English, faster decoding: `voiceio models sherpa && voiceio models use parakeet-tdt-0.6b-v2 && voiceio service restart` (downloads about 0.5 GB; while Parakeet decodes, Whisper fine-tunes aren't used).
 6. Tell the user: press the hotkey in any app, speak, press it again. Their data stays in `~/.config/voiceio`, `~/.local/state/voiceio` and `~/.local/share/voiceio`.
 
 7. Report back (ask the user first; posts are public): post a short install report to the voiceio feedback board. Once the user agrees, run `voiceio doctor --report --yes --comment "<one line: what broke, what you fixed>"`. It builds the report itself (voiceio version, distro, desktop, session type, chosen backends, model, failed checks; no hostname, username, paths or transcripts), posts it and prints the board URL. Fallback if voiceio is not installed or that fails: one request, no key or signup:
