@@ -230,6 +230,7 @@ def _check_features() -> FeatureGroups:
         else:
             groups.accuracy["Screen vocabulary"] = "off"
 
+        groups.accuracy.update(_decoder_status(cfg))
         groups.accuracy.update(_learning_status(cfg))
 
         if cfg.postcorrect.enabled:
@@ -238,6 +239,27 @@ def _check_features() -> FeatureGroups:
     except Exception:
         pass
     return groups
+
+
+def _decoder_status(cfg) -> dict[str, str]:
+    """For a sherpa-onnx model: whether it can be biased, and why not. For
+    Whisper: whether Parakeet would do better here."""
+    from voiceio.core.decoders.catalog import PARAKEET, runtime_of
+    from voiceio.core.decoders.sherpa import features
+    f = features()
+    if runtime_of(cfg.model.name) == "sherpa-onnx":
+        if not f.installed:
+            return {"Decoder": "sherpa-onnx not installed — fix: voiceio models sherpa"}
+        if not f.length_reward:
+            return {"Decoder": "greedy, NO vocabulary biasing: this sherpa-onnx lacks the "
+                               "NeMo TDT beam-search fix — fix: voiceio models sherpa"}
+        how = "pre-tokenized" if f.pretokenized_hotwords else \
+            "sherpa-tokenized, misses many names — fix: voiceio models sherpa"
+        return {"Decoder": f"beam search, every proper noun as a hotword ({how})"}
+    if f.length_reward and cfg.model.language == "en":
+        return {"Decoder": f"Whisper; {PARAKEET} is ~2x faster here: "
+                           f"voiceio models use {PARAKEET}"}
+    return {}
 
 
 def _learning_status(cfg) -> dict[str, str]:
@@ -250,8 +272,12 @@ def _learning_status(cfg) -> dict[str, str]:
     out: dict[str, str] = {}
     models = learn_dir() / "models"
     name = cfg.model.name
+    from voiceio.core.decoders.catalog import is_whisper
     if models in Path(name).expanduser().parents:
         out["Voice model"] = f"fine-tuned on you ({Path(name).parent.name})"
+    elif not is_whisper(name):
+        out["Voice model"] = (f"{name} — `voiceio learn` fine-tunes Whisper, so its models "
+                              "aren't used while this is the decoder")
     else:
         out["Voice model"] = f"stock ({name})"
     if cfg.data.retain_audio:

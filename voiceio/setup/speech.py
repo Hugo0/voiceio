@@ -1,4 +1,4 @@
-"""Whisper model choice, download, and the live mic/transcription test."""
+"""Speech model choice, download, and the live mic/transcription test."""
 from __future__ import annotations
 
 import sys
@@ -16,6 +16,39 @@ MODELS = [
     ("distil-large-v3", "1.5 GB", "Best accuracy that still streams on a fast CPU"),
     ("large-v3-turbo", "1.6 GB", "Top accuracy, needs a GPU or batch mode"),
 ]
+
+# Offered (and preselected) only where it can run with vocabulary biasing:
+# English, with a sherpa-onnx that has the NeMo TDT beam-search fix.
+PARAKEET_CHOICE = ("parakeet-tdt-0.6b-v2", "480 MB",
+                   "Fastest, best on names; English only (recommended)")
+
+
+def model_choices(language: str = "en") -> list[tuple[str, str, str]]:
+    """The wizard's model menu, the default decoder first when it's Parakeet."""
+    from voiceio.core.decoders.catalog import default_model
+    if default_model(language) != PARAKEET_CHOICE[0]:
+        return MODELS
+    return [PARAKEET_CHOICE] + [
+        (n, size, desc.replace(" (recommended)", "")) for n, size, desc in MODELS]
+
+
+def default_choice(choices: list[tuple[str, str, str]]) -> int:
+    from voiceio.setup.ui import _index_of
+    return 0 if choices[0] == PARAKEET_CHOICE else _index_of(choices, "small", 2)
+
+
+class _SherpaModel:
+    """The wizard's mic test calls faster-whisper's `transcribe`; give a
+    sherpa-onnx decoder that shape."""
+
+    def __init__(self, decoder):
+        self._decoder = decoder
+
+    def transcribe(self, audio, **_):
+        import types
+        text = self._decoder.decode(audio, final=True).text
+        return [types.SimpleNamespace(text=text)], None
+
 
 LANGUAGES = [
     ("en", "English"),
@@ -43,6 +76,14 @@ def _get_or_load_model(model_name: str | None = None):
         model_name = cfg.model.name
 
     if _cached_model is not None and _cached_model_name == model_name:
+        return _cached_model
+
+    from voiceio.core.decoders.catalog import runtime_of
+    if runtime_of(model_name) == "sherpa-onnx":
+        from voiceio.config import ModelConfig
+        from voiceio.core.decoders import build_decoder
+        _cached_model = _SherpaModel(build_decoder(ModelConfig(name=model_name)))
+        _cached_model_name = model_name
         return _cached_model
 
     from voiceio.core.decoders.faster_whisper.worker import load_model

@@ -18,6 +18,7 @@ if sys.platform == "win32":
     _APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "voiceio"
     CONFIG_DIR = _APP_DIR / "config"
     LOG_DIR = _APP_DIR / "logs"
+    MODELS_DIR = _APP_DIR / "models"
 else:
     def _xdg(var: str, default: str) -> Path:
         # XDG spec: ignore unset, empty, or relative values.
@@ -26,6 +27,8 @@ else:
 
     CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config") / "voiceio"
     LOG_DIR = _xdg("XDG_STATE_HOME", ".local/state") / "voiceio"
+    # Models voiceio downloads itself (sherpa-onnx); Whisper uses the HF cache.
+    MODELS_DIR = _xdg("XDG_CACHE_HOME", ".cache") / "voiceio" / "models"
 
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 CORRECTIONS_PATH = CONFIG_DIR / "corrections.json"
@@ -73,9 +76,9 @@ class HotkeyConfig:
 
 @dataclass
 class ModelConfig:
-    # "small" fixes most proper-noun/technical-term errors vs "base" and still
-    # runs ~5x realtime on a modern CPU; "distil-large-v3" is the quality pick
-    # for batch (non-streaming) use.
+    # Left unset (or "auto"), `load()` picks the default: Parakeet when the
+    # installed sherpa-onnx can bias it (catalog.default_model), else "small".
+    # Set it and that choice always wins — a `voiceio learn` fine-tune too.
     name: str = "small"
     language: str = "en"
     device: str = "auto"
@@ -86,8 +89,9 @@ class ModelConfig:
     # 2 = a second model process for interim previews, so pressing stop never
     # waits behind one (~+300 MB RAM for "small"). 1 = a single process.
     decode_lanes: int = 2
-    # sherpa-onnx models only: "greedy_search" (default) or
-    # "modified_beam_search" (required for hotwords).
+    # sherpa-onnx models only: "modified_beam_search" (the default where the
+    # installed sherpa-onnx has the NeMo TDT fix; required for hotwords) or
+    # "greedy_search".
     decoding: str = ""
     vocabulary_file: str = ""  # path to vocabulary.txt
     # Bias each dictation toward rare names on screen: the focused window's
@@ -387,6 +391,15 @@ def _build(cls, section: dict):
     return cls(**filtered)
 
 
+def _model_config(section: dict) -> ModelConfig:
+    """[model], with an unset or "auto" name resolved to the default decoder."""
+    cfg = _build(ModelConfig, section)
+    if str(section.get("name", "auto")).strip() in ("", "auto"):
+        from voiceio.core.decoders.catalog import default_model
+        cfg.name = default_model(cfg.language)
+    return cfg
+
+
 def load(path: Path | None = None) -> Config:
     path = path or CONFIG_PATH
     raw: dict = {}
@@ -400,7 +413,7 @@ def load(path: Path | None = None) -> Config:
 
     return Config(
         hotkey=_build(HotkeyConfig, raw.get("hotkey", {})),
-        model=_build(ModelConfig, raw.get("model", {})),
+        model=_model_config(raw.get("model", {})),
         audio=_build(AudioConfig, raw.get("audio", {})),
         output=_build(OutputConfig, raw.get("output", {})),
         feedback=_build(FeedbackConfig, raw.get("feedback", {})),

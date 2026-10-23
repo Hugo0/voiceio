@@ -160,10 +160,15 @@ def save(result: EvalResult) -> Path:
 
 
 def latest(model: str, dataset: str, mode: str = "offline", beam: int = 5) -> dict | None:
-    """The newest saved run of `model` (a faster-whisper name or path) at
-    beam width `beam` on `dataset` scored by the current metrics, or None."""
+    """The newest saved run of `model` (a `[model] name`) on `dataset` scored
+    by the current metrics, or None. `beam` is Whisper's beam width; a
+    sherpa-onnx model has one decode setting."""
+    from voiceio.core.decoders.catalog import runtime_of
     runs = learn_dir() / "runs"
-    want = f"faster-whisper:{model}" + (f"@beam{beam}" if beam != 5 else "")
+    if runtime_of(model) == "sherpa-onnx":
+        want = "sherpa:" + Path(model.removeprefix("sherpa:")).name
+    else:
+        want = f"faster-whisper:{model}" + (f"@beam{beam}" if beam != 5 else "")
     for path in sorted(runs.glob("eval-*.json"), reverse=True) if runs.exists() else []:
         try:
             data = json.loads(path.read_text())

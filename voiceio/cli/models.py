@@ -17,9 +17,16 @@ def register(sub: argparse._SubParsersAction) -> None:
     b.add_argument("models", nargs="*", help="names/paths (default: active + fine-tunes)")
     b.add_argument("--limit", type=int, default=None, help="max clips")
     b.set_defaults(func=cmd_bench)
-    u = msub.add_parser("use", help="Dictate with this model from now on")
-    u.add_argument("name")
+    u = msub.add_parser("use", help="Dictate with this model from now on (downloads it)")
+    u.add_argument("name", help="a model name, path, or `auto` for the default")
     u.set_defaults(func=cmd_use)
+    d = msub.add_parser("download", help="Fetch a sherpa-onnx model (e.g. parakeet-tdt-0.6b-v2)")
+    d.add_argument("name")
+    d.set_defaults(func=cmd_download)
+    s = msub.add_parser("sherpa", help="Install sherpa-onnx with the Parakeet fixes "
+                                       "(until upstream releases them)")
+    s.add_argument("--check", action="store_true", help="only say what is installed")
+    s.set_defaults(func=cmd_sherpa)
 
 
 def _bias_label(bias: BiasMode) -> str:
@@ -40,17 +47,36 @@ def _fine_tunes() -> list[str]:
         if root.exists() else []
 
 
+def _sherpa_note() -> str:
+    """Why Parakeet is or isn't usable with the installed sherpa-onnx."""
+    from voiceio.core.decoders.sherpa import features
+    f = features()
+    if not f.installed:
+        return "needs sherpa-onnx: voiceio models sherpa"
+    if not f.length_reward:
+        return ("this sherpa-onnx lacks the NeMo TDT beam-search fix (no hotwords): "
+                "voiceio models sherpa")
+    if not f.pretokenized_hotwords:
+        return "hotwords via sherpa's own tokenization (fewer names caught): voiceio models sherpa"
+    return ""
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     from voiceio import config
-    from voiceio.core.decoders.catalog import CATALOG
-    active = config.load().model.name
+    from voiceio.core.decoders.catalog import CATALOG, default_model
+    cfg = config.load()
+    active = cfg.model.name
+    default = default_model(cfg.model.language)
     print(f"{'':2}{'model':44} {'runtime':15} {'biasing':18} license")
     for m in CATALOG:
         mark = "* " if m.name == active else "  "
         tag = " (experimental)" if m.experimental else ""
+        tag += " (default)" if m.name == default else ""
         print(f"{mark}{m.name:44} {m.runtime:15} {_bias_label(m.bias):18} {m.license}{tag}")
         if m.notes:
             print(f"{'':4}{m.notes}")
+        if m.runtime == "sherpa-onnx" and (note := _sherpa_note()):
+            print(f"{'':4}{note}")
     tunes = _fine_tunes()
     if tunes:
         print("\nyour fine-tunes (voiceio learn):")
@@ -98,9 +124,60 @@ def cmd_bench(args: argparse.Namespace) -> None:
 
 def cmd_use(args: argparse.Namespace) -> None:
     from voiceio.config import set_value
+    from voiceio.core.decoders.catalog import info, runtime_of
+    name = args.name
+    if name != "auto":
+        m = info(name)
+        if m is not None and m.experimental:
+            print(f"note: {name} is experimental — {m.notes}")
+        if runtime_of(name) == "sherpa-onnx":
+            from voiceio.core.decoders.sherpa import features
+            if not features().installed:
+                raise SystemExit("needs sherpa-onnx first: voiceio models sherpa")
+            if note := _sherpa_note():
+                print(f"note: {note}")
+            if m is not None and m.url:
+                _download(name)
+    set_value("model", "name", name)
+    print(f"model set to {name} — restart the daemon: voiceio service restart")
+
+
+def _download(name: str) -> None:
+    from voiceio.core.decoders import fetch
+    if fetch.is_downloaded(name):
+        return
+    try:
+        path = fetch.download(name, progress=fetch.print_progress(name))
+    except OSError as e:
+        raise SystemExit(f"download failed: {e}") from e
+    print(f"{name} ready in {path}")
+
+
+def cmd_download(args: argparse.Namespace) -> None:
+    from voiceio.core.decoders import fetch
     from voiceio.core.decoders.catalog import info
     m = info(args.name)
-    if m is not None and m.experimental:
-        print(f"note: {args.name} is experimental — {m.notes}")
-    set_value("model", "name", args.name)
-    print(f"model set to {args.name} — restart the daemon: voiceio service restart")
+    if m is None or not m.url:
+        raise SystemExit(f"{args.name} isn't downloaded by voiceio (Whisper models come "
+                         "from Hugging Face on first use)")
+    if fetch.is_downloaded(args.name):
+        print(f"{args.name} is already in {fetch.model_path(args.name)}")
+        return
+    _download(args.name)
+
+
+def cmd_sherpa(args: argparse.Namespace) -> None:
+    """Parakeet's hotwords need two sherpa-onnx fixes upstream hasn't
+    released yet; install voiceio's build of them into this Python."""
+    from voiceio.core.decoders import fetch
+    note = _sherpa_note()
+    if args.check or not note:
+        print(note or "sherpa-onnx has the Parakeet fixes (beam-search fix, pre-tokenized "
+                      "hotwords)")
+        return
+    print(f"installing the patched sherpa-onnx from {fetch.SHERPA_WHEELS}…", flush=True)
+    try:
+        wheel = fetch.install_patched_sherpa()
+    except OSError as e:
+        raise SystemExit(str(e)) from e
+    print(f"installed {wheel}\nnext: voiceio models use parakeet-tdt-0.6b-v2")

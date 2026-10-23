@@ -232,3 +232,12 @@ def windows():
 def pytest_sessionfinish(session, exitstatus):
     import shutil
     shutil.rmtree(_SANDBOX, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _no_sherpa_features(monkeypatch):
+    """The default decoder depends on the installed sherpa-onnx: pin it to
+    "not installed" so results don't vary with the developer's venv. Tests of
+    the Parakeet path patch `features` themselves."""
+    from voiceio.core.decoders import sherpa
+    monkeypatch.setattr(sherpa, "features", lambda: sherpa.SherpaFeatures())

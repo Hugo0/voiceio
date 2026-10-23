@@ -13,7 +13,9 @@ from voiceio.setup import speech
 from voiceio.setup.configfile import _record_cloud_consent, _write_config
 from voiceio.setup.extras import _run_advanced_options, _setup_ollama, _tts_demo
 from voiceio.setup.hotkey import _setup_gnome_shortcut, _test_hotkey, _wm_bind_lines
-from voiceio.setup.speech import LANGUAGES, MODELS, _download_model, _get_or_load_model, _streaming_test
+from voiceio.setup.speech import (
+    LANGUAGES, _download_model, _get_or_load_model, _streaming_test, default_choice, model_choices,
+)
 from voiceio.setup.system import _check_system, _preflight_deps, _wait_for_service_ready
 from voiceio.setup.ui import (
     LOGO, Spinner, _ask, _ask_choice, _ask_yn, _current_note, _index_of,
@@ -257,9 +259,11 @@ def _step_model(state: SetupState) -> None:
     print(f"  {DIM}Larger models are more accurate but slower and use more RAM.{RESET}")
     _current_note(state.is_rerun, cur.model.name if cur else "")
     print()
-    model_default = _index_of(MODELS, cur.model.name, 2) if cur else 2
-    model_idx = _ask_choice(MODELS, default=model_default)
-    state.model_name = MODELS[model_idx][0]
+    models = model_choices(state.language)
+    model_default = _index_of(models, cur.model.name, default_choice(models)) if cur \
+        else default_choice(models)
+    model_idx = _ask_choice(models, default=model_default)
+    state.model_name = models[model_idx][0]
 
     # Download immediately
     if not _download_model(state.model_name):
@@ -268,7 +272,7 @@ def _step_model(state: SetupState) -> None:
     # Quick mic test + satisfaction loop to try different models
     if _ask_yn("Test it with your microphone?"):
         def _stt_demo_fn(idx: int) -> bool:
-            name = MODELS[idx][0]
+            name = models[idx][0]
             # Already-downloaded models are cached; only download new ones
             if speech._cached_model_name != name:
                 if not _download_model(name):
@@ -277,13 +281,13 @@ def _step_model(state: SetupState) -> None:
             return bool(result)
 
         selected = _satisfaction_loop(
-            options=MODELS,
+            options=models,
             demo_fn=_stt_demo_fn,
             prompt="Happy with the transcription quality?",
             default=model_idx,
         )
         if selected is not None:
-            state.model_name = MODELS[selected][0]
+            state.model_name = models[selected][0]
 
 
 # ── Step 4: Keyboard shortcut + output method ────────────────────────────

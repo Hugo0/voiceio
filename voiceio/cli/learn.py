@@ -159,6 +159,17 @@ def _cfg():
     return config.load()
 
 
+def _whisper_unused() -> str:
+    """Why a Whisper fine-tune does nothing right now, or "": `learn` only
+    trains Whisper, and dictation may decode with something else."""
+    from voiceio.core.decoders.catalog import is_whisper
+    active = _cfg().model.name
+    if is_whisper(active):
+        return ""
+    return (f"dictation decodes with {active}, not Whisper: a fine-tune trains Whisper and "
+            f"isn't used unless you switch back (voiceio learn promote RUN)")
+
+
 def _vocabulary() -> list[str]:
     from voiceio.vocabulary import VocabularyLoader
     return VocabularyLoader(_cfg().model).get_all()
@@ -196,6 +207,8 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(f"models     {', '.join(runs)}")
     active = _cfg().model.name
     print(f"active     {active}")
+    if unused := _whisper_unused():
+        print(f"note       {unused}")
     print(f"nightly    {_schedule_state()}")
     promotable = _print_scores(ds, active, runs) if ds else None
     if promotable:
@@ -409,6 +422,8 @@ def _eval_pipeline() -> None:
 
 def cmd_train(args: argparse.Namespace) -> None:
     _yield_cpu()
+    if unused := _whisper_unused():
+        print(f"note: {unused}")
     ds = store.latest_dataset()
     if ds is None:
         raise SystemExit("no dataset — run `voiceio learn build` first")
@@ -535,6 +550,11 @@ def _maintain(args: argparse.Namespace, learn_cfg) -> None:
     if not os.environ.get(quiet.RESUMED_ENV):
         _announce_learning(learn_cfg.min_new)
     cmd_label(argparse.Namespace(teacher=learn_cfg.teacher or None, limit=None, relabel=False))
+    if unused := _whisper_unused():
+        # Labels still pay off (evals, a later switch back); nightly training
+        # of a model dictation doesn't use would only burn the CPU.
+        print(f"labeled; not retraining — {unused}. `voiceio learn train` trains anyway.")
+        return
     if missing := train.missing_train_deps():
         # Labeling alone is worth it; retraining waits for the extra. Exit 0:
         # a nightly timer must not fail every night over an optional install.

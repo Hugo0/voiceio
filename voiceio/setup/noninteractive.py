@@ -7,7 +7,7 @@ import subprocess
 from voiceio.config import CONFIG_PATH
 from voiceio.setup.configfile import _record_cloud_consent, _write_config
 from voiceio.setup.hotkey import _setup_gnome_shortcut
-from voiceio.setup.speech import MODELS, _download_model
+from voiceio.setup.speech import _download_model, default_choice, model_choices
 from voiceio.setup.system import _check_system
 
 
@@ -56,14 +56,15 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     unknown = set(answers) - _ALLOWED_ANSWER_KEYS
     if unknown:
         return _fail("validate", f"unknown answer keys: {sorted(unknown)}", 2)
-    valid_models = {m[0] for m in MODELS}
-    model = str(answers.get("model", "small"))
+    language = str(answers.get("language", "en")).strip() or "en"
+    choices = model_choices(language)
+    valid_models = {m[0] for m in choices}
+    model = str(answers.get("model", choices[default_choice(choices)][0]))
     if model not in valid_models:
         return _fail("validate", f"invalid model '{model}'; choose from {sorted(valid_models)}", 2)
     hotkey = str(answers.get("hotkey", "ctrl+alt+v")).strip()
     if not hotkey:
         return _fail("validate", "hotkey must not be empty", 2)
-    language = str(answers.get("language", "en")).strip() or "en"
 
     _progress("start", mode="noninteractive", model=model, language=language, hotkey=hotkey)
 
