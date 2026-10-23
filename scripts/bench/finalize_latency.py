@@ -19,11 +19,18 @@ with the order rotated, so every arm sees the same machine load:
         --arm base=HEAD~1 --arm new=WORKTREE --out /tmp/bench.jsonl
     python scripts/bench/finalize_latency.py report /tmp/bench.jsonl
 
-An arm is LABEL=REF[,freeze=SECS][,_CONST=VALUE...]: REF is a git ref, a .py
-file, or WORKTREE for the file on disk; _CONST overrides a module constant of
-that streaming.py (e.g. _PAUSE_FREEZE_MIN_SECS=3). Everything else (decoder,
-recorder, VAD) comes from this checkout and is shared by all arms, so put
-the base arm on the oldest ref whose streaming.py still runs against it.
+An arm is LABEL=REF[,freeze=SECS][,model=NAME][,_CONST=VALUE...]: REF is a
+git ref, a .py file, or WORKTREE for the file on disk; _CONST overrides a
+module constant of that streaming.py (e.g. _PAUSE_FREEZE_MIN_SECS=3); NAME
+is a `[model] name` (default: the configured one), so decoders can be
+compared under the same load:
+
+    python scripts/bench/finalize_latency.py run --out /tmp/d.jsonl \\
+        --arm whisper=WORKTREE --arm parakeet=WORKTREE,model=parakeet-tdt-0.6b-v2
+
+Everything else (recorder, VAD) comes from this checkout and is shared by
+all arms, so put the base arm on the oldest ref whose streaming.py still
+runs against it.
 
 Clips are held-out (dev/test split) labeled recordings, stratified by length.
 Transcripts stay in the --out file, never in the repo; nothing leaves the
@@ -86,11 +93,14 @@ def load_streaming(label: str, ref: str) -> types.ModuleType:
 def parse_arm(spec: str) -> dict:
     label, _, rest = spec.partition("=")
     ref, *opts = rest.split(",")
-    arm = {"label": label, "ref": ref or "WORKTREE", "freeze": None, "consts": {}}
+    arm = {"label": label, "ref": ref or "WORKTREE", "freeze": None, "consts": {},
+           "model": ""}
     for opt in opts:
         k, _, v = opt.partition("=")
         if k == "freeze":
             arm["freeze"] = float(v)
+        elif k == "model":
+            arm["model"] = v   # compare decoders: each model loads once, shared by its arms
         elif k.startswith("_") and k == k.upper():
             arm["consts"][k] = float(v)   # a module constant, e.g. _FREEZE_SEARCH_SECS
         else:
@@ -148,6 +158,9 @@ def drain(decoder) -> None:
     """Wait until no decode is running on any lane (an abandoned interim must
     not steal CPU from the next run)."""
     for lane in (getattr(decoder, "draft", None), getattr(decoder, "final", decoder)):
+        if hasattr(lane, "wait_idle"):   # re-entrant decoders (sherpa-onnx)
+            lane.wait_idle()
+            continue
         lock = getattr(lane, "_lock", None)
         if lock is not None:
             with lock:
@@ -221,14 +234,20 @@ def cmd_run(args) -> None:
         clips = clips[:args.limit]
     print(f"{len(clips)} clips, {sum(c['secs'] for c in clips) / 60:.1f} min of audio; "
           f"arms: {', '.join(a['label'] + '=' + a['ref'] for a in arms)}", flush=True)
-    engine = Engine.from_config(cfg, prefix=False)
-    # One bias for every run: the live prompt builder learns from each
-    # commit, which would hand the arms different prompts.
-    bias = engine.bias()
+    import copy
+    engines, biases = {}, {}
+    for model in dict.fromkeys(a["model"] for a in arms):
+        mcfg = copy.deepcopy(cfg)
+        if model:
+            mcfg.model.name = model
+        engines[model] = Engine.from_config(mcfg, prefix=False)
+        # One bias for every run: the live prompt builder learns from each
+        # commit, which would hand the arms different prompts.
+        biases[model] = engines[model].bias()
+        warm = np.zeros(SR, dtype=np.float32)
+        engines[model].decoder.decode(warm, final=True, bias=biases[model])
+        engines[model].decoder.decode(warm, final=False, bias=biases[model])
     vad = load_vad(cfg.audio)
-    warm = np.zeros(SR, dtype=np.float32)
-    engine.decoder.decode(warm, final=True, bias=bias)
-    engine.decoder.decode(warm, final=False, bias=bias)
 
     out = open(args.out, "a", encoding="utf-8")
     try:
@@ -240,11 +259,13 @@ def cmd_run(args) -> None:
                     freeze = arm["freeze"] if arm["freeze"] is not None \
                         else cfg.output.streaming_freeze_secs
                     cond = conditions()
-                    r = replay(mods[arm["label"]], engine, bias, audio, cfg.audio, vad, freeze)
+                    r = replay(mods[arm["label"]], engines[arm["model"]], biases[arm["model"]],
+                               audio, cfg.audio, vad, freeze)
                     al = metrics.align(clip["ref"], r["raw"])
                     row = {"round": rnd, "clip": clip["clip"], "secs": clip["secs"],
                            "bucket": bucket_of(clip["secs"]), "arm": arm["label"],
                            "ref_spec": arm["ref"], "freeze": freeze, "consts": arm["consts"],
+                           "model": engines[arm["model"]].decoder.name,
                            "errors": al.errors, "ref_words": al.ref_words,
                            **r, **cond}
                     out.write(json.dumps(row) + "\n")
@@ -254,7 +275,8 @@ def cmd_run(args) -> None:
                           flush=True)
     finally:
         out.close()
-        engine.close()
+        for engine in engines.values():
+            engine.close()
     report([args.out])
 
 
