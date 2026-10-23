@@ -98,7 +98,7 @@ def test_example_config_matches_defaults():
     import dataclasses
     from pathlib import Path
 
-    from voiceio.config import Config
+    from voiceio.config import Config, ModelConfig
     example = tomllib.loads(
         (Path(__file__).parent.parent / "config.example.toml").read_text())
     cfg = Config()
@@ -107,6 +107,11 @@ def test_example_config_matches_defaults():
         assert sec.name in example, f"[{sec.name}] missing from example"
         for f in dataclasses.fields(defaults):
             assert f.name in example[sec.name], f"{sec.name}.{f.name} missing"
+            if (sec.name, f.name) == ("model", "name"):
+                # "auto" resolves to the default decoder on construction
+                assert example["model"]["name"] == "auto"
+                assert ModelConfig(name="auto").name == defaults.name
+                continue
             assert example[sec.name][f.name] == getattr(defaults, f.name), \
                 f"{sec.name}.{f.name}: example differs from default"
     for name, section in example.items():

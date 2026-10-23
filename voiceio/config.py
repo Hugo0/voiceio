@@ -76,10 +76,11 @@ class HotkeyConfig:
 
 @dataclass
 class ModelConfig:
-    # Left unset (or "auto"), `load()` picks the default: Parakeet when the
-    # installed sherpa-onnx can bias it (catalog.default_model), else "small".
-    # Set it and that choice always wins — a `voiceio learn` fine-tune too.
-    name: str = "small"
+    # "auto" (or unset) is the default decoder: Parakeet when the installed
+    # sherpa-onnx can bias it (catalog.default_model), else "small"; resolved
+    # on construction. Set it and that choice always wins — a `voiceio learn`
+    # fine-tune too.
+    name: str = "auto"
     language: str = "en"
     device: str = "auto"
     compute_type: str = "int8"
@@ -104,6 +105,11 @@ class ModelConfig:
     # Other languages you dictate in: a correction rule that would rewrite a
     # real word in one of these is flagged (e.g. ["es"] protects "harina").
     protect_languages: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        if self.name.strip() in ("", "auto"):
+            from voiceio.core.decoders.catalog import default_model
+            self.name = default_model(self.language)
 
 
 @dataclass
@@ -391,15 +397,6 @@ def _build(cls, section: dict):
     return cls(**filtered)
 
 
-def _model_config(section: dict) -> ModelConfig:
-    """[model], with an unset or "auto" name resolved to the default decoder."""
-    cfg = _build(ModelConfig, section)
-    if str(section.get("name", "auto")).strip() in ("", "auto"):
-        from voiceio.core.decoders.catalog import default_model
-        cfg.name = default_model(cfg.language)
-    return cfg
-
-
 def load(path: Path | None = None) -> Config:
     path = path or CONFIG_PATH
     raw: dict = {}
@@ -413,7 +410,7 @@ def load(path: Path | None = None) -> Config:
 
     return Config(
         hotkey=_build(HotkeyConfig, raw.get("hotkey", {})),
-        model=_model_config(raw.get("model", {})),
+        model=_build(ModelConfig, raw.get("model", {})),
         audio=_build(AudioConfig, raw.get("audio", {})),
         output=_build(OutputConfig, raw.get("output", {})),
         feedback=_build(FeedbackConfig, raw.get("feedback", {})),

@@ -145,11 +145,13 @@ uv run pytest tests/ -x -q
 - Add tests for new backends or bug fixes
 - One logical change per PR
 
-## Model choice: why Whisper, and what would change it
+## Model choice: Parakeet where it can be biased, Whisper otherwise
 
-Short version: **Parakeet is faster and we still don't use it.** If you're about
-to open "switch to Parakeet / Canary / Moonshine, it's Nx faster" — read this
-first, then open the issue anyway if you have data that contradicts it.
+Short version: **the default is Parakeet-TDT-0.6b-v2 (sherpa-onnx) when the
+installed sherpa-onnx has the NeMo TDT beam-search fix, else whisper-small.**
+`catalog.default_model()` feature-detects it, so the default flips by itself
+once an upstream release ships the fix. An explicit `[model] name` (including
+a `voiceio learn` fine-tune) always wins.
 
 Our errors are almost entirely proper nouns and jargon (`HyperNEAT` →
 `hyperneed`, `Kalshi` → `kalchi`). So the axis that matters is **contextual
@@ -157,41 +159,66 @@ biasing**, not raw WER or speed. Whisper's only lever is `hotwords`, and it is
 small and hard-capped: faster-whisper truncates hotwords at 223 tokens
 (`max_length // 2 - 1`), they share one 448-token budget with the transcription
 *output*, and proper nouns cost 5-7 tokens each — so ~35 terms, permanently.
-That ceiling is architectural. There is no upstream fix coming, and it's why
-`voiceio/vocabulary.py` ranks terms instead of just listing them.
+That's why `voiceio/vocabulary.py` ranks terms instead of just listing them.
 
-**Measured on this project's own retained audio (2026-07-17, Ryzen 9 7940HS,
-CPU int8)** — reproduce before trusting:
+[sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/hotwords/index.html)
+hotwords are an Aho-Corasick graph with **no token cap**. They need
+`modified_beam_search`, which on NeMo TDT models lost speech (issue
+[#3267](https://github.com/k2-fsa/sherpa-onnx/issues/3267): ~8/20 of our clips
+lost or truncated on 1.13.4; PR #3657 never landed). **We fixed it ourselves**:
+[k2-fsa/sherpa-onnx#4084](https://github.com/k2-fsa/sherpa-onnx/pull/4084)
+(TDT duration handling + a `length_reward` option, use 0.5). A second patch
+lets hotwords be given as the model's own BPE pieces: sherpa re-encodes
+hotwords with a max-score DP over `bpe.vocab`, which splits 253/349 of our
+terms differently from the model (`Hetzner` → `▁H et zn er`, the model writes
+`▁Het zn er`), so they never match. Both live on `Hugo0/sherpa-onnx` branch
+`voiceio-patched`; `voiceio models sherpa` installs wheels built from it by
+`.github/workflows/sherpa-wheels.yml` until upstream releases them.
 
-| | speed | notes |
-|---|---|---|
-| whisper-small (current) | 4.8x realtime | hotwords work; ~35-term ceiling |
-| Parakeet-TDT-0.6b-v3 int8, greedy | **12.7x** | clean, but **greedy ignores hotwords** |
-| Parakeet-TDT, `modified_beam_search` | — | **lost/truncated speech on ~8/20 real clips** |
+**Measured on this project's own held-out audio (84 clips, dataset v0007,
+2026-10-23, Ryzen 9 7940HS, CPU int8)** — reproduce before trusting:
 
-[sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/hotwords/index.html) hotwords
-are the prize: an Aho-Corasick automaton with **no token cap**, which would
-delete the ~35-term ceiling entirely. But they require `modified_beam_search`
-(greedy silently ignores them), and MBS on NeMo TDT is broken — see
-[#3267](https://github.com/k2-fsa/sherpa-onnx/issues/3267). We reproduced it on
-sherpa-onnx **1.13.4**: 3/20 clips returned empty on real speech, ~8/20 lost or
-truncated it (greedy 47 words → MBS 0). A genuinely silent clip came back empty
-from both, so that's real speech loss, not VAD.
+| | WER | vocab recall | decode of an 18 s clip |
+|---|---|---|---|
+| whisper-small fine-tune v0001 (beam 2, ~35 hotwords) | 6.02% | 79.4% | ≈3 s |
+| Parakeet-TDT-0.6b-v2 int8, MBS 4 paths, length_reward 0.5, proper-noun hotwords @2.0 | 6.71% | 77.9% | **≈1.4 s** |
+| Parakeet, same, *all* terms as hotwords | worse: lowercase jargon gets inserted where it wasn't said | | |
+| Parakeet-TDT-0.6b-**v3** int8 | the int8 encoder drops whole sentences — don't use | | |
 
-So biasing and model choice are **one decision**, and today it costs 40% speech
-loss. Without biasing, Parakeet recovers *fewer* of our vocabulary terms than
-whisper-small does with hotwords (3 vs 5 over 20 clips). Speed is not the
-bottleneck — whisper-small already runs 4.8x realtime on an 18s median
-utterance.
+The rows above are the spike's (`parakeet-work/`, same 84 clips, the same
+recognizer settings this backend uses). Stop-to-text latency through the real
+streaming path has **not** been measured in-tree yet; to reproduce both, with
+the patched sherpa-onnx importable:
 
-**The trigger to revisit:** when
-[PR #3657](https://github.com/k2-fsa/sherpa-onnx/pull/3657) ("Fix
-modified_beam_search hallucination/empty text for NeMo TDT") merges, Parakeet
-becomes faster *and* unbounded-biasing, and this decision flips. Re-run the
-spike before migrating: decode ~20 real clips with greedy and MBS, compare word
-counts per clip, and only proceed if MBS matches greedy. Note Parakeet is
-offline-only (no true streaming) and crashes on multi-minute audio — chunk at
-30s, which the freeze path already does.
+    voiceio learn eval --model parakeet-tdt-0.6b-v2
+    voiceio learn eval --model <fine-tune>/ct2 --beam 2
+    python scripts/bench/finalize_latency.py run --out /tmp/decoders.jsonl \
+        --arm whisper=WORKTREE --arm parakeet=WORKTREE,model=parakeet-tdt-0.6b-v2
+
+Run them on an idle machine: under heavy load ONNX Runtime's spinning
+threads burn CPU without progress, and `learn` runs SCHED_IDLE.
+
+So Parakeet trades ~0.7 pt WER and ~1.5 pt recall for half the decode time —
+and stop-to-text latency is what a dictation user feels. Rules that came out
+of the spike and are enforced in `voiceio/core/decoders/sherpa.py`:
+
+- **Hotwords = proper nouns only** (terms with a capital letter), all of them —
+  no ~35-term ranking for this backend.
+- **One recognizer per model load**; hotwords go per stream
+  (`create_stream(hotwords=…)`). Rebuilding it reloads the 650 MB encoder.
+- **Decode ≤30 s at a time**, cut at the quietest spot: the encoder breaks
+  down on multi-minute audio. The freeze path already keeps tails short.
+- Without the fix, an explicit Parakeet choice decodes greedy and unbiased
+  (doctor says so) rather than lose speech.
+- Parakeet writes cased, punctuated text, spells numbers out (numbers.py
+  converts) and writes fillers as sentences of their own (`them. Um. So`):
+  `strip_disfluencies` handles that.
+- `voiceio learn` still only fine-tunes Whisper: while Parakeet dictates,
+  `learn maintain` labels but doesn't retrain, and doctor/learn say so.
+
+**What would change it again:** a Whisper fine-tune that beats Parakeet on
+WER *and* recall by a margin worth ~2x the stop latency, or upstream
+streaming MBS for Nemotron (true streaming + unlimited hotwords, PR #3895).
 
 ## Platform notes
 

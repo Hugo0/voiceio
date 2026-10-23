@@ -15,15 +15,21 @@ cancel_key = ""               # e.g. "escape": abandon the dictation (evdev/pynp
                               # gets the key too). Or bind `voiceio cancel`
 
 [model]
-name = "small"                # a size (small, medium, large-v3-turbo…), a path to a
+name = "auto"                 # auto = parakeet-tdt-0.6b-v2 where the installed sherpa-onnx
+                              # can bias it (`voiceio models sherpa`), else small. Or a
+                              # Whisper size (small, medium, large-v3-turbo…), a path to a
                               # CTranslate2 model (`voiceio learn` fine-tunes), or
                               # sherpa:<dir> / whispercpp:<url> — see `voiceio models`
 language = "en"               # ISO 639-1 code, or "auto"
 device = "auto"               # auto | cpu | cuda
 compute_type = "int8"         # int8 (fast) | float16 (GPU) | float32
-cpu_threads = 0               # 0 = half your logical cores, 4–8
-decode_lanes = 2              # 2 = separate preview process, so stopping never waits on it
-decoding = ""                 # sherpa-onnx only: greedy_search | modified_beam_search
+cpu_threads = 0               # 0 = auto: Whisper half your logical cores split over its lanes
+                              # (2–4 each); Parakeet half your logical cores, 2–6
+decode_lanes = 2              # Whisper: 2 = separate preview process, so stopping never waits
+                              # on it (Parakeet decodes in parallel in one process anyway)
+decoding = ""                 # sherpa-onnx only: "" = modified_beam_search when the installed
+                              # sherpa-onnx has the NeMo TDT fix (needed for hotwords), else
+                              # greedy_search
 vocabulary_file = ""          # empty = ~/.config/voiceio/vocabulary.txt
 screen_vocabulary = true      # bias each dictation toward rare names on screen: the focused
                               # window's title and the selected text, read locally at start
@@ -31,7 +37,7 @@ screen_vocabulary = true      # bias each dictation toward rare names on screen:
                               # sway, niri; GNOME/KDE Wayland only for X11 apps) and tmux
                               # session names (your terminal tabs; the visible pane too when
                               # only one tmux client is attached)
-beam_size = 5                 # passes you keep; 1 = greedy, a faster stop
+beam_size = 5                 # Whisper: passes you keep; 1 = greedy, a faster stop
 protect_languages = []        # other languages you dictate in: corrections must not rewrite their words
 
 [audio]
