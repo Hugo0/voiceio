@@ -1,0 +1,69 @@
+name: Patched sherpa-onnx wheels
+
+# Parakeet's vocabulary biasing needs two sherpa-onnx changes upstream hasn't
+# released: the NeMo TDT modified_beam_search fix (k2-fsa/sherpa-onnx#4084,
+# `length_reward`) and hotwords given as the model's own BPE pieces
+# (`HOTWORDS_PRETOKENIZED`). This builds Hugo0/sherpa-onnx@voiceio-patched
+# for Linux x86_64 and publishes the wheels plus SHA256SUMS to the
+# `sherpa-onnx-voiceio` release, where `voiceio models sherpa` installs from.
+# Retire it (and that command) once an upstream release has both.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Hugo0/sherpa-onnx branch, tag or commit"
+        default: voiceio-patched
+
+permissions:
+  contents: write
+
+jobs:
+  wheels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: Hugo0/sherpa-onnx
+          ref: ${{ inputs.ref }}
+          path: sherpa-onnx
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build wheels (manylinux_2_28, cp310-cp313)
+        env:
+          CIBW_BUILD: "cp310-manylinux_x86_64 cp311-manylinux_x86_64 cp312-manylinux_x86_64 cp313-manylinux_x86_64"
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_BEFORE_BUILD: pip install cmake setuptools wheel
+          # Only the Python API voiceio uses: no portaudio/websocket/binaries.
+          CIBW_ENVIRONMENT: >-
+            SHERPA_ONNX_CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF
+            -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF -DSHERPA_ONNX_ENABLE_BINARY=OFF"
+            SHERPA_ONNX_MAKE_ARGS="-j4"
+          # The wheel bundles libonnxruntime with an $ORIGIN rpath; auditwheel
+          # would re-graft it under a mangled name. Built on manylinux_2_28, the
+          # wheel runs on glibc >= 2.28 as is.
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: cp {wheel} {dest_dir}
+          CIBW_TEST_COMMAND: >-
+            python -c "import sherpa_onnx as s;
+            assert s.HOTWORDS_PRETOKENIZED and hasattr(s.OfflineRecognizerConfig, 'length_reward')"
+        run: |
+          pip install "cibuildwheel>=2.22,<4"
+          cibuildwheel sherpa-onnx --output-dir wheelhouse
+      - name: Checksums
+        working-directory: wheelhouse
+        run: sha256sum *.whl > SHA256SUMS && cat SHA256SUMS
+      - name: Publish to the sherpa-onnx-voiceio release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view sherpa-onnx-voiceio >/dev/null 2>&1 || gh release create sherpa-onnx-voiceio \
+            --prerelease --title "sherpa-onnx for voiceio (Parakeet fixes)" \
+            --notes "sherpa-onnx built from Hugo0/sherpa-onnx@${{ inputs.ref }}: the NeMo TDT modified_beam_search fix (k2-fsa/sherpa-onnx#4084) and pre-tokenized hotwords. Installed by \`voiceio models sherpa\`."
+          # Replace the whole set: SHA256SUMS must only list wheels that are there.
+          for asset in $(gh release view sherpa-onnx-voiceio --json assets --jq '.assets[].name'); do
+            gh release delete-asset sherpa-onnx-voiceio "$asset" --yes
+          done
+          gh release upload sherpa-onnx-voiceio wheelhouse/*.whl wheelhouse/SHA256SUMS
