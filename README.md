@@ -12,7 +12,7 @@
 **[Try it in your browser at voiceio.dev](https://voiceio.dev)**: no install, the model runs in the tab.
 
 - **Types anywhere.** Press your hotkey, speak, and the words stream into the focused app with a live underlined preview (IBus), on Wayland and X11: GNOME, KDE, Hyprland, sway, i3.
-- **Runs on your machine.** Whisper decodes your speech locally. No account, no server, no telemetry; logs never contain your words.
+- **Runs on your machine.** Whisper, or NVIDIA's Parakeet (about 2x faster, with every name you use as a hotword), decodes your speech locally. No account, no server, no telemetry; logs never contain your words.
 - **Learns your words.** Keep your recordings (opt-in, on your disk) and voiceio fine-tunes its model on them while the machine is idle. It switches only when the new model wins on clips it never trained on. On the author's voice: 12.1% → 4.9% word errors after one night on a laptop CPU.
 
 ## Install
@@ -74,7 +74,7 @@ Everything lives in `~/.config/voiceio/config.toml`; [config.example.toml](confi
 
 ## Roadmap
 
-- **Unbounded vocabulary**: a decoder whose biasing has no token cap (see [model choice](CONTRIBUTING.md#model-choice-why-whisper-and-what-would-change-it)).
+- **Parakeet by default for everyone**: it needs our sherpa-onnx fix ([#4084](https://github.com/k2-fsa/sherpa-onnx/pull/4084)) in an upstream release; until then `voiceio models sherpa && voiceio models use parakeet-tdt-0.6b-v2` installs a patched build ([why](CONTRIBUTING.md#model-choice-parakeet-where-it-can-be-biased-whisper-otherwise)).
 - **GPU on AMD and Intel**: let setup run a Vulkan whisper.cpp server for you.
 - **Typing without IBus on GNOME and KDE**: a libei backend.
 - **Distro packages**: AUR (packaged, not yet published) and .rpm.
@@ -86,7 +86,7 @@ Open an issue before a large PR. [CONTRIBUTING.md](CONTRIBUTING.md) covers the a
 
 ## Credits
 
-- Speech recognition: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [CTranslate2](https://github.com/OpenNMT/CTranslate2), with OpenAI's [Whisper](https://github.com/openai/whisper) models. The in-browser demo runs [Moonshine](https://github.com/usefulsensors/moonshine) through [transformers.js](https://github.com/huggingface/transformers.js).
+- Speech recognition: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [CTranslate2](https://github.com/OpenNMT/CTranslate2), with OpenAI's [Whisper](https://github.com/openai/whisper) models; [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with NVIDIA's [Parakeet-TDT](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2). The in-browser demo runs [Moonshine](https://github.com/usefulsensors/moonshine) through [transformers.js](https://github.com/huggingface/transformers.js).
 - Ideas borrowed with thanks: modifier release, paste keys and media pausing from [Voxtype](https://github.com/peteonrails/voxtype); the landing page's look from Romario Kavin's [KOLlateral](https://github.com/RomarioKavin1/kollateral).
 
 ## License
