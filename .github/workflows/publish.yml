@@ -124,6 +124,9 @@ jobs:
     # only when the AUR_SSH_PRIVATE_KEY secret is set (see packaging/README.md);
     # otherwise the updated PKGBUILD and .SRCINFO are attached to the release.
     needs: publish
+    # Best effort: a failed AUR push must not mark the release failed (the
+    # package test only runs after a successful release).
+    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       contents: write
