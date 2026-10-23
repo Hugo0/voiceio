@@ -20,9 +20,16 @@ _NO_CASE_LANGUAGES = frozenset({"zh", "ja", "ko", "ar", "he", "th", "hi", "bn", 
 # Word repetitions ("had had" is valid English) and filler "like"/"you know"
 # need judgment and are left to the LLM layer. Order matters: multi-token
 # "uh-huh" before "[Uu]h+" so it isn't clipped to a stray "-huh".
+_FILLER = r"\b(?:[Uu]h[-\s]?huh|[Mm]hm|[Uu]h+m*|[Uu]m+|[Hh]m{2,})\b"
+# A run of fillers and the comma/space around it; the lowercase letter after it, when
+# it opened a sentence, gets capitalized ("those. Um so I" -> "those. So I"),
+# or the sentence end before it would read as a false stop and become a comma.
 _FILLER_RE = re.compile(
-    r"[^\S\n]*,?[^\S\n]*\b(?:[Uu]h[-\s]?huh|[Mm]hm|[Uu]h+m*|[Uu]m+|[Hh]m{2,})\b[^\S\n]*,?[^\S\n]*",
+    rf"(?:[^\S\n]*,?[^\S\n]*{_FILLER})+[^\S\n]*,?[^\S\n]*(?P<next>[a-z\u00E0-\u00FF])?",
 )
+# A filler that is a sentence of its own ("them. Um. So", Parakeet's habit):
+# it goes with its full stop, or "them.. So" is left behind.
+_FILLER_SENTENCE_RE = re.compile(rf"(^|[.?!])[^\S\n]*{_FILLER}[^\S\n]*[.?!](?=\s|$)[^\S\n]*")
 # A word (2+ letters, not part of a dotted name or an ellipsis) ending in "."
 # and followed by a lowercase word: a segment boundary, not a sentence end.
 _SEGMENT_STOP_RE = re.compile(r"(?<![.\w])([A-Za-zÀ-ɏ]{2,})\.(\s+)(?=[a-zà-ÿ])")
@@ -48,19 +55,28 @@ def strip_disfluencies(text: str) -> str:
 
     Removes filler sounds (um, uh, er, …) and exact duplicate adjacent
     sentences (a Whisper re-decode artifact). Only ever deletes — never
-    rephrases, reorders, or touches lexical words — so meaning is preserved by
-    construction. The judgment cases (false starts, filler "like", word
+    rephrases, reorders, or touches lexical words (beyond capitalizing the one
+    that now opens a sentence) — so meaning is preserved by construction. The judgment cases (false starts, filler "like", word
     repetitions) are handled by the guarded LLM layer in postcorrect.
     """
     if not text:
         return text
-    text = _FILLER_RE.sub(" ", text)
+    text = _FILLER_SENTENCE_RE.sub(lambda m: m.group(1) + (" " if m.group(1) else ""), text)
+    text = _FILLER_RE.sub(_drop_filler, text)
     text = _dedup_adjacent_sentences(text)
     # Repair the debris the deletions leave, without crossing newlines (so
     # paragraph/list structure survives even when punctuation_cleanup is off).
     text = re.sub(r"[^\S\n]+([,.;:?!])", r"\1", text)  # space before punctuation
     text = re.sub(r"[^\S\n]{2,}", " ", text)           # collapse runs of spaces
     return text.strip()
+
+
+def _drop_filler(m: re.Match) -> str:
+    nxt = m.group("next") or ""
+    before = m.string[:m.start()].rstrip()
+    if nxt and before and before[-1] in ".?!":
+        nxt = nxt.upper()   # the filler opened the sentence: the next word does now
+    return " " + nxt
 
 
 def _dedup_adjacent_sentences(text: str) -> str:

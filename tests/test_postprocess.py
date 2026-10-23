@@ -70,6 +70,19 @@ class TestStripDisfluencies:
             "First para.\n\nSecond para."
         assert "\n\n" in strip_disfluencies("First para.\n\num\n\nSecond para.")
 
+    def test_filler_sentence_goes_with_its_full_stop(self):
+        # Parakeet writes a filler as a sentence of its own.
+        assert strip_disfluencies("escape them. Um. So on") == "escape them. So on"
+        assert strip_disfluencies("the scope of this? Um. I want") == "the scope of this? I want"
+        assert strip_disfluencies("Um. I want it") == "I want it"
+
+    def test_word_after_a_sentence_opening_filler_is_capitalized(self):
+        # Else "those. so I" reads as a false stop and cleanup makes it a comma.
+        assert strip_disfluencies("most of those. Um so I") == "most of those. So I"
+        assert strip_disfluencies("might be. Um uh yeah, and") == "might be. Yeah, and"
+        assert cleanup(strip_disfluencies("most of those. Um so I")) == "Most of those. So I"
+        assert strip_disfluencies("it was um uh good") == "it was good"
+
     def test_uh_huh_removed_whole(self):
         # Regression: ordering bug once stranded "-huh".
         assert strip_disfluencies("uh-huh right") == "right"
