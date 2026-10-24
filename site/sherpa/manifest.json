@@ -1,0 +1,12 @@
+{
+ "wasm": {
+  "name": "sherpa-onnx-wasm-web.wasm",
+  "size": 15172683,
+  "parts": [
+   {
+    "name": "sherpa-onnx-wasm-web.wasm",
+    "size": 15172683
+   }
+  ]
+ }
+}
