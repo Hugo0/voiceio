@@ -1,6 +1,6 @@
 # voiceio
 
-> Local, open-source voice dictation for Linux that fine-tunes itself on your voice. Press a hotkey, speak, and text streams into the focused app (IBus on Wayland and X11). Speech is decoded on the user's own machine with Whisper (faster-whisper) or, for English, NVIDIA Parakeet through sherpa-onnx (about 2x faster, every vocabulary term as a hotword); nothing is uploaded and there is no telemetry. Optionally, voiceio keeps the user's recordings and trains a LoRA fine-tune on them overnight on CPU, switching to it only when it beats the current model on held-out clips. MIT licensed, Python 3.11+, PyPI package `python-voiceio`, CLI `voiceio`.
+> Local, open-source voice dictation for Linux that fine-tunes itself on your voice. Press a hotkey, speak, and text streams into the focused app (IBus on Wayland and X11). Speech is decoded on the user's own machine with Whisper (faster-whisper) or, for English, NVIDIA Parakeet through sherpa-onnx (text arrives about 0.7 s after you stop talking vs 4.4 s with Whisper on the maintainer's dictations, every vocabulary term as a hotword; NVIDIA Parakeet v3 covers 24 more European languages); nothing is uploaded and there is no telemetry. Optionally, voiceio keeps the user's recordings and trains a LoRA fine-tune on them overnight on CPU, switching to it only when it beats the current model on held-out clips. MIT licensed, Python 3.11+, PyPI package `python-voiceio`, CLI `voiceio`.
 
 ## Install it for a user (agent runbook)
 

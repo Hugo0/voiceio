@@ -344,6 +344,10 @@ def test_doctor_reports_the_decoder(monkeypatch):
     assert "aren't used" in _learning_status(cfg)["Voice model"]
     cfg.model.name = "small"
     assert catalog.PARAKEET in _decoder_status(cfg)["Decoder"]
+    cfg.model.language = "es"
+    assert catalog.PARAKEET_V3 in _decoder_status(cfg)["Decoder"]
+    cfg.model.language = "ja"
+    assert _decoder_status(cfg) == {}
 
 
 def test_eval_results_are_found_for_sherpa_models(monkeypatch, tmp_path):

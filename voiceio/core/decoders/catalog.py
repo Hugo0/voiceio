@@ -48,8 +48,8 @@ _SHERPA_RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-
 # unlimited hotwords), and Qwen3-ASR (free-text context biasing).
 CATALOG: tuple[ModelInfo, ...] = (
     ModelInfo(PARAKEET, "sherpa-onnx", "600M", "CC-BY-4.0", BiasMode.UNBOUNDED, languages="en",
-              notes="default when sherpa-onnx has the NeMo TDT beam-search fix: ~2x faster "
-                    "than whisper-small, every proper noun of your vocabulary as a hotword",
+              notes="default when sherpa-onnx has the NeMo TDT beam-search fix: text ~0.7s after you stop "
+                    "talking vs ~4.4s with Whisper, every proper noun of your vocabulary as a hotword",
               url=f"{_SHERPA_RELEASES}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
               sha256="157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad",
               size_mb=482),

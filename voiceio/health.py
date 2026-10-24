@@ -244,7 +244,7 @@ def _check_features() -> FeatureGroups:
 def _decoder_status(cfg) -> dict[str, str]:
     """For a sherpa-onnx model: whether it can be biased, and why not. For
     Whisper: whether Parakeet would do better here."""
-    from voiceio.core.decoders.catalog import PARAKEET, runtime_of
+    from voiceio.core.decoders.catalog import WHISPER_DEFAULT, default_model, runtime_of
     from voiceio.core.decoders.sherpa import features
     f = features()
     if runtime_of(cfg.model.name) == "sherpa-onnx":
@@ -256,9 +256,9 @@ def _decoder_status(cfg) -> dict[str, str]:
         how = "pre-tokenized" if f.pretokenized_hotwords else \
             "sherpa-tokenized, misses many names — fix: voiceio models sherpa"
         return {"Decoder": f"beam search, every proper noun as a hotword ({how})"}
-    if f.length_reward and cfg.model.language == "en":
-        return {"Decoder": f"Whisper; {PARAKEET} is ~2x faster here: "
-                           f"voiceio models use {PARAKEET}"}
+    if f.length_reward and (best := default_model(cfg.model.language)) != WHISPER_DEFAULT:
+        return {"Decoder": f"Whisper; {best} would put your text down several times "
+                           f"sooner: voiceio models use {best}"}
     return {}
 
 

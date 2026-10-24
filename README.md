@@ -12,7 +12,7 @@
 **[Try it in your browser at voiceio.dev](https://voiceio.dev)**: no install, the model runs in the tab.
 
 - **Types anywhere.** Press your hotkey, speak, and the words stream into the focused app with a live underlined preview (IBus), on Wayland and X11: GNOME, KDE, Hyprland, sway, i3.
-- **Runs on your machine.** Whisper, or NVIDIA's Parakeet (about 2x faster, with every name you use as a hotword), decodes your speech locally. No account, no server, no telemetry; logs never contain your words.
+- **Runs on your machine.** Whisper, or NVIDIA's Parakeet (text lands ~0.7 s after you stop talking instead of ~4.4 s, with every name you use as a hotword), decodes your speech locally. No account, no server, no telemetry; logs never contain your words.
 - **Learns your words.** Keep your recordings (opt-in, on your disk) and voiceio fine-tunes its model on them while the machine is idle. It switches only when the new model wins on clips it never trained on. On the author's voice: 12.1% → 4.9% word errors after one night on a laptop CPU.
 
 ## Install

@@ -117,7 +117,7 @@
 </details>
 <details>
   <summary>Why does voiceio still use Whisper rather than a faster model?</summary>
-  <p>Most dictation errors are names and jargon, so the ability to bias the model matters more than raw speed. voiceio's contributors found NVIDIA's Parakeet about 2x faster at the same accuracy, but its biasing mode lost speech, so they fixed that in sherpa-onnx (<a href="https://github.com/k2-fsa/sherpa-onnx/pull/4084">#4084</a>). voiceio can now decode with Parakeet and pass every name you use as a hotword; the measurements are in <a href="https://github.com/Hugo0/voiceio/blob/main/CONTRIBUTING.md#model-choice-parakeet-where-it-can-be-biased-whisper-otherwise">CONTRIBUTING.md</a>.</p>
+  <p>Most dictation errors are names and jargon, so the ability to bias the model matters more than raw speed. voiceio's contributors found NVIDIA's Parakeet much faster at close to the same accuracy (median 0.7 s vs 4.4 s from stop to text, 6.7% vs 6.0% word errors on 84 real dictations), but its biasing mode lost speech, so they fixed that in sherpa-onnx (<a href="https://github.com/k2-fsa/sherpa-onnx/pull/4084">#4084</a>). voiceio can now decode with Parakeet and pass every name you use as a hotword; the measurements are in <a href="https://github.com/Hugo0/voiceio/blob/main/CONTRIBUTING.md#model-choice-parakeet-where-it-can-be-biased-whisper-otherwise">CONTRIBUTING.md</a>.</p>
 </details>
 <details>
   <summary>Can I use Whisper for dictation on Wayland?</summary>
