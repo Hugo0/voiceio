@@ -68,19 +68,29 @@ def download(name: str, *, progress: Callable[[int, int], None] | None = None) -
     m: ModelInfo | None = info(name)
     if m is None or not m.url:
         raise OSError(f"{name} is not a model voiceio downloads itself")
+    return download_archive(name, m.url, m.sha256, m.size_mb, is_complete,
+                            what="encoder/decoder/joiner/tokens.txt", progress=progress)
+
+
+def download_archive(name: str, url: str, sha256: str, size_mb: int,
+                     complete: Callable[[Path], bool], *, what: str,
+                     progress: Callable[[int, int], None] | None = None) -> Path:
+    """Fetch, verify and unpack a sherpa-onnx release tarball as
+    `models_dir()/name`. `complete` says whether a directory holds the whole
+    model (`what` names its files for the error)."""
     dest = model_path(name)
-    if is_complete(dest):
+    if complete(dest):
         return dest
     root = models_dir()
     root.mkdir(parents=True, exist_ok=True)
     part = root / f".{name}.{os.getpid()}.part"
     staging = root / f".{name}.{os.getpid()}.unpack"
-    log.info("Downloading %s (%d MB) from %s", name, m.size_mb, m.url)
+    log.info("Downloading %s (%d MB) from %s", name, size_mb, url)
     try:
         digest = hashlib.sha256()
-        req = urllib.request.Request(m.url, headers={"User-Agent": "voiceio"})
+        req = urllib.request.Request(url, headers={"User-Agent": "voiceio"})
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp, open(part, "wb") as out:
-            total = int(resp.headers.get("Content-Length") or m.size_mb * 1_000_000)
+            total = int(resp.headers.get("Content-Length") or size_mb * 1_000_000)
             done = 0
             while block := resp.read(_BLOCK):
                 out.write(block)
@@ -88,12 +98,12 @@ def download(name: str, *, progress: Callable[[int, int], None] | None = None) -
                 done += len(block)
                 if progress is not None:
                     progress(done, total)
-        if digest.hexdigest() != m.sha256:
+        if digest.hexdigest() != sha256:
             raise OSError(f"{name}: checksum mismatch (got {digest.hexdigest()[:12]}…, "
-                          f"want {m.sha256[:12]}…) — download again")
+                          f"want {sha256[:12]}…) — download again")
         _unpack(part, staging)
-        if not is_complete(staging):
-            raise OSError(f"{name}: the archive has no encoder/decoder/joiner/tokens.txt")
+        if not complete(staging):
+            raise OSError(f"{name}: the archive has no {what}")
         shutil.rmtree(dest, ignore_errors=True)   # an incomplete earlier copy
         os.replace(staging, dest)
     except OSError:

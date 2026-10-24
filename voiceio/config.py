@@ -248,11 +248,12 @@ class PostCorrectConfig:
 @dataclass
 class TTSConfig:
     enabled: bool = True
-    engine: str = "auto"         # "auto" | "piper" | "espeak" | "edge-tts"
+    engine: str = "auto"         # "auto" | "piper" | "supertonic" | "espeak" | "edge-tts"
     hotkey: str = "ctrl+alt+s"   # "s" for speak
     voice: str = ""              # empty = engine default
     speed: float = 1.0           # 0.5–2.0
     model: str = ""              # piper model name, empty = default
+    language: str = ""           # supertonic: language to read in (en, es, de…), empty = en
 
 
 @dataclass

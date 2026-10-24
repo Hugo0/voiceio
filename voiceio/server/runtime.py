@@ -230,6 +230,7 @@ class ServerRuntime:
                 voice=self.cfg.tts_voice,
                 speed=self.cfg.tts_speed,
                 model=self.cfg.tts_model,
+                language=self.model_cfg.language,
             )
             try:
                 self._tts = tts_pkg.select(

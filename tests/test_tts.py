@@ -423,3 +423,79 @@ def test_piper_shutdown_releases_voice():
     engine._voice = MagicMock()
     engine.shutdown()
     assert engine._voice is None
+
+
+# ── supertonic tests ─────────────────────────────────────────────────
+
+class _FakeGenerated:
+    samples = [0.0, 0.5, -1.5]
+    sample_rate = 44100
+
+
+def _fake_sherpa(calls):
+    so = MagicMock()
+
+    class Tts:
+        def __init__(self, config):
+            calls["config"] = config
+
+        def generate(self, text, gen):
+            calls["text"], calls["gen"] = text, gen
+            return _FakeGenerated()
+
+    so.OfflineTts = Tts
+    so.GenerationConfig = lambda: type("G", (), {})()
+    return so
+
+
+def _supertonic_dir(path):
+    from voiceio.tts import supertonic_engine as st
+    for stem in st._STEMS:
+        (path / f"{stem}.int8.onnx").write_bytes(b"")
+    for f in st._FILES:
+        (path / f).write_bytes(b"")
+    return path
+
+
+def test_supertonic_probe_needs_supertonic_in_sherpa():
+    from voiceio.tts.supertonic_engine import SupertonicEngine
+    old = MagicMock(spec=[])   # a sherpa-onnx without OfflineTtsSupertonicModelConfig
+    with patch.dict("sys.modules", {"sherpa_onnx": old}):
+        assert not SupertonicEngine().probe().ok
+    with patch.dict("sys.modules", {"sherpa_onnx": MagicMock()}):
+        assert SupertonicEngine().probe().ok
+
+
+def test_supertonic_reads_in_its_language_and_returns_int16(tmp_path):
+    from voiceio.tts import supertonic_engine as st
+    calls = {}
+    model = _supertonic_dir(tmp_path)
+    with patch.dict("sys.modules", {"sherpa_onnx": _fake_sherpa(calls)}), \
+            patch("voiceio.core.decoders.fetch.download_archive", return_value=model) as dl:
+        engine = st.SupertonicEngine(language="es")
+        audio, rate = engine.synthesize("hola", voice="", speed=0)
+        engine.synthesize("otra vez", voice="2", speed=1.2)
+    dl.assert_called_once()                       # loaded once, then reused
+    assert dl.call_args.args[0] == st.MODEL
+    assert calls["gen"].extra == {"lang": "es"}
+    assert calls["gen"].sid == 2 and calls["gen"].speed == 1.2
+    assert rate == 44100 and audio.dtype == np.int16
+    assert audio.tolist()[2] == -32767            # clipped, not wrapped
+
+
+def test_supertonic_auto_language_reads_english():
+    from voiceio.tts.supertonic_engine import SupertonicEngine
+    assert SupertonicEngine(language="auto")._language == "en"
+    assert SupertonicEngine()._language == "en"
+
+
+def test_supertonic_completeness_check(tmp_path):
+    from voiceio.tts import supertonic_engine as st
+    assert not st._complete(tmp_path)
+    assert st._complete(_supertonic_dir(tmp_path))
+
+
+def test_chain_passes_language_to_supertonic():
+    from voiceio.tts import chain
+    engine = chain._create("supertonic", TTSConfig(engine="supertonic", language="de"))
+    assert engine.name == "supertonic" and engine._language == "de"

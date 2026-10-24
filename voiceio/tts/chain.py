@@ -13,10 +13,11 @@ _ENGINES = {
     "espeak": "voiceio.tts.espeak:EspeakEngine",
     "piper": "voiceio.tts.piper_engine:PiperEngine",
     "edge-tts": "voiceio.tts.edge_engine:EdgeEngine",
+    "supertonic": "voiceio.tts.supertonic_engine:SupertonicEngine",
 }
 
 # Preference order when engine = "auto"
-_AUTO_ORDER = ["piper", "edge-tts", "espeak"]
+_AUTO_ORDER = ["piper", "supertonic", "edge-tts", "espeak"]
 
 # Engines that send the text off this machine to be synthesized. Auto-selection
 # can silently land on one (edge-tts needs no install, so it probes OK wherever
@@ -35,6 +36,8 @@ def _create(name: str, cfg: TTSConfig):
     cls = getattr(module, cls_name)
     if name == "piper":
         return cls(model=cfg.model)
+    if name == "supertonic":
+        return cls(language=cfg.language)
     return cls()
 
 
