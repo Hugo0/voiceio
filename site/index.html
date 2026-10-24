@@ -786,16 +786,38 @@ void main(){
     talkLabel.innerHTML = text + '<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>' + (pct && " " + pct);
   }
 
+  // Moonshine (transformers.js) by default. ?engine=parakeet tries Parakeet
+  // (sherpa-onnx wasm, needs scripts/site/fetch-demo-model.sh before deploy)
+  // and falls back to Moonshine if it can't start here.
+  const ENGINES = [
+    { name: "moonshine", url: "asr-worker.js", opts: { type: "module" }, size: "67 MB" },
+    { name: "parakeet", url: "parakeet-worker.js", opts: {}, size: "140 MB" },
+  ];
+  const picked = ENGINES.findIndex((e) => e.name === new URLSearchParams(location.search).get("engine"));
+  if (picked > 0) ENGINES.unshift(...ENGINES.splice(picked, 1));
+  T.engine = 0;
   function ensureModel() {
     if (T.worker) return;
     T.model = "loading";
     label();
     progress(0.02, "loading local model");
-    setStatus("downloads once (67 MB), then it's cached");
-    T.worker = new Worker("asr-worker.js", { type: "module" });
+    spawn();
+  }
+  function spawn() {
+    const e = ENGINES[T.engine];
+    setStatus("downloads once (" + e.size + "), then it's cached");
+    T.files = {};
+    T.worker = new Worker(e.url, e.opts);
     T.worker.onmessage = onWorker;
-    T.worker.onerror = (e) => fail(e.message || "the speech model's script didn't load");
+    T.worker.onerror = (ev) => loadFailed(ev.message || "the speech model's script didn't load");
     T.worker.postMessage({ type: "load" });
+  }
+  function loadFailed(why) {
+    if (T.model !== "loading" || T.engine + 1 >= ENGINES.length) return fail(why);
+    console.warn("voiceio demo: " + ENGINES[T.engine].name + " failed (" + why + "), falling back");
+    T.worker.terminate();
+    T.engine++;
+    spawn();
   }
   function fail(why) {
     console.error("voiceio demo:", why);
@@ -918,7 +940,7 @@ void main(){
       setStatus(STATUS_READY);
       if (!touch && !editing()) talk.animate([{ boxShadow: "0 0 0 6px color-mix(in oklch, var(--signal) 55%, transparent)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 900, easing: "ease-out" });
     } else if (data.type === "error") {
-      fail(data.message);
+      loadFailed(data.message);
     } else if (data.type === "text") {
       T.busy = false;
       if (DEBUG) console.log("asr", data.final ? "final" : "partial", Math.round(data.ms) + "ms", JSON.stringify(data.text));
