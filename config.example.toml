@@ -88,11 +88,12 @@ log_level = "INFO"
 
 [tts]
 enabled = true                # read selected text aloud
-engine = "auto"               # auto | piper | espeak | edge-tts (cloud)
+engine = "auto"               # auto | piper | supertonic | espeak | edge-tts (cloud)
 hotkey = "ctrl+alt+s"
 voice = ""
 speed = 1.0
 model = ""                    # piper voice model
+language = ""                 # supertonic: language to read in (en, es, de…), empty = en
 
 [health]
 auto_fallback = true          # switch backends when one breaks
