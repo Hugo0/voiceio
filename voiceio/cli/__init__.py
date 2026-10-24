@@ -45,6 +45,17 @@ def main() -> None:
     sub.add_parser("cancel", help="Abandon the current dictation: nothing is typed or kept"
                    ).set_defaults(func=lambda a: _send("cancel"))
 
+    p_say = sub.add_parser(
+        "say", help="Speak to the user: chime, notification, then the text read aloud",
+        description="For agents and scripts: `voiceio say --from build-bot 'tests are green'`. "
+                    "The daemon waits until you stop dictating; without one, it speaks here.")
+    p_say.add_argument("text", nargs="+", help="what to say")
+    p_say.add_argument("--from", dest="sender", default="",
+                       help="who is talking, said first and shown as the notification title")
+    p_say.add_argument("--urgent", action="store_true",
+                       help="the alert chime and an urgent notification")
+    p_say.set_defaults(func=_cmd_say)
+
     p_setup = sub.add_parser("setup", help="Configure voiceio (interactive wizard)")
     p_setup.add_argument("--defaults", action="store_true",
                          help="Non-interactive: accept all recommended defaults")
@@ -162,6 +173,20 @@ def _cmd_setup(args: argparse.Namespace) -> None:
     offer_after_setup()
     from voiceio.hints import hint
     hint("test", "Run 'voiceio doctor --live' to try a quick recording")
+
+
+def _cmd_say(args: argparse.Namespace) -> None:
+    from voiceio import announce
+    from voiceio.hotkeys.socket_backend import SOCKET_PATH, send_command
+    msg = announce.Message(" ".join(" ".join(args.text).split())[:announce.MAX_TEXT],
+                           " ".join(args.sender.split()), args.urgent)
+    if not msg.text:
+        raise SystemExit("nothing to say")
+    if SOCKET_PATH.exists() and send_command(announce.encode(msg)):
+        return
+    if not announce.say_here(msg):
+        print("no text-to-speech engine works here: sent the notification only "
+              "(voiceio doctor shows why)", file=sys.stderr)
 
 
 def _send(command: str) -> None:

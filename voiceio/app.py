@@ -189,6 +189,7 @@ class VoiceIO:
         # TTS (text-to-speech)
         self._tts_engine = None
         self._tts_player = None
+        self._announcer = None
         self._tts_hotkey = None
         if cfg.tts.enabled:
             from voiceio.tts import select as tts_select
@@ -869,6 +870,31 @@ class VoiceIO:
         finally:
             tray.set_processing(False)
 
+    # ── Announcements (`voiceio say`) ───────────────────────────────────
+
+    def on_say(self, payload: str) -> None:
+        """An agent or script asks to be heard: queue it, never talk over it."""
+        from voiceio import announce
+        msg = announce.parse(payload)
+        if msg is None:
+            log.warning("say: ignored a malformed request")
+            return
+        if self._announcer is None:
+            self._announcer = announce.Announcer(
+                speak=self._speak_now, busy=lambda: self._state in (
+                    _State.RECORDING, _State.FINALIZING))
+        self._announcer.submit(msg)
+
+    def _speak_now(self, text: str) -> None:
+        """Speak to the end (on the announcer's own thread); nothing if no TTS."""
+        if self._tts_player is None or self._tts_engine is None:
+            return
+        while self._tts_player.is_playing():   # the user's own read-aloud goes first
+            time.sleep(0.2)
+        audio, sample_rate = self._tts_engine.synthesize(
+            text, self.cfg.tts.voice, self.cfg.tts.speed)
+        self._tts_player.play(audio, sample_rate)   # synchronous
+
     # ── Feedback ────────────────────────────────────────────────────────
 
     def _play_record_cue(self, start: bool) -> None:
@@ -941,6 +967,8 @@ class VoiceIO:
         control.handle("release", self.on_hotkey_release)
         control.handle("cancel", self.cancel)
         control.handle("paste-last", self.paste_last)
+        if hasattr(control, "handle_payload"):
+            control.handle_payload("say", self.on_say)
         if self._cancel_hotkey is not None:
             self._cancel_hotkey.start(self.cfg.hotkey.cancel_key, self.cancel)
 

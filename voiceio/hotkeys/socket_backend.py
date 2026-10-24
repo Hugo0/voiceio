@@ -22,6 +22,7 @@ _IS_WINDOWS = sys.platform == "win32"
 _UDP_PORT = 19384
 SOCKET_PATH = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "voiceio.sock"
 DEBOUNCE_SECS = 0.8
+MAX_MESSAGE = 16384   # one datagram: a command, or a `say:` payload
 
 
 class SocketHotkey:
@@ -39,9 +40,14 @@ class SocketHotkey:
 
     def __init__(self) -> None:
         self._handlers: dict[str, Callable[[], None]] = {}
+        self._payload_handlers: dict[str, Callable[[str], None]] = {}
 
     def handle(self, command: str, fn: Callable[[], None]) -> None:
         self._handlers[command] = fn
+
+    def handle_payload(self, command: str, fn: Callable[[str], None]) -> None:
+        """`command:<payload>` calls fn(payload), e.g. `say:{...}`."""
+        self._payload_handlers[command] = fn
 
     def probe(self) -> ProbeResult:
         if _IS_WINDOWS:
@@ -77,7 +83,11 @@ class SocketHotkey:
     def _loop(self) -> None:
         while self._running:
             try:
-                command = self._sock.recv(64).decode(errors="replace")
+                command = self._sock.recv(MAX_MESSAGE).decode(errors="replace")
+                name, sep, payload = command.partition(":")
+                if sep and name in self._payload_handlers:
+                    self._payload_handlers[name](payload)
+                    continue
                 fn = self._handlers.get(command)
                 if fn is None:
                     continue

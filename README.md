@@ -56,6 +56,15 @@ voiceio learn status                  # what it learned and how each model score
 
 Scheduled learning runs daily or weekly at a time you pick, on mains power and only while you're away from the computer: it stops within seconds when you come back and resumes later where it was. You get a notification with a button to stop it. It never switches models unless the new one wins, and `voiceio learn rollback` undoes a switch. Details: [docs/learning.md](docs/learning.md).
 
+## Let your agents talk to you
+
+```bash
+voiceio say --from build-bot "tests are green"     # chime, notification, then it's read aloud
+voiceio say --from deploy --urgent "I need your approval"
+```
+
+Running several coding agents? Have each one call `voiceio say` when it needs you, so you hear *which* one. It never talks over you: while you dictate, announcements wait (speech into an open mic would get typed). They are read in your [tts] voice, offline.
+
 ## Configure
 
 Everything lives in `~/.config/voiceio/config.toml`; [config.example.toml](config.example.toml) documents every option. `voiceio config set section.key value` edits it in place.

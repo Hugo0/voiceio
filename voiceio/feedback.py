@@ -141,6 +141,10 @@ def play_commit_sound() -> None:
     _play("commit")
 
 
+def play_alert_sound() -> None:
+    _play("alert")
+
+
 # The usual cause, by far: a hardware mic switch, a mute key or a muted
 # source. Each look the same to voiceio — a stream that sends only zeros.
 MIC_HINT = "Is the mic switched off or muted (privacy switch, mute key)?"
