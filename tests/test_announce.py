@@ -46,11 +46,14 @@ def test_announcer_holds_while_busy_then_speaks_in_order():
 
 
 def test_announcer_drops_when_full():
-    hold = threading.Event()
+    hold, spoken = threading.Event(), []
     with patch.object(announce, "cue_and_notify"):
-        a = announce.Announcer(speak=lambda t: hold.wait(5), busy=lambda: False)
+        a = announce.Announcer(speak=lambda t: (hold.wait(5), spoken.append(t)), busy=lambda: False)
         results = [a.submit(Message(str(i))) for i in range(announce._QUEUE + 3)]
         hold.set()
+        deadline = time.monotonic() + 3   # drain inside the patch: no real notifications
+        while a._queue.unfinished_tasks and len(spoken) < sum(results) and time.monotonic() < deadline:
+            time.sleep(0.05)
     assert not all(results)
 
 

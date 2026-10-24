@@ -192,8 +192,21 @@ def build_report(
     return scrub("\n".join(lines))
 
 
+def _test_artifact(text: str) -> str:
+    """Why `text` must not go public: it comes from a test run, not a real
+    install. Checked here, not only in voiceio's own conftest, because
+    another project's tests can import voiceio and reach this with mocks."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return "running under pytest"
+    if "MagicMock" in text or "<Mock " in text:
+        return "the report contains mock objects"
+    return ""
+
+
 def post(text: str, *, timeout: float = TIMEOUT_SECS) -> tuple[bool, str]:
     """Post to the board. (True, receipt id) or (False, why). Never raises."""
+    if why := _test_artifact(text):
+        return False, f"not posted: {why}"
     query = urllib.parse.urlencode({
         "format": "json", "text": text, "request_id": f"voiceio-{uuid.uuid4().hex}",
     })

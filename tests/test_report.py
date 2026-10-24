@@ -121,7 +121,23 @@ class _Resp(io.BytesIO):
         return False
 
 
-def test_post_success_reads_receipt(monkeypatch):
+@pytest.fixture
+def outside_pytest(monkeypatch):
+    """post() refuses under pytest; these tests check what it does past that.
+    (pytest sets PYTEST_CURRENT_TEST again after fixtures, so patch the check.)"""
+    monkeypatch.setattr(report, "_test_artifact", lambda text: "")
+
+
+def test_post_refuses_test_runs_and_mock_text(monkeypatch):
+    monkeypatch.setattr(report, "_urlopen", lambda url, timeout: pytest.fail("posted"))
+    ok, why = report.post("voiceio 1.13.0 report")
+    assert not ok and "pytest" in why
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    ok, why = report.post("system: Ubuntu · <MagicMock name='mock.platform.desktop'>")
+    assert not ok and "mock" in why
+
+
+def test_post_success_reads_receipt(monkeypatch, outside_pytest):
     seen = []
 
     def fake(url, timeout):
@@ -138,13 +154,13 @@ def test_post_success_reads_receipt(monkeypatch):
 
 @pytest.mark.parametrize("body", [b'{"ok": false, "error": "rate limited"}', b"[]", b"not json",
                                   b'{"ok": true}'])
-def test_post_bad_response_is_failure(monkeypatch, body):
+def test_post_bad_response_is_failure(monkeypatch, outside_pytest, body):
     monkeypatch.setattr(report, "_urlopen", lambda url, timeout: _Resp(body))
     ok, why = report.post("x")
     assert not ok and why
 
 
-def test_post_network_error_never_raises():
+def test_post_network_error_never_raises(outside_pytest):
     # conftest refuses every connection: this is the offline path.
     ok, why = report.post("x")
     assert not ok and "ConnectionRefused" in why
