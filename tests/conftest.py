@@ -159,6 +159,14 @@ def _no_real_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_spool(monkeypatch, tmp_path):
+    """A test's recording must never land in the real crash spool: the
+    running daemon would recover it into the developer's history."""
+    from voiceio import spool
+    monkeypatch.setattr(spool, "spool_dir", lambda: tmp_path / "voiceio-spool")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_keyboards(monkeypatch):
     """The modifier guard reads the developer's real keyboards: holding Ctrl
     while tests run would slow every typer test by its timeout."""
