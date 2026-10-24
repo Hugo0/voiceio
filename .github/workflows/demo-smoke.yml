@@ -1,0 +1,29 @@
+# Smoke test of the landing-page dictation demo: serve site/ with its headers,
+# play a public clip into a fake microphone in headless Chromium, and check
+# the words land in the box. Runs both demo engines.
+name: demo-smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [parakeet, moonshine]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Model and test clip
+        run: |
+          TMPDIR=$RUNNER_TEMP scripts/site/fetch-demo-model.sh
+          cp $(find $RUNNER_TEMP -path "*test_wavs/0.wav" | head -1) $RUNNER_TEMP/clip.wav
+      - name: Smoke
+        run: |
+          python3 .github/demo-bench/server.py site 8000 &
+          cd .github/demo-bench && npm i --no-save --silent playwright@1 && npx playwright install --with-deps chromium >/dev/null
+          node smoke.mjs "http://127.0.0.1:8000/?engine=${{ matrix.engine }}" $RUNNER_TEMP/clip.wav observed portrait
