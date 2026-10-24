@@ -1,0 +1,92 @@
+# Builds sherpa-onnx for the browser and benchmarks the landing-page demo
+# models (Moonshine-base vs Parakeet-TDT-110M) in headless Chromium.
+# Public data only: LibriSpeech test-clean and the model's test_wavs.
+name: demo-bench
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sherpa-wasm:
+    strategy:
+      matrix:
+        include:
+          - { name: upstream, repo: k2-fsa/sherpa-onnx, ref: v2.0.0 }
+          - { name: fork, repo: Hugo0/sherpa-onnx, ref: fix-nemo-tdt-modified-beam-search }
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: "${{ matrix.repo }}", ref: "${{ matrix.ref }}", path: sherpa-onnx }
+      - id: sha
+        run: echo "sha=$(git -C sherpa-onnx rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: cache
+        uses: actions/cache@v4
+        with: { path: out, key: "sherpa-wasm-web-${{ steps.sha.outputs.sha }}-mem128-v1" }
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: mymindstorm/setup-emsdk@v14
+        with: { version: 4.0.23, actions-cache-folder: emsdk-cache }
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Build (web target, 128 MB initial memory for phones)
+        working-directory: sherpa-onnx
+        run: |
+          sed -i 's/INITIAL_MEMORY=512MB/INITIAL_MEMORY=128MB/' wasm/wasm-common.cmake
+          grep -q INITIAL_MEMORY=128MB wasm/wasm-common.cmake
+          sed -i 's/make -j3/make -j4/' build-wasm-simd-web.sh
+          ./build-wasm-simd-web.sh
+          mkdir -p ../out
+          cp build-wasm-simd-web/install/bin/wasm/web/sherpa-onnx-wasm-web.{js,wasm} wasm/asr/sherpa-onnx-asr.js ../out/
+          cp LICENSE ../out/LICENSE.sherpa-onnx
+          echo "${{ matrix.repo }}@${{ matrix.ref }} ${{ steps.sha.outputs.sha }}, emsdk 4.0.23, INITIAL_MEMORY=128MB" > ../out/BUILD.txt
+      - name: Manifest
+        run: |
+          python3 -c "import json,os; n='sherpa-onnx-wasm-web.wasm'; s=os.path.getsize('out/'+n); json.dump({'wasm':{'name':n,'size':s,'parts':[{'name':n,'size':s}]}}, open('out/manifest.json','w'), indent=1)"
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with: { name: "sherpa-web-${{ matrix.name }}", path: out }
+
+  bench:
+    needs: sherpa-wasm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: sherpa-web-upstream, path: www/sherpa }
+      - uses: actions/download-artifact@v4
+        with: { name: sherpa-web-fork, path: www/sherpa-fork }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/cache@v4
+        with: { path: librispeech, key: librispeech-test-clean-v1 }
+      - name: Data (LibriSpeech test-clean, model test_wavs)
+        run: |
+          lscpu | head -20
+          if [ ! -d librispeech/LibriSpeech/test-clean ]; then
+            mkdir -p librispeech && curl -fsSL https://www.openslr.org/resources/12/test-clean.tar.gz | tar -xz -C librispeech
+          fi
+          TMPDIR=$RUNNER_TEMP scripts/site/fetch-demo-model.sh
+          WAVS=$(dirname $(find $RUNNER_TEMP/voiceio-demo-model/x -path "*test_wavs/*.wav" | head -1))
+          cp -r site/. www/
+          cp .github/demo-bench/bench.html www/
+          pip install -q numpy soundfile jiwer whisper-normalizer
+          python3 .github/demo-bench/prep.py librispeech/LibriSpeech/test-clean $WAVS www
+      - name: Experimental 4-bit encoders
+        continue-on-error: true
+        run: |
+          pip install -q onnx onnxruntime onnx-ir
+          curl -fsSL -o $RUNNER_TEMP/encoder-fp32.onnx https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000/resolve/main/encoder.onnx
+          cd $RUNNER_TEMP && python3 $GITHUB_WORKSPACE/.github/demo-bench/quantize.py encoder-fp32.onnx $GITHUB_WORKSPACE/www/models/parakeet-tdt-110m-int8 $GITHUB_WORKSPACE/www/models
+          du -sh $GITHUB_WORKSPACE/www/models/* $GITHUB_WORKSPACE/www/sherpa
+      - name: Bench
+        run: |
+          python3 .github/demo-bench/server.py www 8000 &
+          cd .github/demo-bench && npm i --no-save --silent puppeteer@24
+          node bench.mjs http://127.0.0.1:8000/ $GITHUB_WORKSPACE/www $GITHUB_WORKSPACE/results.json
+      - name: Score
+        if: always()
+        run: |
+          cp www/bench-audio/refs.json . || true
+          python3 .github/demo-bench/score.py results.json refs.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: demo-bench-results, path: "results.json\nrefs.json" }
