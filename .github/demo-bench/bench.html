@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><title>asr bench</title>
+<script>
+// Drives a demo worker (same protocol as the landing page) for bench.mjs.
+let w, t0, lastProgress = 0, files = {};
+const logs = [];
+window.spawn = (url, type) => { w = new Worker(url, { type }); w.onerror = (e) => logs.push("onerror " + e.message); return true; };
+window.load = (opts) => new Promise((resolve, reject) => {
+  t0 = performance.now();
+  w.onmessage = ({ data }) => {
+    if (data.type === "progress") { files[data.file] = data.total || files[data.file] || 0; lastProgress = performance.now() - t0; }
+    else if (data.type === "log") logs.push(data.message);
+    else if (data.type === "error") reject(new Error(data.message + " | " + logs.join(" | ")));
+    else if (data.type === "ready") resolve({ readyMs: performance.now() - t0, downloadMs: lastProgress, files, model: data.model, isolated: crossOriginIsolated });
+  };
+  w.postMessage({ type: "load", opts });
+});
+window.decode = async (url) => {
+  const audio = new Float32Array(await (await fetch(url)).arrayBuffer());
+  return new Promise((resolve) => {
+    const t1 = performance.now();
+    w.onmessage = ({ data }) => {
+      if (data.type === "log") logs.push(data.message);
+      else if (data.type === "text") resolve({ text: data.text, ms: data.ms, wallMs: performance.now() - t1, secs: audio.length / 16000 });
+    };
+    w.postMessage({ type: "decode", id: 1, final: true, audio });
+  });
+};
+window.memory = async () => { try { return (await performance.measureUserAgentSpecificMemory()).bytes; } catch (e) { return String(e); } };
+window.getLogs = () => logs;
+</script>
