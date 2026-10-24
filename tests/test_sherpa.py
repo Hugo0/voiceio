@@ -195,7 +195,8 @@ def test_default_is_parakeet_only_when_sherpa_has_the_fix(monkeypatch):
     assert catalog.default_model("en") == "small"
     monkeypatch.setattr(sherpa, "features", lambda: SherpaFeatures(True, True, False))
     assert catalog.default_model("en") == catalog.PARAKEET
-    assert catalog.default_model("es") == "small"     # Parakeet v2 is English only
+    assert catalog.default_model("es") == catalog.PARAKEET_V3
+    assert catalog.default_model("ja") == "small"      # outside Parakeet v3's languages
 
 
 def test_config_resolves_unset_or_auto_name_but_an_explicit_choice_wins(monkeypatch, tmp_path):

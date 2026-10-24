@@ -9,7 +9,8 @@ voiceio models sherpa                       # install sherpa-onnx with the Parak
 
 | Model | Runtime | License | Notes |
 |---|---|---|---|
-| `parakeet-tdt-0.6b-v2` | sherpa-onnx | CC-BY-4.0 | **Default** where it can be biased (see below). English only. About 2× faster than `small`, every proper noun of your vocabulary as a hotword |
+| `parakeet-tdt-0.6b-v2` | sherpa-onnx | CC-BY-4.0 | **Default** where it can be biased (see below). English. On the maintainer's dictations the wait after you stop talking is 0.7 s vs 4.4 s for Whisper, every proper noun of your vocabulary as a hotword |
+| `parakeet-tdt-0.6b-v3` | sherpa-onnx | CC-BY-4.0 | **Default** for the other 24 European languages it covers (es, de, fr, it, pt, nl, pl, ru, uk…), when it can be biased. Detects the spoken language itself |
 | `small` | faster-whisper | MIT | Default otherwise. About 5× realtime on a laptop CPU; ~35 vocabulary terms at most. What `voiceio learn` fine-tunes |
 | `medium` | faster-whisper | MIT | Better on names, about 2.5× slower |
 | `large-v3-turbo` | faster-whisper | MIT | Best Whisper for dictation; wants a GPU. Also the default `learn` teacher |

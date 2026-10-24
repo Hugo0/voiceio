@@ -180,4 +180,7 @@ def cmd_sherpa(args: argparse.Namespace) -> None:
         wheel = fetch.install_patched_sherpa()
     except OSError as e:
         raise SystemExit(str(e)) from e
-    print(f"installed {wheel}\nnext: voiceio models use parakeet-tdt-0.6b-v2")
+    from voiceio import config
+    from voiceio.core.decoders.catalog import PARAKEET, PARAKEET_V3
+    name = PARAKEET if config.load().model.language == "en" else PARAKEET_V3
+    print(f"installed {wheel}\nnext: voiceio models use {name}")

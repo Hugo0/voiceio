@@ -15,6 +15,11 @@ from voiceio.core.decoders.base import BiasMode
 
 WHISPER_DEFAULT = "small"
 PARAKEET = "parakeet-tdt-0.6b-v2"
+PARAKEET_V3 = "parakeet-tdt-0.6b-v3"
+# The 25 European languages Parakeet v3 was trained on. It detects which one
+# is spoken by itself, so `[model] language` only picks the model.
+PARAKEET_V3_LANGUAGES = frozenset(
+    "bg hr cs da nl en et fi fr de el hu it lv lt mt pl pt ro sk sl es sv ru uk".split())
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,13 @@ CATALOG: tuple[ModelInfo, ...] = (
               url=f"{_SHERPA_RELEASES}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
               sha256="157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad",
               size_mb=482),
+    ModelInfo(PARAKEET_V3, "sherpa-onnx", "600M", "CC-BY-4.0", BiasMode.UNBOUNDED,
+              languages=",".join(sorted(PARAKEET_V3_LANGUAGES)),
+              notes="the default for the other 24 European languages it covers; v2 stays the "
+                    "English default (trained on English only, lower English WER)",
+              url=f"{_SHERPA_RELEASES}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+              sha256="5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf",
+              size_mb=487),
     ModelInfo("small", "faster-whisper", "244M", "MIT", BiasMode.HOTWORDS | BiasMode.PROMPT,
               notes="~5x realtime on a laptop CPU; hotwords cap ~35 terms; "
                     "the model `voiceio learn` fine-tunes"),
@@ -97,10 +109,11 @@ def default_model(language: str = "en") -> str:
     Parakeet once the installed sherpa-onnx has the NeMo TDT
     modified_beam_search fix (without it, hotwords lose speech — see
     CLAUDE.md "Model choice"), so the default flips by itself when upstream
-    ships the fix. English only: other languages keep Whisper.
+    ships the fix. English gets v2; the other languages Parakeet v3 covers get
+    v3; the rest keep Whisper.
     """
-    if language == "en":
+    if language in PARAKEET_V3_LANGUAGES:
         from voiceio.core.decoders.sherpa import features
         if features().length_reward:
-            return PARAKEET
+            return PARAKEET if language == "en" else PARAKEET_V3
     return WHISPER_DEFAULT
