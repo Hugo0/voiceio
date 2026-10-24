@@ -366,7 +366,7 @@ class TestStartCue:
 
         vio.recorder.stream_health = health
         real_start = vio.recorder.start
-        vio.recorder.start = lambda: (events.append("record"), real_start())
+        vio.recorder.start = lambda **kw: (events.append("record"), real_start(**kw))
         vio._quiet = MagicMock()
         return events
 

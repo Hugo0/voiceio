@@ -190,6 +190,8 @@ class VoiceIO:
         self._tts_engine = None
         self._tts_player = None
         self._announcer = None
+        from voiceio.spool import Spool
+        self._spool = Spool()
         self._tts_hotkey = None
         if cfg.tts.enabled:
             from voiceio.tts import select as tts_select
@@ -369,7 +371,7 @@ class VoiceIO:
         if session is not None:
             session.cancel()
         self._state = _State.IDLE
-        self._typers.end(rid)
+        self._end_recording(rid)
         self._idle_audio.touch()
         log.info("Recording cancelled")
 
@@ -596,9 +598,10 @@ class VoiceIO:
             threading.Thread(target=self._capture_context, args=(self._recording,),
                              daemon=True, name="screen-context").start()
         self._record_start = time.monotonic()
-        self.recorder.start()
-        self.recorder.set_on_auto_stop(self._on_auto_stop)
         rid = self._recording
+        self._spool.begin(rid, self.recorder.sample_rate)
+        self.recorder.start(tap=lambda chunk, r=rid: self._spool.write(r, chunk))
+        self.recorder.set_on_auto_stop(self._on_auto_stop)
         self.recorder.set_on_dead_stream(lambda: self._revive_mic(rid))
         # Ducking lowers the whole output, voiceio's chimes included: it waits
         # for the start chime to play out, and _do_stop restores the volume
@@ -656,13 +659,13 @@ class VoiceIO:
                 self._output_thread(self._process, audio, gen, rid, self._recording_bias)
             else:
                 # No processing thread will run — release the source here.
-                self._typers.end(rid)
+                self._end_recording(rid)
         else:
             # Streaming mode but session already gone (race) — nothing to do
             self._state = _State.IDLE
             log.debug("Stop: streaming session already finalized")
             # No finalizer will run to release the input source, so do it here.
-            self._typers.end(rid)
+            self._end_recording(rid)
 
     def _capture_context(self, rid: int) -> None:
         from voiceio import retention
@@ -767,7 +770,7 @@ class VoiceIO:
                 self._finalizing = None
         if self._discard_cancelled(gen, extra):
             log.info("Cancelled dictation discarded")
-            self._typers.end(rid)
+            self._end_recording(rid)
             return
         if self._generation != gen:
             # A later recording has already stopped: this output is stale, but
@@ -777,7 +780,7 @@ class VoiceIO:
             if final_text:
                 self.engine.commit(final_text, raw=session.raw_final_text,
                                    duration=elapsed, extra=extra)
-            self._typers.end(rid)
+            self._end_recording(rid)
             return
         if final_text:
             self._copy_result_async(final_text)
@@ -802,7 +805,7 @@ class VoiceIO:
         self._warn_if_nothing_captured(final_text, gen)
         # Release the IBus input source now that the final commit is done.
         # A no-op if a newer recording has claimed it since.
-        self._typers.end(rid)
+        self._end_recording(rid)
         # Transition to IDLE under lock to avoid racing with _toggle
         with self._hotkey_lock:
             if self._generation == gen and self._state == _State.FINALIZING:
@@ -835,7 +838,7 @@ class VoiceIO:
             log.exception("Processing failed")
         finally:
             # Release the IBus input source after the batch commit (or failure).
-            self._typers.end(rid)
+            self._end_recording(rid)
 
     # ── Text-to-speech ─────────────────────────────────────────────
 
@@ -869,6 +872,37 @@ class VoiceIO:
             log.exception("TTS synthesis/playback failed")
         finally:
             tray.set_processing(False)
+
+    def _end_recording(self, rid: int) -> None:
+        """A dictation is over: delivered, saved to history, or cancelled.
+        Exactly one call per recording."""
+        self._typers.end(rid)
+        self._spool.finish(rid)
+
+    def _recover_orphans(self) -> None:
+        """Decode recordings a killed daemon left in the spool into history."""
+        from voiceio import feedback, history, spool
+        for path, audio, rate in spool.orphans():
+            secs = len(audio) / rate
+            if rate != self.recorder.sample_rate:
+                log.warning("spool: %s is at %d Hz, not %d; left as is", path.name, rate,
+                            self.recorder.sample_rate)
+                continue
+            try:
+                result = self.engine.transcribe(audio, bias=self.engine.bias())
+            except Exception:
+                log.exception("spool: could not decode %s (%.0fs); left for the next start",
+                              path.name, secs)
+                continue
+            text = (result.text or "").strip()
+            if text:
+                history.append(text, raw=result.raw, duration=secs,
+                               extra={"recovered": True}, cfg=self.cfg.history)
+                feedback.notify("VoiceIO recovered a dictation",
+                                f"{secs:.0f}s cut off when voiceio stopped: \"{text[:120]}\" "
+                                "— `voiceio paste-last` types it", urgent=True)
+                log.info("spool: recovered %.0fs into history", secs)
+            path.unlink(missing_ok=True)
 
     # ── Announcements (`voiceio say`) ───────────────────────────────────
 
@@ -1017,6 +1051,8 @@ class VoiceIO:
             f"voiceio v{__version__} ready. Press [{self.cfg.hotkey.key}] to record "
             f"(model={self.cfg.model.name}, typer={self._typers.typer.name})",
         )
+        threading.Thread(target=self._recover_orphans, daemon=True,
+                         name="spool-recover").start()
 
         # Ctrl-C and `systemctl stop voiceio` must run the SAME cleanup path
         # (restore input source, engine shutdown) — the finally block below.

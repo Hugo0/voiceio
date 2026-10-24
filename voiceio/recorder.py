@@ -113,6 +113,7 @@ class AudioRecorder:
         self._parked = False
         self._lock = threading.Lock()
         self._recording = False
+        self._tap: Callable[[np.ndarray], None] | None = None
 
         # VAD backend (Silero or RMS fallback)
         if vad is None:
@@ -269,8 +270,9 @@ class AudioRecorder:
     def is_open(self) -> bool:
         return self._stream is not None
 
-    def start(self) -> None:
-        """Start recording. Grabs ring buffer contents as the beginning."""
+    def start(self, tap: Callable[[np.ndarray], None] | None = None) -> None:
+        """Start recording. Grabs ring buffer contents as the beginning.
+        `tap` also gets every chunk of this recording (the crash spool)."""
         with self._lock:
             if self._recording:
                 return
@@ -284,6 +286,9 @@ class AudioRecorder:
             self._audio.clear()
             if len(prebuf) > 0:
                 self._audio.append(prebuf)
+            self._tap = tap
+            if tap is not None and len(prebuf) > 0:
+                tap(prebuf)
             self._total_samples = len(self._audio)
             self._silent_chunks = 0.0
             self._sustained_silence = 0.0
@@ -306,6 +311,7 @@ class AudioRecorder:
             if not self._recording:
                 return None
             self._recording = False
+            self._tap = None
 
             if not len(self._audio):
                 log.warning("No audio captured")
@@ -384,6 +390,9 @@ class AudioRecorder:
         chunk = indata.copy()
         with self._lock:
             self._audio.append(chunk)
+            tap = self._tap
+        if tap is not None:
+            tap(chunk)
         self._total_samples += chunk.shape[0]
 
         # Level metering
