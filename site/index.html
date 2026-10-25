@@ -786,12 +786,13 @@ void main(){
     talkLabel.innerHTML = text + '<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>' + (pct && " " + pct);
   }
 
-  // Moonshine (transformers.js) by default. ?engine=parakeet tries Parakeet
-  // (sherpa-onnx wasm, needs scripts/site/fetch-demo-model.sh before deploy)
-  // and falls back to Moonshine if it can't start here.
+  // Parakeet-TDT-110M (sherpa-onnx wasm, needs scripts/site/fetch-demo-model.sh
+  // before deploy) by default: ~2x faster decode and better names than
+  // Moonshine at the same WER. Falls back to Moonshine (transformers.js) if it
+  // can't start here; ?engine=moonshine picks Moonshine first.
   const ENGINES = [
-    { name: "moonshine", url: "asr-worker.js", opts: { type: "module" }, size: "67 MB" },
     { name: "parakeet", url: "parakeet-worker.js", opts: {}, size: "140 MB" },
+    { name: "moonshine", url: "asr-worker.js", opts: { type: "module" }, size: "67 MB" },
   ];
   const picked = ENGINES.findIndex((e) => e.name === new URLSearchParams(location.search).get("engine"));
   if (picked > 0) ENGINES.unshift(...ENGINES.splice(picked, 1));

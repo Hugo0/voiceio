@@ -1,6 +1,6 @@
 # Smoke test of the landing-page dictation demo: serve site/ with its headers,
 # play a public clip into a fake microphone in headless Chromium, and check
-# the words land in the box. Runs both demo engines.
+# the words land in the box. Runs the default and both engines by name.
 name: demo-smoke
 
 on:
@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [parakeet, moonshine]
+        engine: [default, parakeet, moonshine]   # "default": no override, what visitors get
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
