@@ -38,6 +38,7 @@ AWAY = 600
     (Probe(idle=1800), False, "away 30 min"),
     (Probe(idle=1800, inhibited=True), True, "keeping the session awake"),   # a video
     (Probe(idle=1800, inhibited=True, locked=True), False, "away"),
+    (Probe(idle=3 * 3600, inhibited=True), False, "away 180 min"),   # an agent, not a viewer
     # No idle monitor: logind decides, and "can't tell" means in use.
     (Probe(), True, "can't tell"),
     (Probe(session=SeatSession(exists=False)), False, "nobody is logged in"),

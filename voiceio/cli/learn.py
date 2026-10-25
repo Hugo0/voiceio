@@ -211,6 +211,8 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(f"note       {unused}")
     print(f"nightly    {_schedule_state()}")
     promotable = _print_scores(ds, active, runs) if ds else None
+    if unused:   # a Whisper fine-tune can't replace another decoder on WER alone
+        promotable = None
     if promotable:
         nxt = f"promote {promotable}"
     else:

@@ -307,6 +307,32 @@ def test_status_shows_scores_and_suggests_a_winning_run(capsys):
     assert "next: voiceio learn promote v0001-small-x" in out
 
 
+def test_status_never_suggests_whisper_over_another_decoder(capsys):
+    import argparse
+
+    from voiceio import config
+    from voiceio.cli import learn as cli
+    config.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    config.CONFIG_PATH.write_text('[model]\nname = "parakeet-tdt-0.6b-v2"\n')
+    _clip("s.wav", 3, "x")
+    store.add_label("s.wav", [Segment(0, 3, "hi")], "teacher:fake")
+    ds = store.build_dataset()
+    run = store.learn_dir() / "models" / "v0001-small-x"
+    (run / "ct2").mkdir(parents=True)
+    runs = store.learn_dir() / "runs"
+    runs.mkdir()
+    for i, (dec, wer, rec) in enumerate([("sherpa:parakeet-tdt-0.6b-v2", 0.10, 0.5),
+                                         (f"faster-whisper:{run / 'ct2'}", 0.08, 0.8)]):
+        (runs / f"eval-2026010{i}.json").write_text(json.dumps({
+            "decoder": dec, "dataset": ds.name, "mode": "offline", "wer": wer,
+            "term_recall": rec, "repetitions": 0, "clips": 5, "gold": 0,
+            "metrics": metrics.METRICS_VERSION}))
+    cli.cmd_status(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "parakeet-tdt-0.6b-v2 (active)" in out and "WER 10.0%" in out
+    assert "next: voiceio learn promote" not in out
+
+
 def test_paired_comparison_reports_direction_and_uncertainty():
     clips = [f"{i}.wav" for i in range(20)]
     cur = {"per_clip": [{"file": f, "wer": 0.10} for f in clips]}

@@ -37,6 +37,9 @@ from dataclasses import dataclass
 log = logging.getLogger(__name__)
 
 _TIMEOUT = 3
+# No input for this long is away even when an app keeps the session awake:
+# past a film's length, the inhibitor is a long-running job, not a viewer.
+INHIBITED_MAX = 2 * 3600
 
 
 @dataclass(frozen=True)
@@ -144,7 +147,7 @@ def check(away_after: float, probe: SessionProbe | None = None) -> Presence:
             if probe.screen_locked():
                 return Presence(False, "screen locked")
             return Presence(True, f"in use (last input {_minutes(idle)} ago)")
-        if probe.idle_inhibited() and not probe.screen_locked():
+        if idle < INHIBITED_MAX and probe.idle_inhibited() and not probe.screen_locked():
             return Presence(True, "an app is keeping the session awake (a video or a call?)")
         return Presence(False, f"away {_minutes(idle)}")
     session = probe.seat_session()
