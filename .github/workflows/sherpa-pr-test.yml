@@ -24,6 +24,10 @@ jobs:
           repository: Hugo0/sherpa-onnx
           ref: ${{ inputs.ref }}
           path: sherpa-onnx
+      - uses: actions/checkout@v6
+        with:
+          path: voiceio
+          sparse-checkout: .github/sherpa-pr-test
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -85,3 +89,13 @@ jobs:
               assert runs[None] == runs["0"] == runs["nan"], "default, 0 and nan must decode alike"
               assert len(runs["0.5"].split()) >= len(runs["0"].split()), "a length reward must not lose words"
           print("ok")
+      - name: Reproducer (LibriSpeech test-clean with pauses, parakeet-tdt-0.6b-v3-int8)
+        run: |
+          curl -fsSL https://www.openslr.org/resources/12/test-clean.tar.gz | tar xz
+          name=sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
+          curl -fsSL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$name.tar.bz2 | tar xj
+          pip install -q soundfile
+          for r in 0 0.5; do
+            echo "== length_reward $r (set per stream)"
+            python voiceio/.github/sherpa-pr-test/repro_tdt_mbs.py --librispeech LibriSpeech/test-clean --model $name --length-reward $r
+          done
