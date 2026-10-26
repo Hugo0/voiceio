@@ -122,12 +122,15 @@ async def handle_ws_transcribe(request: web.Request) -> web.WebSocketResponse:
     Server → client (all JSON text frames):
         {"type":"ready","sample_rate":16000,"format":"pcm_s16le","channels":1}
         {"type":"partial","text":...,"audio_secs":...}
-        {"type":"final","text":...,"raw":...,"audio_secs":...,"ms":...}
+        {"type":"final","text":...,"raw":...,"audio_secs":...,"ms":...,
+         "cut_short":false}
         {"type":"error","error":...}
 
-    The final frame is sent before the socket closes. A client that simply
-    disconnects still gets its audio finalized server-side (for vocabulary
-    statistics), it just is not around to read the result.
+    The final frame is sent before the socket closes. A stream that sends
+    neither audio nor stop for `stall_secs`, or passes `max_audio_secs`, still
+    gets a final of the audio it sent, with "cut_short":true and a "why". A
+    client that simply disconnects still gets its audio finalized server-side
+    (for vocabulary statistics), it just is not around to read the result.
     """
     runtime: ServerRuntime = request.app[RUNTIME]
     cfg: ServerConfig = request.app[CONFIG]
@@ -190,17 +193,22 @@ async def _run_stream(ws, runtime: ServerRuntime, cfg: ServerConfig, app) -> Non
         "model": runtime.model_cfg.name,
     })
 
+    cut_short = ""   # why the stream ended without a stop, if it did
     overrun = False
     try:
-        async for msg in ws:
+        while True:
+            try:
+                msg = await ws.receive(timeout=cfg.stall_secs or None)
+            except TimeoutError:
+                cut_short = f"no audio or stop for {cfg.stall_secs:g} s"
+                break
+            if msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+                break
             if msg.type == WSMsgType.BINARY:
                 total = source.feed(msg.data)
                 if total / SAMPLE_RATE > cfg.max_audio_secs:
                     overrun = True
-                    await ws.send_json({
-                        "type": "error",
-                        "error": f"audio exceeded {cfg.max_audio_secs:.0f}s limit",
-                    })
+                    cut_short = f"audio passed the {cfg.max_audio_secs:g} s limit"
                     break
             elif msg.type == WSMsgType.TEXT:
                 try:
@@ -218,7 +226,9 @@ async def _run_stream(ws, runtime: ServerRuntime, cfg: ServerConfig, app) -> Non
     finally:
         source.close()
         audio = source.get_audio_so_far()
-        secs = source.duration_secs
+        if overrun and audio is not None:   # the last frame may run far past the limit
+            audio = audio[:int(cfg.max_audio_secs * SAMPLE_RATE)]
+        secs = len(audio) / SAMPLE_RATE if audio is not None else 0.0
 
         # stop() joins the worker thread through a final beam-search decode:
         # seconds of CPU, and it must not block the event loop.
@@ -238,18 +248,21 @@ async def _run_stream(ws, runtime: ServerRuntime, cfg: ServerConfig, app) -> Non
         outbox.put_nowait(None)
         await pump_task
 
-        if not ws.closed and not overrun:
+        if not ws.closed:
             await ws.send_json({
                 "type": "final",
                 "text": text,
                 "raw": session.raw_final_text or "",
                 "audio_secs": round(secs, 2),
                 "ms": round((time.monotonic() - t0) * 1000),
+                "cut_short": bool(cut_short),
+                **({"why": cut_short} if cut_short else {}),
             })
         if text:   # after the reply: retention must not add to the user's wait
             await loop.run_in_executor(app[EXECUTOR], runtime.commit, audio, text,
                                        session.raw_final_text or "")
-        log.info("streaming %.1fs audio → %s", secs, describe_transcript(text))
+        log.info("streaming %.1fs audio → %s%s", secs, describe_transcript(text),
+                 f" (cut short: {cut_short})" if cut_short else "")
         if not ws.closed:
             await ws.close()
 

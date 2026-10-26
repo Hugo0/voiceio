@@ -21,6 +21,7 @@ def main(argv: list[str] | None = None) -> int:
             "  VOICE_COMPUTE, VOICE_DEVICE      compute type / device\n"
             "  VOICE_THREADS                    CPU threads (default 4, 0=all)\n"
             "  VOICE_MAX_BYTES, VOICE_MAX_SECS  request limits\n"
+            "  VOICE_STALL_SECS                 end a stream silent this long (30 s; 0 never)\n"
             "  VOICE_TTS_ENGINE, VOICE_TTS_VOICE, VOICE_TTS_SPEED\n"
             "  VOICE_TTS_ALLOW_NETWORK          1 to permit cloud TTS (off)\n"
             "  VOICE_LOG_LEVEL                  default INFO\n"

@@ -310,6 +310,7 @@ def test_ws_ready_partial_final_sequence():
     assert final["text"] == "Hello world."
     assert final["raw"] == "hello world raw"
     assert isinstance(final["ms"], int)
+    assert final["cut_short"] is False and "why" not in final
     assert engine.committed == ["Hello world."]  # learned from; kept if opted in
 
 
@@ -348,8 +349,9 @@ def test_ws_client_disconnect_still_finalizes():
     assert engine.sessions[0].stopped_with is not None
 
 
-def test_ws_enforces_the_duration_cap():
+def test_ws_duration_cap_finalizes_what_fits_marked_cut_short():
     cfg = ServerConfig(max_audio_secs=0.05)  # 800 samples
+    engine = FakeEngine()
 
     async def go(client):
         ws = await client.ws_connect("/ws/transcribe")
@@ -361,11 +363,36 @@ def test_ws_enforces_the_duration_cap():
         await ws.close()
         return frames
 
-    frames = run_with_client(go, cfg=cfg)
-    kinds = [f["type"] for f in frames]
-    assert "error" in kinds
-    # An overrun must not also claim a usable final transcript.
-    assert "final" not in kinds
+    frames = run_with_client(go, cfg=cfg, engine=engine)
+    final = frames[-1]
+    assert final["type"] == "final" and final["text"] == "Hello world."
+    # The words are kept, and the client is told they are not the whole note.
+    assert final["cut_short"] is True and "limit" in final["why"]
+    assert len(engine.sessions[0].stopped_with) == 800   # only what fits is decoded
+
+
+def test_ws_stalled_stream_is_finalized_with_what_it_has():
+    """A client that goes quiet without a stop (a starved or frozen sender)
+    still gets a transcript of the audio it sent."""
+    cfg = ServerConfig(stall_secs=0.2)
+    engine = FakeEngine()
+
+    async def go(client):
+        ws = await client.ws_connect("/ws/transcribe")
+        await ws.receive_json()
+        await ws.send_bytes(_pcm(800))
+        frames = []
+        async for msg in ws:          # no stop: the server ends it
+            frames.append(json.loads(msg.data))
+        await ws.close()
+        return frames
+
+    frames = run_with_client(go, cfg=cfg, engine=engine)
+    final = frames[-1]
+    assert final["type"] == "final" and final["text"] == "Hello world."
+    assert final["cut_short"] is True and "no audio or stop" in final["why"]
+    assert len(engine.sessions[0].stopped_with) == 800
+    assert engine.committed == ["Hello world."]
 
 
 def test_ws_second_concurrent_session_is_refused():
@@ -439,11 +466,12 @@ def test_config_from_env(monkeypatch):
     monkeypatch.setenv("VOICE_MODEL", "base")
     monkeypatch.setenv("VOICE_THREADS", "2")
     monkeypatch.setenv("VOICE_MAX_SECS", "60")
+    monkeypatch.setenv("VOICE_STALL_SECS", "45")
     monkeypatch.setenv("VOICE_TTS_ALLOW_NETWORK", "1")
     cfg = ServerConfig.from_env()
     assert (cfg.host, cfg.port, cfg.model) == ("0.0.0.0", 8790, "base")
     assert cfg.threads == "2"
-    assert cfg.max_audio_secs == 60.0
+    assert (cfg.max_audio_secs, cfg.stall_secs) == (60.0, 45.0)
     assert cfg.tts_allow_network is True
 
 

@@ -59,6 +59,9 @@ class ServerConfig:
     # max_audio_secs; this exists so a bad client cannot stream us to death.
     max_bytes: int = 25 * 1024 * 1024
     max_audio_secs: float = 120.0
+    # A stream that sends neither audio nor stop for this long is finalized
+    # with what it has (marked cut_short). 0 waits forever.
+    stall_secs: float = 30.0
 
     # ── tts ──────────────────────────────────────────────────────────────
     tts_engine: str = "auto"
@@ -97,6 +100,7 @@ class ServerConfig:
             lanes=int(e(prefix, "LANES", "1")),
             max_bytes=int(e(prefix, "MAX_BYTES", str(25 * 1024 * 1024))),
             max_audio_secs=float(e(prefix, "MAX_SECS", "120")),
+            stall_secs=float(e(prefix, "STALL_SECS", "30")),
             tts_engine=e(prefix, "TTS_ENGINE", "auto"),
             tts_voice=e(prefix, "TTS_VOICE", ""),
             tts_speed=float(e(prefix, "TTS_SPEED", "1.0")),
