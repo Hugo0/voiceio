@@ -33,7 +33,14 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF
             -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF -DSHERPA_ONNX_ENABLE_BINARY=OFF
           SHERPA_ONNX_MAKE_ARGS: "-j4"
-        run: pip install cmake setuptools wheel numpy && pip install -v ./sherpa-onnx 2>&1 | tail -5
+        run: |
+          pip install cmake setuptools wheel numpy
+          if ! pip install --no-build-isolation -v ./sherpa-onnx > build.log 2>&1; then
+            grep -nE "error:|Error [0-9]|CMake Error" build.log | head -40
+            tail -80 build.log
+            exit 1
+          fi
+          tail -3 build.log
       - name: Model
         run: |
           name=sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8
