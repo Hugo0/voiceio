@@ -41,6 +41,10 @@ class FakeSherpa:
                 self.rec = {"hotwords": hotwords, "samples": 0}
                 fake.streams.append(self.rec)
 
+            def set_option(self, key, value):
+                assert isinstance(value, str)
+                self.rec[key] = value
+
             def accept_waveform(self, sr, a):
                 assert sr == 16000 and a.dtype == np.float32
                 self.rec["samples"] = len(a)
@@ -114,6 +118,7 @@ def test_one_recognizer_and_per_stream_pretokenized_proper_nouns(fake, tmp_path)
     assert out.text == "hello world"
     # Lowercase (mined jargon) and unusable terms never become hotwords.
     assert fake.streams[-1]["hotwords"] == "▁Kal shi/▁Hy per"
+    assert fake.streams[-1]["length_reward"] == "0.5"   # per stream, as upstream reads it
     dec.decode(_audio(2), bias=Bias(hotwords="Hyper"))
     dec.decode(_audio(2), bias=Bias())
     assert [s["hotwords"] for s in fake.streams[1:]] == ["▁Hy per", None]
@@ -135,7 +140,7 @@ def test_without_the_tdt_fix_decodes_greedy_and_unbiased(fake, monkeypatch, tmp_
     assert dec.decode(_audio(1), bias=Bias(hotwords="Kalshi")).text == "hello world"
     kw = fake.created[-1]
     assert kw["decoding_method"] == "greedy_search" and "length_reward" not in kw
-    assert fake.streams[-1]["hotwords"] is None
+    assert fake.streams[-1]["hotwords"] is None and "length_reward" not in fake.streams[-1]
 
 
 def test_long_audio_is_decoded_in_pieces_of_at_most_30s(fake, tmp_path):

@@ -236,6 +236,9 @@ class SherpaTransducer:
                           bpe_vocab=_bpe_vocab_file(self._dir, self._tokenizer))
             if feats.length_reward:
                 kwargs.update(length_reward=length_reward)
+        # Upstream reads length_reward per stream (k2-fsa/sherpa-onnx#4084 after
+        # review); builds without that read ignore the option.
+        self._stream_reward = repr(float(length_reward)) if mbs and length_reward else ""
         t0 = time.monotonic()
         try:
             self._rec = sherpa_onnx.OfflineRecognizer.from_transducer(**kwargs)
@@ -276,6 +279,8 @@ class SherpaTransducer:
             for chunk in split_long(audio) if len(audio) else ():
                 stream = (self._rec.create_stream(hotwords) if hotwords
                           else self._rec.create_stream())
+                if self._stream_reward and hasattr(stream, "set_option"):
+                    stream.set_option("length_reward", self._stream_reward)
                 stream.accept_waveform(SAMPLE_RATE, chunk)
                 self._rec.decode_stream(stream)
                 if text := stream.result.text.strip():
