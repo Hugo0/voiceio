@@ -34,10 +34,11 @@ jobs:
       - name: Build
         env:
           SHERPA_ONNX_CMAKE_ARGS: >-
-            -DCMAKE_BUILD_TYPE=Release -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF
+            -DCMAKE_BUILD_TYPE=Release -DSHERPA_ONNX_ENABLE_PORTAUDIO=ON
             -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF -DSHERPA_ONNX_ENABLE_BINARY=ON
           SHERPA_ONNX_MAKE_ARGS: "-j4"
         run: |
+          sudo apt-get install -qq -y libasound2-dev > /dev/null
           pip install cmake setuptools wheel numpy
           if ! pip install --no-build-isolation -v ./sherpa-onnx > build.log 2>&1; then
             grep -nE "error:|Error [0-9]|CMake Error" build.log | head -40
