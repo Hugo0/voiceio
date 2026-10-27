@@ -1,8 +1,8 @@
 name: sherpa-onnx PR test
 
-# Builds a Hugo0/sherpa-onnx branch (one Python, no binaries) and decodes the
-# Parakeet-110M test clips with greedy and modified_beam_search, setting
-# length_reward per stream. For checking upstream PR changes off the laptop;
+# Builds a Hugo0/sherpa-onnx branch (one Python, plus the CLI binaries) and
+# decodes the Parakeet-110M test clips with greedy and modified_beam_search,
+# setting length_reward per stream, from Python and from sherpa-onnx-offline. For checking upstream PR changes off the laptop;
 # publishes nothing.
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ jobs:
         env:
           SHERPA_ONNX_CMAKE_ARGS: >-
             -DCMAKE_BUILD_TYPE=Release -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF
-            -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF -DSHERPA_ONNX_ENABLE_BINARY=OFF
+            -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF -DSHERPA_ONNX_ENABLE_BINARY=ON
           SHERPA_ONNX_MAKE_ARGS: "-j4"
         run: |
           pip install cmake setuptools wheel numpy
@@ -89,6 +89,18 @@ jobs:
               assert runs[None] == runs["0"] == runs["nan"], "default, 0 and nan must decode alike"
               assert len(runs["0.5"].split()) >= len(runs["0"].split()), "a length reward must not lose words"
           print("ok")
+      - name: CLI
+        run: |
+          exe=$(command -v sherpa-onnx-offline || find "$(python -c 'import sys; print(sys.prefix)')" -name sherpa-onnx-offline -type f | head -1)
+          test -x "$exe"
+          for r in 0 0.5; do
+            echo "== --length-reward=$r"
+            "$exe" --tokens=model/tokens.txt --encoder=model/encoder.int8.onnx \
+              --decoder=model/decoder.int8.onnx --joiner=model/joiner.int8.onnx \
+              --model-type=nemo_transducer --decoding-method=modified_beam_search \
+              --length-reward=$r model/test_wavs/0.wav model/test_wavs/en-english.wav 2>&1 | tee cli-$r.log | tail -8
+          done
+          ! grep -q "Invalid option" cli-0.5.log
       - name: Reproducer (LibriSpeech test-clean with pauses, parakeet-tdt-0.6b-v3-int8)
         run: |
           curl -fsSL https://www.openslr.org/resources/12/test-clean.tar.gz | tar xz
