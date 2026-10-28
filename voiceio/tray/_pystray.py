@@ -35,6 +35,9 @@ def start(
     except ImportError:
         log.warning("pystray/Pillow not installed, tray icon disabled")
         return False
+    except Exception as e:  # Linux import opens an X display: none means Xlib errors
+        log.warning("pystray unusable (%s), tray icon disabled", e)
+        return False
 
     _idle_img = Image.open(idle_path)
     _recording_frames = [Image.open(p) for p in frame_paths]

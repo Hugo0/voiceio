@@ -59,11 +59,16 @@ def probe_availability() -> tuple[bool, str, str]:
         if py:
             return True, "AppIndicator3 available", ""
         from voiceio.platform import pkg_install
+        hint = f"install: {pkg_install('python3-gi', 'gir1.2-ayatanaappindicator3-0.1')}"
+        if _pystray_backend() == "xorg":
+            # What start() falls back to: an XEmbed icon (KDE and LXQt show
+            # it), animated, but without the menu.
+            return True, "basic icon (pystray, no menu)", f"for the full menu, {hint}"
         return (
             False,
             "no python3 with GTK3/AppIndicator3 bindings "
             "(set VOICEIO_SYSTEM_PYTHON to override)",
-            f"install: {pkg_install('python3-gi', 'gir1.2-ayatanaappindicator3-0.1')}",
+            hint,
         )
     elif sys.platform == "darwin":
         try:
@@ -80,6 +85,15 @@ def probe_availability() -> tuple[bool, str, str]:
             from voiceio.platform import DESKTOP_EXTRA_INSTALL
             return False, "pystray not installed", DESKTOP_EXTRA_INSTALL
     return False, "unsupported platform", ""
+
+
+def _pystray_backend() -> str | None:
+    """The backend pystray picks here ("xorg", "appindicator", ...), or None."""
+    try:
+        import pystray
+    except Exception:  # ImportError, or Xlib errors when there's no X display
+        return None
+    return pystray.Icon.__module__.rsplit("._", 1)[-1]
 
 
 def _start_indicator(

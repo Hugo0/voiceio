@@ -184,7 +184,8 @@ def _print_tray_check() -> bool:
     from voiceio.tray import probe_availability
     tray_ok, tray_reason, tray_fix_hint = probe_availability()
     if tray_ok:
-        _print_check("Tray icon", True, "system tray indicator available")
+        _print_check("Tray icon", True, f"{tray_reason}; {tray_fix_hint}" if tray_fix_hint
+                     else "system tray indicator available")
     else:
         _print_check("Tray icon", False,
                      tray_fix_hint if tray_fix_hint else tray_reason,

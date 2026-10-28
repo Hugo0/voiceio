@@ -439,7 +439,9 @@ def format_report(report: HealthReport) -> str:
     lines.append(_check_line("Tray icon", report.tray_ok,
                              report.tray_reason if not report.tray_ok else "",
                              warn=not report.tray_ok))
-    if report.tray_fix_hint and not report.tray_ok:
+    if report.tray_ok and report.tray_fix_hint:  # works, but degraded
+        lines[-1] += f"  {DIM}{report.tray_reason}{RESET}"
+    if report.tray_fix_hint:
         lines.append(f"    {DIM}→ {report.tray_fix_hint}{RESET}")
 
     # IBus pipeline
