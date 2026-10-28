@@ -9,7 +9,7 @@ import pytest
 
 from voiceio import report
 from voiceio.config import Config
-from voiceio.health import BackendStatus, HealthReport
+from voiceio.health import BackendStatus, HealthReport, IBusStatus
 from voiceio.platform import Platform
 
 FAKE_HOME = "/home/zelda-tester"
@@ -102,6 +102,16 @@ def test_report_lists_failures_and_warnings():
     assert "missing system deps" in text
     assert "cli not in PATH" in text and "tray: no AppIndicator" in text
     assert "insecure permissions on 2 file(s)" in text
+
+
+def test_silent_ibus_engine_is_expected_while_voiceio_is_stopped():
+    # Two 1.15.0 reports warned "ibus engine ping" only because voiceio wasn't running.
+    ib = IBusStatus(component_installed=True, daemon_running=True, env_persisted=True)
+    stopped = report.build_report(_health(ibus_checks=IBusStatus(**{**vars(ib), "voiceio_running": False})),
+                                  cfg=Config())
+    assert "engine ping" not in stopped and "voiceio not running" in stopped
+    running = report.build_report(_health(ibus_checks=ib), cfg=Config())
+    assert "ibus engine ping" in running and "voiceio not running" not in running
 
 
 def test_comment_is_one_bounded_line():

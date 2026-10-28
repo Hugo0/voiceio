@@ -25,6 +25,8 @@ class IBusStatus:
     component_installed: bool = False
     daemon_running: bool = False
     socket_reachable: bool = False
+    # The engine runs while voiceio does, so a silent one only matters then.
+    voiceio_running: bool = True
     gnome_source_configured: bool = False
     env_persisted: bool = False
 
@@ -301,6 +303,10 @@ def _check_ibus() -> IBusStatus:
     # Ping, not exists(): an engine can hold a socket file yet be deaf.
     from voiceio.ibus import ping_engine
     status.socket_reachable = ping_engine(timeout=1.0)
+    if not status.socket_reachable:
+        from voiceio.config import PID_PATH
+        from voiceio.pidlock import daemon_alive
+        status.voiceio_running = daemon_alive(PID_PATH)
 
     # Check GNOME input source
     try:
@@ -448,6 +454,10 @@ def format_report(report: HealthReport) -> str:
             ("GNOME input source", ibus.gnome_source_configured, "voiceio setup"),
             ("Env persisted (reboot-safe)", ibus.env_persisted, "voiceio setup"),
         ]:
+            if label == "Engine answers" and not ok and not ibus.voiceio_running:
+                lines.append(f"  {DIM}–{RESET} {label}  "
+                             f"{DIM}starts with voiceio, which isn't running{RESET}")
+                continue
             lines.append(_check_line(label, ok, hint if not ok else "",
                                      warn=not ok))
 

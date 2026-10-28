@@ -123,3 +123,29 @@ def test_learning_status_and_tips(monkeypatch):
     assert st["Voice model"] == "fine-tuned on you (v0001-small-x)"
     assert st["Recordings"].startswith("on (") and st["Scheduled learning"] == "off"
     assert any("learn schedule on" in t for t in _accuracy_tips(st))
+
+
+def test_silent_ibus_engine_is_not_a_warning_while_voiceio_is_stopped():
+    from voiceio.health import HealthReport, IBusStatus
+    p = Platform(os="linux", display_server="wayland", desktop="kde")
+    ib = IBusStatus(component_installed=True, daemon_running=True, voiceio_running=False)
+    text = format_report(HealthReport(platform=p, ibus_checks=ib))
+    line = next(ln for ln in text.splitlines() if "Engine answers" in ln)
+    assert "⚠" not in line and "isn't running" in line
+    ib.voiceio_running = True
+    line = next(ln for ln in format_report(HealthReport(platform=p, ibus_checks=ib)).splitlines()
+                if "Engine answers" in ln)
+    assert "⚠" in line and "service restart" in line
+
+
+def test_check_ibus_asks_about_voiceio_only_when_the_engine_is_silent():
+    from voiceio import health
+    with patch("voiceio.ibus.install.component_installed", return_value=True), \
+         patch("voiceio.ibus.install.daemon_running", return_value=True), \
+         patch("voiceio.ibus.ping_engine", return_value=False), \
+         patch("voiceio.pidlock.daemon_alive", return_value=False) as alive:
+        assert health._check_ibus().voiceio_running is False
+        with patch("voiceio.ibus.ping_engine", return_value=True):
+            alive.reset_mock()
+            assert health._check_ibus().voiceio_running is True
+            alive.assert_not_called()

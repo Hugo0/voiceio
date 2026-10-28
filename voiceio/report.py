@@ -157,7 +157,7 @@ def build_report(
     if health.ibus_checks is not None:
         ib = health.ibus_checks
         for label, ok in (("component", ib.component_installed), ("daemon", ib.daemon_running),
-                          ("engine ping", ib.socket_reachable),
+                          ("engine ping", ib.socket_reachable or not ib.voiceio_running),
                           ("env persisted", ib.env_persisted)):
             if not ok:
                 warned.append(f"ibus {label}")
@@ -180,7 +180,9 @@ def build_report(
         f"python {_py_platform.python_version()}",
         f"backends: hotkey {hotkey.name if hotkey else 'none'} · "
         f"typer {typer.name if typer else 'none'} · audio {audio} "
-        f"(vad {cfg.audio.vad_backend})",
+        f"(vad {cfg.audio.vad_backend})"
+        + (" · voiceio not running" if health.ibus_checks is not None
+           and not health.ibus_checks.voiceio_running else ""),
         f"model: {_model_label(cfg.model.name)}",
     ]
     if unavailable:
