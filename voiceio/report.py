@@ -30,6 +30,8 @@ TIMEOUT_SECS = 8.0
 MAX_COMMENT = 300
 MAX_DETAIL = 90
 
+# A terminal escape: CSI sequences (arrow keys) or ESC plus one key (Alt+key).
+_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|.)?", re.S)
 _IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _IPV6 = re.compile(r"\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b", re.I)
 _MAC = re.compile(r"\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b", re.I)
@@ -186,6 +188,7 @@ def build_report(
     lines.append("failed: " + "; ".join(failed) if failed else "failed: none")
     if warned:
         lines.append("warnings: " + "; ".join(warned))
+    comment = "".join(c if c.isprintable() else " " for c in _ESCAPE.sub("", comment))
     comment = " ".join(comment.split())[:MAX_COMMENT]
     if comment:
         lines.append(f"comment: {comment}")
@@ -233,6 +236,10 @@ def _interactive() -> bool:
 
 
 def _ask(prompt: str) -> str:
+    try:
+        import readline  # noqa: F401  line editing, so arrow keys don't type escapes
+    except ImportError:
+        pass
     try:
         return input(prompt)
     except (EOFError, KeyboardInterrupt):

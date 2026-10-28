@@ -111,6 +111,14 @@ def test_comment_is_one_bounded_line():
     assert len(line) <= len("comment: ") + report.MAX_COMMENT
 
 
+def test_comment_drops_terminal_escapes():
+    # A real 1.15.0 report arrived with "comment: \x1bv" (Alt+V at the prompt).
+    text = report.build_report(_health(), comment="\x1bv", cfg=Config())
+    assert "comment:" not in text and "\x1b" not in text
+    text = report.build_report(_health(), comment="works\x1b[D\x1b[C great\x07", cfg=Config())
+    assert "comment: works great" in text.splitlines()
+
+
 # ── posting ──
 
 class _Resp(io.BytesIO):
