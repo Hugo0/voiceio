@@ -1,0 +1,75 @@
+name: sherpa-onnx bpe.vocab check
+
+# Checks that the bpe.vocab the NeMo parakeet export writes (from the .nemo's own
+# SentencePiece model) lines up with the released tokens.txt and lets hotwords
+# load. For k2-fsa/sherpa-onnx#4088; no NeMo install, publishes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Hugo0/sherpa-onnx branch with scripts/nemo/generate_bpe_vocab.py"
+        default: hotwords-pretokenized
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: Hugo0/sherpa-onnx
+          ref: ${{ inputs.ref }}
+          path: sherpa-onnx
+          sparse-checkout: scripts/nemo
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Fetch
+        run: |
+          pip install -q sentencepiece sherpa-onnx numpy soundfile
+          curl -fsSL -o v2.nemo https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2/resolve/main/parakeet-tdt-0.6b-v2.nemo
+          tar tf v2.nemo | grep -i tokenizer
+          tar xf v2.nemo --wildcards '*tokenizer.model' && mv $(ls *tokenizer.model | head -1) tokenizer.model
+          name=sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          curl -fsSL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$name.tar.bz2 | tar xj
+          mv $name model
+      - name: Check
+        shell: python
+        run: |
+          import sys
+          sys.path.insert(0, "sherpa-onnx/scripts/nemo")
+          import sentencepiece as spm
+          import soundfile as sf
+          import sherpa_onnx as so
+          from generate_bpe_vocab import generate_bpe_vocab_from_tokenizer
+
+          sp = spm.SentencePieceProcessor(model_file="tokenizer.model")
+          generate_bpe_vocab_from_tokenizer(sp, "model/bpe.vocab")
+          vocab = [ln.split("\t")[0] for ln in open("model/bpe.vocab", encoding="utf-8")]
+          tokens = [ln.rsplit(" ", 1)[0] for ln in open("model/tokens.txt", encoding="utf-8")]
+          assert tokens[-1] == "<blk>", tokens[-1]
+          assert vocab == tokens[:-1], "bpe.vocab pieces differ from tokens.txt"
+          print(f"bpe.vocab matches tokens.txt: {len(vocab)} pieces, same ids")
+
+          words = ["PHOEBE", "HyperNEAT", "Kalshi", "sherpa onnx"]
+          for w in words:
+              print(f"  {w!r} -> {sp.encode(w, out_type=str)}")
+          open("hotwords.txt", "w").write("\n".join(words) + "\n")
+
+          rec = so.OfflineRecognizer.from_transducer(
+              tokens="model/tokens.txt", encoder="model/encoder.int8.onnx",
+              decoder="model/decoder.int8.onnx", joiner="model/joiner.int8.onnx",
+              model_type="nemo_transducer", decoding_method="modified_beam_search",
+              hotwords_file="hotwords.txt", hotwords_score=2.0,
+              modeling_unit="bpe", bpe_vocab="model/bpe.vocab")
+          wav = sorted(__import__("glob").glob("model/test_wavs/*.wav"))[0]
+          audio, rate = sf.read(wav, dtype="float32")
+          s = rec.create_stream()
+          s.accept_waveform(rate, audio)
+          rec.decode_stream(s)
+          print(wav, "->", s.result.text)
+          assert s.result.text.strip(), "empty result with hotwords loaded"
+          print("ok")
