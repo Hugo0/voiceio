@@ -8,7 +8,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm", ".js": "text/javascript", ".mjs": "text/javascript"}
 
     def end_headers(self):
-        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
         self.send_header("Cross-Origin-Embedder-Policy", "credentialless")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cache-Control", "public, max-age=0, must-revalidate")

@@ -1,11 +1,14 @@
-# Cross-origin isolation lets the in-browser speech model use WASM threads.
-# "credentialless" keeps cross-origin fonts and the CDN working without CORP headers.
+# Not cross-origin isolated (COOP "same-origin"): that severs the SwarmMemo
+# sign-in popup from the feedback board, so nobody could sign in. The default
+# Parakeet demo is single-threaded anyway; only the Moonshine fallback loses
+# WASM threads. "credentialless" keeps cross-origin fonts and the CDN working
+# without CORP headers.
 # No referrer: nothing about visits leaks to third parties, and Hugging Face
 # refuses model downloads whose Referer is a *.workers.dev address.
 # no-transform: Cloudflare must not inject anything (e.g. its analytics
 # beacon) into these pages; the site promises no telemetry.
 /*
-  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
   Cross-Origin-Embedder-Policy: credentialless
   Referrer-Policy: no-referrer
   Cache-Control: public, max-age=0, must-revalidate, no-transform
