@@ -112,7 +112,7 @@ def _no_real_audio(monkeypatch, tmp_path):
     monkeypatch.setattr("voiceio.power.POWER_SUPPLY", tmp_path / "no-power-supply")
     try:
         import sounddevice as sd
-    except (ImportError, OSError):
+    except Exception:  # not installed, or PortAudioError: no sound server
         return
 
     def refuse(*a, **k):

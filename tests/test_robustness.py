@@ -944,10 +944,12 @@ def test_app_imports_when_portaudio_cannot_initialize(tmp_path):
     import subprocess
     import sys
     (tmp_path / "sounddevice.py").write_text(
-        "raise OSError('PulseAudio_Initialize: Can\\'t connect to server')\n")
+        "class PortAudioError(Exception): pass\n"
+        "raise PortAudioError('PulseAudio_Initialize: Can\\'t connect to server')\n")
     code = ("import voiceio.app, voiceio.recorder as r\n"
-            "try:\n    r.sd.InputStream\nexcept OSError:\n    print('lazy')\n")
+            "try:\n    r.sd.InputStream\nexcept Exception as e:\n"
+            "    print(type(e).__name__)\n")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                          env={**__import__("os").environ, "PYTHONPATH": str(tmp_path)})
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "lazy"
+    assert out.stdout.strip() == "PortAudioError"
