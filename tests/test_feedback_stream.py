@@ -1,11 +1,11 @@
 """The persistent cue stream: buffer size and cue timing."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-pytest.importorskip("sounddevice")
-
-from voiceio import feedback  # noqa: E402
+from voiceio import feedback
 
 
 class FakeStream:
@@ -24,7 +24,7 @@ class FakeStream:
 @pytest.fixture
 def fake_stream(monkeypatch):
     FakeStream.opened = []
-    monkeypatch.setattr(feedback.sd, "OutputStream", FakeStream)
+    monkeypatch.setattr(feedback, "sd", SimpleNamespace(OutputStream=FakeStream))
     monkeypatch.setattr(feedback, "_stream", None)
     monkeypatch.setattr(feedback, "_sounds", {})
     return FakeStream

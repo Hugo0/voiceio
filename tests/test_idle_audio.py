@@ -3,17 +3,16 @@ from __future__ import annotations
 
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-pytest.importorskip("sounddevice")
-
-from voiceio import feedback, idle_audio  # noqa: E402
-from voiceio.config import AudioConfig, Config  # noqa: E402
-from voiceio.idle_audio import IdleAudio  # noqa: E402
-from voiceio.recorder import AudioRecorder  # noqa: E402
+from voiceio import feedback, idle_audio
+from voiceio.config import AudioConfig, Config
+from voiceio.idle_audio import IdleAudio
+from voiceio.recorder import AudioRecorder
 
 
 class FakeInput:
@@ -50,8 +49,9 @@ class FakeOutput(FakeInput):
 @pytest.fixture
 def streams(monkeypatch):
     FakeInput.opened = FakeOutput.opened = 0
-    monkeypatch.setattr("voiceio.recorder.sd.InputStream", FakeInput)
-    monkeypatch.setattr(feedback.sd, "OutputStream", FakeOutput)
+    # Whole fakes: touching the real module would initialize PortAudio.
+    monkeypatch.setattr("voiceio.recorder.sd", SimpleNamespace(InputStream=FakeInput))
+    monkeypatch.setattr(feedback, "sd", SimpleNamespace(OutputStream=FakeOutput))
     monkeypatch.setattr(feedback, "_stream", None)
 
 

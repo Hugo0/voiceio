@@ -22,6 +22,8 @@ class LazySounddevice:
     every command behind it."""
 
     def __getattr__(self, name: str):
+        if name.startswith("_"):  # introspection (mock, inspect) must not import it
+            raise AttributeError(name)
         try:
             import sounddevice
         except ImportError as e:
