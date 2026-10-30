@@ -8,19 +8,15 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
-try:
-    import sounddevice as sd
-except ImportError as _e:
-    from voiceio.platform import desktop_dep_hint
-    raise ImportError(desktop_dep_hint("sounddevice")) from _e
-
 from voiceio.audio_source import AudioBuffer
+from voiceio.platform import LazySounddevice
 
 if TYPE_CHECKING:
     from voiceio.config import AudioConfig
     from voiceio.vad import VadBackend
 
 log = logging.getLogger(__name__)
+sd = LazySounddevice()
 
 # Peak amplitude below this is treated as no signal at all (a muted mic emits
 # exact zeros; a working mic's "silence" still noises above ~1e-4). Matches the

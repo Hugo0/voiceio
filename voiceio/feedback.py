@@ -20,11 +20,9 @@ from pathlib import Path
 
 import numpy as np
 
-try:
-    import sounddevice as sd
-except ImportError as _e:
-    from voiceio.platform import desktop_dep_hint
-    raise ImportError(desktop_dep_hint("sounddevice")) from _e
+from voiceio.platform import LazySounddevice
+
+sd = LazySounddevice()
 
 log = logging.getLogger(__name__)
 

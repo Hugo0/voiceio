@@ -15,6 +15,20 @@ log = logging.getLogger(__name__)
 DESKTOP_EXTRA_INSTALL = "pipx install --force 'python-voiceio[desktop]'"
 
 
+class LazySounddevice:
+    """`sounddevice`, imported on first use. Its import initializes PortAudio,
+    which raises when libpulse is installed but no sound server runs (CI,
+    headless boxes): imported eagerly, that broke `import voiceio.app` and
+    every command behind it."""
+
+    def __getattr__(self, name: str):
+        try:
+            import sounddevice
+        except ImportError as e:
+            raise ImportError(desktop_dep_hint("sounddevice")) from e
+        return getattr(sounddevice, name)
+
+
 def desktop_dep_hint(package: str) -> str:
     """One-line message for a desktop dependency that failed to import."""
     return (
