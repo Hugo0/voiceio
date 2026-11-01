@@ -93,6 +93,10 @@ Everything lives in `~/.config/voiceio/config.toml`; [config.example.toml](confi
 
 Open an issue before a large PR. [CONTRIBUTING.md](CONTRIBUTING.md) covers the architecture, conventions and the reasoning behind the model choice. Install reports and ideas are welcome on the [feedback board](https://voiceio.dev/#feedback).
 
+## How it's built
+
+I write voiceio with AI coding assistants, mostly Claude Code. I decide what goes in and I use it every day, which is how most of its bugs get found.
+
 ## Credits
 
 - Speech recognition: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [CTranslate2](https://github.com/OpenNMT/CTranslate2), with OpenAI's [Whisper](https://github.com/openai/whisper) models; [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with NVIDIA's [Parakeet-TDT](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2). The in-browser demo runs [Moonshine](https://github.com/usefulsensors/moonshine) through [transformers.js](https://github.com/huggingface/transformers.js).
