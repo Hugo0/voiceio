@@ -5,7 +5,6 @@
 [![Python](https://img.shields.io/pypi/pyversions/python-voiceio)](https://pypi.org/project/python-voiceio/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![As seen on Open Source Alternatives](https://www.opensourcealternatives.to/badge-osa.svg)](https://www.opensourcealternatives.to)
-[![As seen on Open Source Alternatives](https://www.opensourcealternatives.to/badge-osa.svg)](https://www.opensourcealternatives.to)
 
 **Voice dictation for Linux that learns you.** Local, private, open source, and it fine-tunes itself on your own voice.
 
@@ -94,6 +93,10 @@ Everything lives in `~/.config/voiceio/config.toml`; [config.example.toml](confi
 ## Contributing
 
 Open an issue before a large PR. [CONTRIBUTING.md](CONTRIBUTING.md) covers the architecture, conventions and the reasoning behind the model choice. Install reports and ideas are welcome on the [feedback board](https://voiceio.dev/#feedback).
+
+## How it's built
+
+I write voiceio with AI coding assistants, mostly Claude Code. I decide what goes in and I use it every day, which is how most of its bugs get found.
 
 ## Credits
 
