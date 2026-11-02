@@ -88,6 +88,20 @@ class TestStripDisfluencies:
         assert strip_disfluencies("uh-huh right") == "right"
         assert strip_disfluencies("uh huh yes") == "yes"
 
+    def test_mm_hmm_goes_whole(self):
+        # Parakeet ends about 1 clip in 4 with an invented "Mm-hmm."; cutting
+        # only its "hmm" typed a stray "Mm-." after real dictation.
+        assert strip_disfluencies("I sent it. Mm-hmm.") == "I sent it."
+        assert strip_disfluencies("Are you sure? Mm-hmm.") == "Are you sure?"
+        assert strip_disfluencies("Mm-hmm.") == ""
+        assert strip_disfluencies("Fine. Mm-hmm. So it works.") == "Fine. So it works."
+        assert strip_disfluencies("mmhmm that works") == "that works"
+
+    def test_fillers_inside_hyphenated_words_survive(self):
+        assert strip_disfluencies("a hmm-hmm sound") == "a hmm-hmm sound"
+        assert strip_disfluencies("she said uh-uh twice") == "she said uh-uh twice"
+        assert strip_disfluencies("the 5 mm drill") == "the 5 mm drill"
+
     def test_preserves_emphatic_short_repeat(self):
         # Short repeats are emphasis, not a re-decode artifact — keep them.
         assert strip_disfluencies("No. No.") == "No. No."

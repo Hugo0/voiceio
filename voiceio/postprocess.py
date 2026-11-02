@@ -19,8 +19,9 @@ _NO_CASE_LANGUAGES = frozenset({"zh", "ja", "ko", "ar", "he", "th", "hi", "bn", 
 #     own line doesn't swallow the paragraph/list break around it.
 # Word repetitions ("had had" is valid English) and filler "like"/"you know"
 # need judgment and are left to the LLM layer. Order matters: multi-token
-# "uh-huh" before "[Uu]h+" so it isn't clipped to a stray "-huh".
-_FILLER = r"\b(?:[Uu]h[-\s]?huh|[Mm]hm|[Uu]h+m*|[Uu]m+|[Hh]m{2,})\b"
+# "uh-huh" and "mm-hmm" (Parakeet invents "Mm-hmm." on a clip's quiet tail)
+# before the bare forms. Never a piece of a hyphenated word: that left "Mm-.".
+_FILLER = r"(?<!-)\b(?:[Uu]h[-\s]?huh|[Mm]m-?[Hh]m+|[Mm]hm|[Uu]h+m*|[Uu]m+|[Hh]m{2,})\b(?!-)"
 # A run of fillers and the comma/space around it; the lowercase letter after it, when
 # it opened a sentence, gets capitalized ("those. Um so I" -> "those. So I"),
 # or the sentence end before it would read as a false stop and become a comma.
