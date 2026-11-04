@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from voiceio import platform as plat
 from voiceio.hotkeys import chain as hotkey_chain
@@ -127,8 +128,29 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
 
     if gpu := _gpu_libs_warning():
         report.warnings.append(gpu)
+    if kde := _kde_input_method_warning(report.platform):
+        report.warnings.append(kde)
 
     return report
+
+
+def _kde_input_method_warning(p: plat.Platform, kwinrc: Path | None = None) -> str:
+    """KWin on Wayland only hands text to the input method picked under
+    Virtual Keyboard; without IBus there, voiceio has no live preview."""
+    if not (p.desktop == "kde" and p.display_server == "wayland"):
+        return ""
+    import configparser
+    rc = configparser.ConfigParser(interpolation=None, strict=False)
+    try:
+        rc.read(kwinrc or Path.home() / ".config" / "kwinrc")
+    except configparser.Error:
+        return ""
+    # KWin writes it as "InputMethod[$e]" (a KConfig flag), so match the prefix.
+    section = rc["Wayland"] if rc.has_section("Wayland") else {}
+    if any(k.startswith("inputmethod") and "ibus" in v.lower() for k, v in section.items()):
+        return ""
+    return ("KDE isn't using IBus as its Wayland input method, so there's no live preview. "
+            "System Settings → Keyboard → Virtual Keyboard → IBus Wayland, then log out and in.")
 
 
 # What CTranslate2 4.x's CUDA build loads at the first encode.

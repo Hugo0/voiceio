@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,7 +28,10 @@ if TYPE_CHECKING:
 BOARD_URL = "https://voiceio.dev/#feedback"
 POST_URL = "https://swarmmemo.com/w/voiceio/feedback"
 TIMEOUT_SECS = 8.0
-MAX_COMMENT = 300
+MAX_COMMENT = 1000
+# Insecure paths named in a report; more are counted.
+MAX_PERM_PATHS = 5
+WORKS = ("yes", "no", "not tried")
 MAX_DETAIL = 90
 
 # A terminal escape: CSI sequences (arrow keys) or ESC plus one key (Alt+key).
@@ -126,8 +130,9 @@ def build_report(
     health: HealthReport,
     *,
     missing_deps: list[str] | None = None,
-    perm_issues: int = 0,
+    perm_issues: Sequence[Path] = (),
     comment: str = "",
+    works: str = "",
     cfg=None,
 ) -> str:
     """The exact public text: short, plain, and scrubbed."""
@@ -168,7 +173,9 @@ def build_report(
     if not health.tray_ok:
         warned.append(f"tray: {_short(health.tray_reason)}" if health.tray_reason else "tray")
     if perm_issues:
-        warned.append(f"insecure permissions on {perm_issues} file(s)")
+        named = ", ".join(str(p) for p in perm_issues[:MAX_PERM_PATHS])
+        more = len(perm_issues) - MAX_PERM_PATHS
+        warned.append(f"insecure permissions on {named}" + (f" and {more} more" if more > 0 else ""))
     unavailable = [b.name for chosen, chain in ((hotkey, health.hotkey_backends),
                                                 (typer, health.typer_backends))
                    if chosen is not None for b in chain if not b.ok]
@@ -181,8 +188,8 @@ def build_report(
         f"backends: hotkey {hotkey.name if hotkey else 'none'} · "
         f"typer {typer.name if typer else 'none'} · audio {audio} "
         f"(vad {cfg.audio.vad_backend})"
-        + (" · voiceio not running" if health.ibus_checks is not None
-           and not health.ibus_checks.voiceio_running else ""),
+        + (" · voiceio was not running when this report was made"
+           if health.ibus_checks is not None and not health.ibus_checks.voiceio_running else ""),
         f"model: {_model_label(cfg.model.name)}",
     ]
     if unavailable:
@@ -191,7 +198,9 @@ def build_report(
     if warned:
         lines.append("warnings: " + "; ".join(warned))
     comment = "".join(c if c.isprintable() else " " for c in _ESCAPE.sub("", comment))
-    comment = " ".join(comment.split())[:MAX_COMMENT]
+    if works in WORKS:
+        lines.append(f"works: {works}")
+    comment = _clip(" ".join(comment.split()), MAX_COMMENT)
     if comment:
         lines.append(f"comment: {comment}")
     return scrub("\n".join(lines))
@@ -231,6 +240,28 @@ def post(text: str, *, timeout: float = TIMEOUT_SECS) -> tuple[bool, str]:
 def _urlopen(url: str, *, timeout: float):
     req = urllib.request.Request(url, headers={"User-Agent": "voiceio-report"})
     return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _clip(text: str, limit: int) -> str:
+    """At most `limit` characters, cut at a word with an ellipsis so a cut
+    comment doesn't read as the user's own last word."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit - 1]
+    word = cut.rsplit(" ", 1)[0]
+    return (word if len(word) >= len(cut) - 40 else cut) + "…"
+
+
+def ask_details() -> tuple[str, str]:
+    """Two questions for a report filed from a terminal: what happened, and
+    whether dictation types into apps. Enter skips either."""
+    comment = _ask("\n  What happened? One or two sentences for the public board "
+                   "(Enter to skip): ").strip()
+    answer = _ask("  Does dictation type text into your apps? [y/n/not tried, Enter to skip]: ")
+    answer = answer.strip().lower()
+    works = {"y": "yes", "yes": "yes", "n": "no", "no": "no",
+             "not tried": "not tried", "t": "not tried", "nt": "not tried"}.get(answer, "")
+    return comment, works
 
 
 def _interactive() -> bool:
@@ -279,7 +310,7 @@ def gather(comment: str = "") -> tuple[HealthReport, str]:
     return health, build_report(
         health,
         missing_deps=plat.check_system_deps(),
-        perm_issues=len(config.check_permissions()),
+        perm_issues=[p for p, _, _ in config.check_permissions()],
         comment=comment,
     )
 

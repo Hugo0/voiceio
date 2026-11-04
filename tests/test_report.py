@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -96,12 +97,12 @@ def test_report_contains_only_backend_and_model_names(identity):
 def test_report_lists_failures_and_warnings():
     health = _health(typer_backends=[BackendStatus("ibus", False, "daemon down")],
                      cli_in_path=False, tray_ok=False, tray_reason="no AppIndicator")
-    text = report.build_report(health, missing_deps=["portaudio"], perm_issues=2, cfg=Config())
+    text = report.build_report(health, missing_deps=["portaudio"], perm_issues=[Path(FAKE_HOME) / ".config/voiceio/config.toml"], cfg=Config())
     assert "typer none" in text
     assert "typer ibus: daemon down" in text
     assert "missing system deps" in text
     assert "cli not in PATH" in text and "tray: no AppIndicator" in text
-    assert "insecure permissions on 2 file(s)" in text
+    assert "insecure permissions on ~/.config/voiceio/config.toml" in text
 
 
 def test_silent_ibus_engine_is_expected_while_voiceio_is_stopped():
@@ -109,9 +110,9 @@ def test_silent_ibus_engine_is_expected_while_voiceio_is_stopped():
     ib = IBusStatus(component_installed=True, daemon_running=True, env_persisted=True)
     stopped = report.build_report(_health(ibus_checks=IBusStatus(**{**vars(ib), "voiceio_running": False})),
                                   cfg=Config())
-    assert "engine ping" not in stopped and "voiceio not running" in stopped
+    assert "engine ping" not in stopped and "voiceio was not running when this report was made" in stopped
     running = report.build_report(_health(ibus_checks=ib), cfg=Config())
-    assert "ibus engine ping" in running and "voiceio not running" not in running
+    assert "ibus engine ping" in running and "not running" not in running
 
 
 def test_comment_is_one_bounded_line():
@@ -119,6 +120,34 @@ def test_comment_is_one_bounded_line():
     line = next(ln for ln in text.splitlines() if ln.startswith("comment:"))
     assert line.startswith("comment: a b c x")
     assert len(line) <= len("comment: ") + report.MAX_COMMENT
+
+
+def test_long_comment_ends_with_an_ellipsis_at_a_word():
+    text = report.build_report(_health(), comment="word " * 400, cfg=Config())
+    line = next(ln for ln in text.splitlines() if ln.startswith("comment:"))
+    assert line.endswith("word…") and len(line) <= len("comment: ") + report.MAX_COMMENT
+    short = report.build_report(_health(), comment="fine " * 100, cfg=Config())
+    assert "…" not in short
+
+
+def test_works_line_only_for_a_known_answer():
+    assert "works: no" in report.build_report(_health(), works="no", cfg=Config()).splitlines()
+    assert "works:" not in report.build_report(_health(), works="maybe", cfg=Config())
+
+
+def test_many_insecure_paths_are_counted(identity):
+    paths = [Path(FAKE_HOME) / f"f{i}" for i in range(7)]
+    text = report.build_report(_health(), perm_issues=paths, cfg=Config())
+    assert "~/f0, ~/f1, ~/f2, ~/f3, ~/f4 and 2 more" in text
+    _assert_private(text)
+
+
+def test_ask_details_maps_answers(monkeypatch):
+    answers = iter(["  it typed twice  ", "Y"])
+    monkeypatch.setattr(report, "_ask", lambda prompt: next(answers))
+    assert report.ask_details() == ("it typed twice", "yes")
+    answers = iter(["", "whatever"])
+    assert report.ask_details() == ("", "")
 
 
 def test_comment_drops_terminal_escapes():

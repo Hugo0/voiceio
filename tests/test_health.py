@@ -149,3 +149,16 @@ def test_check_ibus_asks_about_voiceio_only_when_the_engine_is_silent():
             alive.reset_mock()
             assert health._check_ibus().voiceio_running is True
             alive.assert_not_called()
+
+
+def test_kde_wayland_without_ibus_input_method_warns(tmp_path):
+    from voiceio.health import _kde_input_method_warning
+    kde = Platform(os="linux", display_server="wayland", desktop="kde")
+    rc = tmp_path / "kwinrc"
+    rc.write_text("[Wayland]\nInputMethod[$e]=/usr/share/applications/com.github.maliit.keyboard.desktop\n")
+    assert "Virtual Keyboard" in _kde_input_method_warning(kde, rc)
+    rc.write_text("[Wayland]\nInputMethod[$e]=/usr/share/applications/org.freedesktop.IBus.Panel.Wayland.Gtk3.desktop\n")
+    assert _kde_input_method_warning(kde, rc) == ""
+    assert "Virtual Keyboard" in _kde_input_method_warning(kde, tmp_path / "missing")
+    gnome = Platform(os="linux", display_server="wayland", desktop="gnome")
+    assert _kde_input_method_warning(gnome, tmp_path / "missing") == ""

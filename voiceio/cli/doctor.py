@@ -87,7 +87,7 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         from voiceio.hints import hint
         hint("vocab_suggest", "Run 'voiceio vocab suggest' to find names it keeps mishearing")
         if args.report:
-            _share_report(args, report, missing_deps, len(perm_issues))
+            _share_report(args, report, missing_deps, [p for p, _, _ in perm_issues])
         sys.exit(0 if (report.all_ok and not perm_issues and not missing_deps) else 1)
 
     # Auto-fix mode
@@ -199,16 +199,19 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
 
     if args.report:
         _share_report(args, report, plat.check_system_deps(),
-                      len(_config.check_permissions()))
+                      [p for p, _, _ in _config.check_permissions()])
     sys.exit(0 if report.all_ok else 1)
 
 
 def _share_report(args: argparse.Namespace, report, missing_deps: list[str],
-                  perm_issues: int) -> None:
-    from voiceio.report import build_report, share
+                  perm_issues: list) -> None:
+    from voiceio.report import _interactive, ask_details, build_report, share
+    comment, works = args.comment or "", ""
+    if not comment and not args.yes and _interactive():
+        comment, works = ask_details()
     try:
         text = build_report(report, missing_deps=missing_deps, perm_issues=perm_issues,
-                            comment=args.comment or "")
+                            comment=comment, works=works)
     except Exception as e:  # noqa: BLE001 — the report must not take doctor down
         print(f"\nCould not build the report ({type(e).__name__}); nothing was posted.")
         return

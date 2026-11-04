@@ -14,6 +14,8 @@
 
 **Input methods.** IBus is the only way to get a live, underlined preview that is corrected in place on Wayland. voiceio installs its own IBus engine and only activates it while you dictate. If fcitx5 is your input method, voiceio leaves it alone and types the final text with wtype or ydotool. Terminals that ignore input methods get the clipboard.
 
+**KDE Plasma on Wayland** passes typed text only to the input method you pick. Open System Settings → Keyboard → Virtual Keyboard and choose IBus Wayland (it's saved as `InputMethod` under `[Wayland]` in `~/.config/kwinrc`). If the live preview still doesn't appear, log out and back in. Without it voiceio falls back to ydotool: the words still arrive, but without the preview. `voiceio doctor` checks this.
+
 **Hotkeys without the `input` group.** The evdev backend reads keyboards from `/dev/input`. `voiceio doctor --fix` installs a udev rule, `/etc/udev/rules.d/60-voiceio-uaccess.rules`, that grants the logged-in user access to keyboard devices. It works immediately, without logging out. The old route still works as a fallback: `sudo usermod -aG input $USER`, then log out and back in. You can also skip evdev and bind `voiceio toggle` in your compositor.
 
 **Tap or hold.** With `[hotkey] mode = "auto"` (the default) a quick tap starts recording and the next tap stops it; holding the key for `hold_ms` (1 s) or longer is push-to-talk; anything shorter counts as a tap, so a relaxed press never stops a dictation on release, and recording stops `release_tail_ms` (250 ms) after you let go. `"hold"` is always push-to-talk, `"toggle"` never. Releases are seen by evdev and pynput. A compositor shortcut running `voiceio toggle` fires on key down only, so it toggles, unless you bind the release too: Hyprland `bind = CTRL ALT, V, exec, voiceio toggle --press` plus `bindr = CTRL ALT, V, exec, voiceio toggle --release`; sway `bindsym Ctrl+Alt+v exec voiceio toggle --press` plus `bindsym --release Ctrl+Alt+v exec voiceio toggle --release`.
@@ -61,7 +63,7 @@ There is a best-effort pynput path for both (hotkeys and typing, no live preview
 
 | Problem | Fix |
 |---|---|
-| Nothing is typed | `voiceio doctor --fix`; usually the IBus component or the GNOME input source |
+| Nothing is typed | `voiceio doctor --fix`; usually the IBus component, the GNOME input source, or on KDE Wayland the Virtual Keyboard setting (above) |
 | Hotkey does nothing on Wayland | `voiceio doctor --fix` installs the keyboard udev rule, or bind `voiceio toggle` in your compositor |
 | `sounddevice is not installed` | You installed without the desktop extra: `pipx install --force 'python-voiceio[desktop]'` |
 | evdev fails to build | Install a C toolchain and Python headers (see Quickstart), then reinstall |
