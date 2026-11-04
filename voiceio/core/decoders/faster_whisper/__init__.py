@@ -134,12 +134,16 @@ class Transcriber:
 
         t0 = time.monotonic()
         ready = self._read_with_timeout(WORKER_START_TIMEOUT)
-        if ready is None or ready.strip() != "READY":
+        if ready is None or ready.split(" ", 1)[0].strip() != "READY":
             self._kill_worker()
             detail = "timed out" if ready is None else f"said {ready.strip()!r}"
             raise DecodeError(
                 f"worker failed to start ({detail} after {time.monotonic() - t0:.0f}s)"
             )
+        if fallback := ready.strip().partition("cpu-fallback: ")[2]:
+            log.warning("GPU unusable, decoding on CPU instead: %s "
+                        "(voiceio doctor shows the fix; model.device = \"cpu\" silences this)",
+                        fallback)
         elapsed = time.monotonic() - t0
         log.info("Model ready (%.1fs)", elapsed)
 

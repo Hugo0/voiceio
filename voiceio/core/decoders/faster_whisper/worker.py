@@ -135,6 +135,39 @@ def decode(model: WhisperModel, audio: np.ndarray, kwargs: dict) -> list:
                                           kwargs.get("initial_prompt"))})
 
 
+def _load_and_warm(args: dict, device: str) -> WhisperModel:
+    model = load_model(
+        args["model"], device=device, compute_type=args["compute_type"],
+        cpu_threads=int(args.get("cpu_threads") or 0),
+    )
+    # Warmup: the first transcription is always slow. It also runs the first
+    # encode, where a CUDA build missing libcublas/libcudnn actually fails.
+    segs, _ = model.transcribe(np.zeros(16000, dtype=np.float32),
+                               language=args.get("language"), beam_size=1)
+    list(segs)
+    return model
+
+
+def load_ready(args: dict) -> tuple[WhisperModel, str]:
+    """The warmed-up model, and why it fell back to CPU ("" if it didn't).
+
+    device "auto" picks CUDA whenever a GPU is visible, even when the CUDA
+    libraries CTranslate2 needs are missing (a torch for another CUDA major
+    pulled in by the train extra): that failed every start and crash-looped
+    the service. On "auto" a GPU that can't run is a CPU decode instead;
+    an explicit "cuda" still fails loudly.
+    """
+    device = args["device"]
+    try:
+        return _load_and_warm(args, device), ""
+    except Exception as e:  # noqa: BLE001
+        if device != "auto":
+            raise
+        reason = " ".join(str(e).split())[:200] or type(e).__name__
+    print(f"voiceio: GPU unusable ({reason}); decoding on CPU", file=sys.stderr, flush=True)
+    return _load_and_warm(args, "cpu"), reason
+
+
 def main() -> None:
     # A hung decode is killed by the parent after a timeout; SIGUSR1 first
     # dumps every thread's stack to stderr (worker.log) so hangs are diagnosable.
@@ -142,15 +175,8 @@ def main() -> None:
     faulthandler.register(signal.SIGUSR1, all_threads=True)
 
     args = json.loads(sys.argv[1])
-    model = load_model(
-        args["model"], device=args["device"], compute_type=args["compute_type"],
-        cpu_threads=int(args.get("cpu_threads") or 0),
-    )
-
-    # Warmup: first transcription is always slow
-    segs, _ = model.transcribe(np.zeros(16000, dtype=np.float32), language=args.get("language"), beam_size=1)
-    list(segs)
-    print("READY", flush=True)
+    model, fallback = load_ready(args)
+    print(f"READY cpu-fallback: {fallback}" if fallback else "READY", flush=True)
 
     for line in sys.stdin:
         if line.strip() == "QUIT":
