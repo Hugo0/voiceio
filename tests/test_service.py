@@ -168,3 +168,29 @@ def test_reinstalling_the_service_refreshes_learning_units_that_are_on(monkeypat
     monkeypatch.setattr(service, "refresh_learn_timer", lambda: calls.append("refresh"))
     monkeypatch.setattr(service.subprocess, "run", lambda *a, **k: None)
     assert service.install_service() and calls == ["refresh"]
+
+
+def test_slow_daemon_reload_still_enables_the_service(tmp_path, monkeypatch):
+    # Mint report: daemon-reload hit its 5s timeout and setup never ran enable.
+    import subprocess
+    from voiceio import service
+    monkeypatch.setattr(service, "has_systemd", lambda: True)
+    monkeypatch.setattr(service, "_find_voiceio_bin", lambda: "voiceio")
+    monkeypatch.setattr(service, "SERVICE_DIR", tmp_path)
+    monkeypatch.setattr(service, "SERVICE_PATH", tmp_path / service.SERVICE_NAME)
+    for name in ("install_symlinks", "uninstall_correct_timer", "refresh_learn_timer"):
+        monkeypatch.setattr(service, name, lambda: None)
+    ran = []
+
+    def run(cmd, **kw):
+        ran.append(cmd[2])
+        assert kw["timeout"] == service.SYSTEMCTL_TIMEOUT
+        if cmd[2] == "daemon-reload":
+            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+        return subprocess.CompletedProcess(cmd, 1 if cmd[2] == enable_fails else 0)
+    monkeypatch.setattr(service.subprocess, "run", run)
+    enable_fails = None
+    assert service.install_service()
+    assert ran == ["daemon-reload", "disable", "enable"]
+    enable_fails = "enable"
+    assert not service.install_service()

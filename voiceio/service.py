@@ -149,10 +149,16 @@ WantedBy=timers.target
     return service, timer
 
 
+# systemd --user can take well over 5s to answer on a busy or freshly booted
+# session (a Mint report: daemon-reload timed out and setup never enabled the
+# service).
+SYSTEMCTL_TIMEOUT = 30
+
+
 def _systemctl(*args: str) -> bool:
     try:
         return subprocess.run(["systemctl", "--user", *args], capture_output=True,
-                              timeout=10).returncode == 0
+                              timeout=SYSTEMCTL_TIMEOUT).returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
 
@@ -233,7 +239,7 @@ def uninstall_correct_timer() -> None:
         return
     try:
         subprocess.run(["systemctl", "--user", "disable", "--now", CORRECT_TIMER_NAME],
-                       capture_output=True, timeout=5)
+                       capture_output=True, timeout=SYSTEMCTL_TIMEOUT)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     for p in (CORRECT_TIMER_PATH, CORRECT_SERVICE_PATH):
@@ -291,30 +297,23 @@ def install_service() -> bool:
     SERVICE_PATH.write_text(_service_unit(bin_path))
     log.info("Installed systemd service to %s", SERVICE_PATH)
 
-    try:
-        subprocess.run(
-            ["systemctl", "--user", "daemon-reload"],
-            capture_output=True, timeout=5,
-        )
-        # disable before enable so a prior [Install] target (older versions
-        # wired WantedBy=default.target, which never restarts the service on a
-        # GNOME logout/login) is unlinked instead of left as a stale want.
-        subprocess.run(
-            ["systemctl", "--user", "disable", SERVICE_NAME],
-            capture_output=True, timeout=5,
-        )
-        subprocess.run(
-            ["systemctl", "--user", "enable", SERVICE_NAME],
-            capture_output=True, timeout=5,
-        )
-        log.info("Enabled %s", SERVICE_NAME)
-        uninstall_correct_timer()
-        refresh_learn_timer()
-        install_symlinks()  # the CLI must run the same install as the service
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("Could not enable service: %s", e)
+    # Each step on its own: a slow daemon-reload is worth a warning, not a
+    # reason to skip enabling (enable reloads the unit it links anyway).
+    if not _systemctl("daemon-reload"):
+        log.warning("systemctl --user daemon-reload failed or timed out; enabling anyway")
+    # disable before enable so a prior [Install] target (older versions
+    # wired WantedBy=default.target, which never restarts the service on a
+    # GNOME logout/login) is unlinked instead of left as a stale want.
+    _systemctl("disable", SERVICE_NAME)
+    if not _systemctl("enable", SERVICE_NAME):
+        log.warning("Could not enable %s: run `systemctl --user enable %s`",
+                    SERVICE_NAME, SERVICE_NAME)
         return False
+    log.info("Enabled %s", SERVICE_NAME)
+    uninstall_correct_timer()
+    refresh_learn_timer()
+    install_symlinks()  # the CLI must run the same install as the service
+    return True
 
 
 def uninstall_service() -> bool:
@@ -325,11 +324,11 @@ def uninstall_service() -> bool:
     try:
         subprocess.run(
             ["systemctl", "--user", "disable", SERVICE_NAME],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=SYSTEMCTL_TIMEOUT,
         )
         subprocess.run(
             ["systemctl", "--user", "stop", SERVICE_NAME],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=SYSTEMCTL_TIMEOUT,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
@@ -343,7 +342,7 @@ def uninstall_service() -> bool:
     try:
         subprocess.run(
             ["systemctl", "--user", "daemon-reload"],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=SYSTEMCTL_TIMEOUT,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
@@ -388,7 +387,7 @@ def start_service() -> bool:
     try:
         result = subprocess.run(
             ["systemctl", "--user", "start", SERVICE_NAME],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=SYSTEMCTL_TIMEOUT,
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
