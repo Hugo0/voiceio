@@ -86,6 +86,10 @@ def main() -> None:
     doctor_item.connect("activate", _emit("menu:doctor"))
     menu.append(doctor_item)
 
+    report_item = Gtk.MenuItem(label="Report a problem...")
+    report_item.connect("activate", _emit("menu:report"))
+    menu.append(report_item)
+
     logs_item = Gtk.MenuItem(label="View logs...")
     logs_item.connect("activate", _emit("menu:logs"))
     menu.append(logs_item)

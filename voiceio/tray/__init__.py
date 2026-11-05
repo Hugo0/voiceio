@@ -127,6 +127,7 @@ _MENU_COMMANDS: dict[str, list[str]] = {
     "history": ["voiceio", "history"],
     "demo": ["voiceio", "demo"],
     "doctor": ["voiceio", "doctor"],
+    "report": ["voiceio", "doctor", "--report"],
     "logs": ["voiceio", "service", "logs"],
 }
 

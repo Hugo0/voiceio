@@ -125,6 +125,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
     logging.basicConfig(level=logging.DEBUG, handlers=[console, file_handler])
     logging.getLogger("voiceio").setLevel(getattr(logging, cfg.daemon.log_level))
+    from voiceio.errorlog import RepeatedErrorNotifier
+    logging.getLogger("voiceio").addHandler(RepeatedErrorNotifier())
 
     log = logging.getLogger("voiceio")
     from voiceio import __version__, platform as plat
@@ -215,7 +217,8 @@ def _entry_point() -> None:
             with open(LOG_DIR / "crash.log", "a", encoding="utf-8") as f:
                 f.write(f"\n===== {datetime.datetime.now().isoformat()} =====\n"
                         f"argv: {sys.argv}\n{tb}")
-            print(f"\n[voiceio crashed — traceback in {LOG_DIR / 'crash.log'}]", file=sys.stderr)
+            print(f"\n[voiceio crashed — traceback in {LOG_DIR / 'crash.log'}]\n"
+                  "Report it: voiceio doctor --report", file=sys.stderr)
         except Exception:  # noqa: BLE001 — last resort
             pass
         print(tb, file=sys.stderr)

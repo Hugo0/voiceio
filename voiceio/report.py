@@ -133,6 +133,7 @@ def build_report(
     perm_issues: Sequence[Path] = (),
     comment: str = "",
     works: str = "",
+    last_error: str = "",
     cfg=None,
 ) -> str:
     """The exact public text: short, plain, and scrubbed."""
@@ -197,6 +198,8 @@ def build_report(
     lines.append("failed: " + "; ".join(failed) if failed else "failed: none")
     if warned:
         lines.append("warnings: " + "; ".join(warned))
+    if last_error:
+        lines.append(f"last error: {_short(last_error)}")
     comment = "".join(c if c.isprintable() else " " for c in _ESCAPE.sub("", comment))
     if works in WORKS:
         lines.append(f"works: {works}")
@@ -305,6 +308,7 @@ def gather(comment: str = "") -> tuple[HealthReport, str]:
     """Run the doctor checks and build the report from them."""
     from voiceio import config
     from voiceio import platform as plat
+    from voiceio.errorlog import last_error
     from voiceio.health import check_health
     health = check_health()
     return health, build_report(
@@ -312,6 +316,7 @@ def gather(comment: str = "") -> tuple[HealthReport, str]:
         missing_deps=plat.check_system_deps(),
         perm_issues=[p for p, _, _ in config.check_permissions()],
         comment=comment,
+        last_error=last_error(),
     )
 
 

@@ -86,9 +86,10 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
             print("Run 'voiceio doctor --fix' to tighten file permissions.")
         from voiceio.hints import hint
         hint("vocab_suggest", "Run 'voiceio vocab suggest' to find names it keeps mishearing")
-        if args.report:
+        healthy = report.all_ok and not perm_issues and not missing_deps
+        if args.report or _offer_report(args, healthy and not report.warnings):
             _share_report(args, report, missing_deps, [p for p, _, _ in perm_issues])
-        sys.exit(0 if (report.all_ok and not perm_issues and not missing_deps) else 1)
+        sys.exit(0 if healthy else 1)
 
     # Auto-fix mode
     print("\nAttempting fixes...\n")
@@ -197,21 +198,35 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         report = check_health()
         print(format_report(report))
 
-    if args.report:
-        _share_report(args, report, plat.check_system_deps(),
-                      [p for p, _, _ in _config.check_permissions()])
+    missing_deps = plat.check_system_deps()
+    perm_issues = _config.check_permissions()
+    healthy = report.all_ok and not perm_issues and not missing_deps and not report.warnings
+    if args.report or _offer_report(args, healthy):
+        _share_report(args, report, missing_deps, [p for p, _, _ in perm_issues])
     sys.exit(0 if report.all_ok else 1)
+
+
+def _offer_report(args: argparse.Namespace, healthy: bool) -> bool:
+    """After a failed check, in a terminal, ask once whether to share a
+    report (default no). The report is still shown before it is posted."""
+    from voiceio.report import _ask, _interactive
+    if healthy or args.yes or not _interactive():
+        return False
+    answer = _ask("\nSomething isn't working. Post a report to the public feedback board? "
+                  "You'll see it first. [y/N] ")
+    return answer.strip().lower() in ("y", "yes")
 
 
 def _share_report(args: argparse.Namespace, report, missing_deps: list[str],
                   perm_issues: list) -> None:
+    from voiceio.errorlog import last_error
     from voiceio.report import _interactive, ask_details, build_report, share
     comment, works = args.comment or "", ""
     if not comment and not args.yes and _interactive():
         comment, works = ask_details()
     try:
         text = build_report(report, missing_deps=missing_deps, perm_issues=perm_issues,
-                            comment=comment, works=works)
+                            comment=comment, works=works, last_error=last_error())
     except Exception as e:  # noqa: BLE001 — the report must not take doctor down
         print(f"\nCould not build the report ({type(e).__name__}); nothing was posted.")
         return

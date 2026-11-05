@@ -61,6 +61,7 @@ def start(
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Demo...", _open_terminal("demo")),
             pystray.MenuItem("Doctor...", _open_terminal("doctor")),
+            pystray.MenuItem("Report a problem...", _open_terminal("report")),
             pystray.MenuItem("View logs...", _open_terminal("logs")),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda: quit_callback()),
