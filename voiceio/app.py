@@ -1076,6 +1076,10 @@ class VoiceIO:
                 self._tts_engine.shutdown()
             self._idle_audio.shutdown()
             self.recorder.close_stream()
+            # Lets a cue still playing finish: PortAudio torn down at exit
+            # under a write corrupts the heap (ABRT on stop after a dictation).
+            from voiceio import feedback
+            feedback.close_cue_stream()
             self._quiet.close()
             self.decoder.close()
             tray.stop()

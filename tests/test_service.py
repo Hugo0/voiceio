@@ -96,6 +96,25 @@ def test_daemon_publishes_state_and_restart_waits_for_idle(monkeypatch):
     assert not wait_until_idle(timeout=60, poll=0.05, finalizing_timeout=0.2)
 
 
+def test_restart_after_a_long_recording_still_waits_for_its_finalize(monkeypatch):
+    """The finalize budget counts from when finalizing starts: a recording
+    longer than it must not make the restart skip the finalize (11-02)."""
+    import threading
+
+    from voiceio import config, pidlock
+    from voiceio.app import VoiceIO, _State
+    from voiceio.cli.servicecmd import wait_until_idle
+
+    vio = VoiceIO.__new__(VoiceIO)
+    vio._publishes_state = True
+    vio._state = _State.RECORDING
+    monkeypatch.setattr(pidlock, "daemon_alive", lambda path: True)
+    threading.Timer(0.4, lambda: setattr(vio, "_state", _State.FINALIZING)).start()
+    threading.Timer(0.7, lambda: setattr(vio, "_state", _State.IDLE)).start()
+    assert wait_until_idle(timeout=5, poll=0.05, finalizing_timeout=0.5)
+    assert config.STATE_PATH.read_text() == "idle"
+
+
 def test_daemon_alive_probes_the_pid_lock(tmp_path):
     import fcntl
 

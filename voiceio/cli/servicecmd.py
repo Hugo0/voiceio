@@ -96,6 +96,7 @@ def wait_until_idle(timeout: float = 300.0, poll: float = 0.25,
     from voiceio.config import PID_PATH, STATE_PATH
     from voiceio.pidlock import daemon_alive
     start, told = time.monotonic(), False
+    seen, since = None, start
     try:
         while True:
             if not daemon_alive(PID_PATH):
@@ -106,8 +107,13 @@ def wait_until_idle(timeout: float = 300.0, poll: float = 0.25,
                 return True      # pre-1.1 daemon: nothing to wait for
             if state in ("idle", "error"):
                 return True
-            waited = time.monotonic() - start
-            if waited > (finalizing_timeout if state == "finalizing" else timeout):
+            now = time.monotonic()
+            if state != seen:
+                seen, since = state, now
+            # A finalize's budget starts when it does: after a long recording
+            # the total wait already exceeds it.
+            if (now - since > finalizing_timeout if state == "finalizing"
+                    else now - start > timeout):
                 print(f"Still {state}; going ahead. (--now skips the wait.)", file=sys.stderr)
                 return False
             if not told:
