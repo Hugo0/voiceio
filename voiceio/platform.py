@@ -243,6 +243,71 @@ _INSTALL_CMDS: dict[str, str] = {
     "brew": "brew install",
 }
 
+# A package manager asks "continue? [Y/n]" on stdin; with no terminal to
+# answer it the install aborts. Only added when the caller has no terminal and
+# the user already said yes (setup --install-deps, a doctor --fix prompt).
+_ASSUME_YES: dict[str, str] = {
+    "apt": "-y", "apt-get": "-y", "dnf": "-y", "zypper": "-y",
+    "pacman": "--noconfirm", "xbps-install": "-y",
+}
+
+
+def _has_tty() -> bool:
+    """Can sudo ask for a password here? It reads /dev/tty, not stdin."""
+    try:
+        fd = os.open("/dev/tty", os.O_RDWR)
+    except OSError:
+        return False
+    os.close(fd)
+    return True
+
+
+def _sudo_without_password() -> bool:
+    """Cached credentials or NOPASSWD: sudo works with no terminal."""
+    import subprocess
+    try:
+        return subprocess.run(["sudo", "-n", "true"], capture_output=True,
+                              timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _assume_yes(argv: list[str]) -> list[str]:
+    """`apt install x` -> `apt install -y x` (flag after the subcommand)."""
+    flag = _ASSUME_YES.get(os.path.basename(argv[0])) if argv else None
+    if not flag or flag in argv or len(argv) < 2:
+        return argv
+    return [argv[0], argv[1], flag, *argv[2:]]
+
+
+def privileged_argv(argv: list[str]) -> list[str] | None:
+    """How to run a command that needs root from here, or None if it can't be.
+
+    A command needs root when it starts with sudo or is a shell script that
+    calls sudo (the udev-rule fixes). With a terminal it runs unchanged and
+    sudo asks for the password. Without one (setup driven by an agent, a
+    launcher, a GUI) sudo cannot ask: passwordless or cached sudo still works;
+    else pkexec, whose polkit agent shows the desktop's password dialog (a
+    script under pkexec runs as root, where its inner sudo needs no password);
+    else None, and the caller prints the command for the user to run.
+    Ask the user before calling this: it never asks.
+    """
+    if not argv:
+        return argv
+    direct = argv[0] == "sudo"
+    if not direct and not any("sudo " in a for a in argv[1:]):
+        return argv
+    if _has_tty():
+        return argv
+    rest = _assume_yes(argv[1:]) if direct else argv
+    if _sudo_without_password():
+        return ["sudo", "-n", *rest] if direct else argv
+    if shutil.which("pkexec") and (os.environ.get("WAYLAND_DISPLAY")
+                                   or os.environ.get("DISPLAY")):
+        return ["pkexec", *rest]
+    return None
+
+
 # Package name overrides per package manager (when they differ from apt names)
 _PKG_NAMES: dict[str, dict[str, str]] = {
     "dnf": {

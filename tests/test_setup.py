@@ -280,3 +280,108 @@ def test_setup_offers_nightly_learning_once(monkeypatch):
     steps._offer_nightly_learning(state)
     steps._offer_nightly_learning(state)      # already on: not asked again
     assert installed == [1] and len(asked) == 1
+
+
+# ── root commands with no terminal (agent, launcher, GUI) ────────────
+
+def _no_terminal(monkeypatch, *, sudo_cached=False, pkexec=True, display=True):
+    monkeypatch.setattr(plat, "_has_tty", lambda: False)
+    monkeypatch.setattr(plat, "_sudo_without_password", lambda: sudo_cached)
+    monkeypatch.setattr(plat.shutil, "which",
+                        lambda name: "/usr/bin/pkexec" if pkexec and name == "pkexec" else None)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    if display:
+        monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    else:
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+
+def test_privileged_argv_unchanged_with_a_terminal(monkeypatch):
+    monkeypatch.setattr(plat, "_has_tty", lambda: True)
+    argv = ["sudo", "apt", "install", "ibus"]
+    assert plat.privileged_argv(argv) == argv
+
+
+def test_privileged_argv_leaves_unprivileged_commands_alone(monkeypatch):
+    _no_terminal(monkeypatch, pkexec=False)
+    assert plat.privileged_argv(["brew", "install", "x"]) == ["brew", "install", "x"]
+
+
+def test_privileged_argv_uses_pkexec_without_a_terminal(monkeypatch):
+    _no_terminal(monkeypatch)
+    assert plat.privileged_argv(["sudo", "apt", "install", "ibus", "gcc"]) == [
+        "pkexec", "apt", "install", "-y", "ibus", "gcc"]
+    assert plat.privileged_argv(["sudo", "pacman", "-S", "ibus"]) == [
+        "pkexec", "pacman", "-S", "--noconfirm", "ibus"]
+
+
+def test_privileged_argv_runs_shell_scripts_with_inner_sudo_under_pkexec(monkeypatch):
+    _no_terminal(monkeypatch)
+    script = ["sh", "-c", "printf x | sudo tee /etc/udev/rules.d/r > /dev/null"]
+    assert plat.privileged_argv(script) == ["pkexec", *script]
+
+
+def test_privileged_argv_prefers_cached_sudo(monkeypatch):
+    _no_terminal(monkeypatch, sudo_cached=True)
+    assert plat.privileged_argv(["sudo", "apt", "install", "x"]) == [
+        "sudo", "-n", "apt", "install", "-y", "x"]
+
+
+@pytest.mark.parametrize("pkexec,display", [(False, True), (True, False)])
+def test_privileged_argv_gives_up_without_pkexec_or_desktop(monkeypatch, pkexec, display):
+    _no_terminal(monkeypatch, pkexec=pkexec, display=display)
+    assert plat.privileged_argv(["sudo", "apt", "install", "x"]) is None
+
+
+def test_noninteractive_install_deps_without_terminal_prints_command(cfg_paths, monkeypatch, capsys):
+    _patch_noninteractive(monkeypatch)
+    monkeypatch.setattr("voiceio.platform.check_system_deps", lambda: ["portaudio"])
+    monkeypatch.setattr(plat, "system_deps_install_cmd", lambda keys: "sudo apt install libportaudio2")
+    monkeypatch.setattr(plat, "privileged_argv", lambda argv: None)
+    ran = []
+    monkeypatch.setattr(noninteractive.subprocess, "run", lambda *a, **k: ran.append(a))
+    code = noninteractive.run_setup_noninteractive({}, install_deps=True)
+    assert code == 4
+    assert ran == []
+    assert "sudo apt install libportaudio2" in capsys.readouterr().out
+
+
+def test_noninteractive_install_deps_runs_pkexec_argv(cfg_paths, monkeypatch):
+    _patch_noninteractive(monkeypatch)
+    state = {"missing": ["portaudio"]}
+    monkeypatch.setattr("voiceio.platform.check_system_deps", lambda: state["missing"])
+    monkeypatch.setattr(plat, "system_deps_install_cmd", lambda keys: "sudo apt install libportaudio2")
+    _no_terminal(monkeypatch)
+    ran = []
+
+    class _Done:
+        returncode = 0
+
+    def fake_run(argv, **kw):
+        ran.append(argv)
+        state["missing"] = []
+        return _Done()
+
+    monkeypatch.setattr(noninteractive.subprocess, "run", fake_run)
+    assert noninteractive.run_setup_noninteractive({}, install_deps=True) == 0
+    assert ran == [["pkexec", "apt", "install", "-y", "libportaudio2"]]
+
+
+def test_doctor_privileged_fix_asks_first_and_never_runs_when_declined(monkeypatch):
+    from voiceio.cli import doctor
+    ran = []
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: ran.append(a))
+    monkeypatch.setattr(doctor, "_confirm_privileged", lambda d, c: False)
+    assert doctor._run_privileged("Fix x", ["sudo", "true"], 5) is None
+    assert ran == []
+
+
+def test_doctor_privileged_fix_without_terminal_prints_command(monkeypatch, capsys):
+    from voiceio.cli import doctor
+    ran = []
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: ran.append(a))
+    monkeypatch.setattr(doctor, "_confirm_privileged", lambda d, c: True)
+    monkeypatch.setattr(plat, "privileged_argv", lambda argv: None)
+    assert doctor._run_privileged("Fix x", ["sudo", "udevadm", "trigger"], 5) is False
+    assert ran == []
+    assert "sudo udevadm trigger" in capsys.readouterr().out

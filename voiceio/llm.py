@@ -87,12 +87,14 @@ def install_ollama(*, cpu_only: bool | None = None) -> bool:
     try:
         if cpu_only:
             # Direct binary download (~60 MB) — skip GPU libraries
-            result = subprocess.run(
+            from voiceio.platform import privileged_argv
+            argv = privileged_argv(
                 ["sudo", "bash", "-c",
                  "curl -fL https://ollama.com/download/ollama-linux-amd64 "
-                 "-o /usr/local/bin/ollama && chmod +x /usr/local/bin/ollama"],
-                timeout=120,
-            )
+                 "-o /usr/local/bin/ollama && chmod +x /usr/local/bin/ollama"])
+            if argv is None:   # no terminal for sudo and no pkexec
+                return False
+            result = subprocess.run(argv, timeout=120)
         else:
             # Full install with GPU libraries (~800 MB)
             result = subprocess.run(

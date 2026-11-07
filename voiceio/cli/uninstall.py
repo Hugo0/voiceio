@@ -165,8 +165,13 @@ def _cmd_uninstall() -> None:
                 continue
             cmd = f"sudo rm {rule_path}"
             if _confirm_privileged(f"Remove the voiceio {what} udev rule", cmd):
+                from voiceio.platform import privileged_argv
+                argv = privileged_argv(["sudo", "rm", rule_path])
+                if argv is None:
+                    print(f"  No terminal for sudo to ask your password. Run manually: {cmd}")
+                    continue
                 try:
-                    subprocess.run(["sudo", "rm", rule_path], timeout=30)
+                    subprocess.run(argv, timeout=120)
                     removed.append(rule_path)
                 except (FileNotFoundError, subprocess.TimeoutExpired):
                     print(f"  Failed. Run manually: {cmd}")

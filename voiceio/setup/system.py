@@ -157,9 +157,14 @@ def _preflight_deps(interactive: bool = True, install_deps: bool = False) -> Non
             print(f"  {DIM}Run the command above, then re-run setup.{RESET}")
         return
 
-    print(f"\n  {CYAN}Running:{RESET} {cmd}\n")
+    argv = plat.privileged_argv(cmd.split())
+    if argv is None:
+        print(f"  {YELLOW}⚠{RESET}  No terminal for sudo to ask your password, and no pkexec.")
+        print(f"  {DIM}Run the command above yourself, then re-run setup.{RESET}")
+        return
+    print(f"\n  {CYAN}Running:{RESET} {' '.join(argv)}\n")
     try:
-        result = subprocess.run(cmd.split(), timeout=600)
+        result = subprocess.run(argv, timeout=600)
         if result.returncode == 0:
             print(f"\n  {GREEN}✓{RESET} System dependencies installed.")
             # Some deps (evdev build) only take effect on a fresh Python process.

@@ -76,9 +76,13 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
         cmd = plat.system_deps_install_cmd(missing)
         _progress("preflight", status="missing", deps=",".join(missing), cmd=repr(cmd))
         if install_deps or answers.get("install_system_deps"):
-            _progress("preflight", status="installing")
+            argv = plat.privileged_argv(cmd.split())
+            if argv is None:
+                return _fail("preflight", "no terminal for sudo to ask a password and no "
+                             f"pkexec: run it yourself, then re-run setup: {cmd}", 4)
+            _progress("preflight", status="installing", cmd=repr(" ".join(argv)))
             try:
-                rc = subprocess.run(cmd.split(), timeout=600).returncode
+                rc = subprocess.run(argv, timeout=600).returncode
             except (FileNotFoundError, subprocess.TimeoutExpired) as e:
                 return _fail("preflight", f"installer failed: {e}", 4)
             if rc != 0:

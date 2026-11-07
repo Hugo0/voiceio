@@ -42,6 +42,35 @@ def _confirm_privileged(description: str, command_str: str) -> bool:
     return answer in ("y", "yes")
 
 
+def _run_privileged(description: str, argv: list[str], timeout: float,
+                    cmd_str: str | None = None) -> bool | None:
+    """Ask first, then run a root command: sudo with a terminal, else pkexec
+    (see platform.privileged_argv), else print it for the user to run.
+
+    Returns True when it ran, False when it failed or could not run, None
+    when the user declined. Raises nothing.
+    """
+    import shlex
+    import subprocess
+
+    from voiceio import platform as plat
+    cmd_str = cmd_str or shlex.join(argv)
+    if not _confirm_privileged(description, cmd_str):
+        return None
+    run_argv = plat.privileged_argv(argv)
+    if run_argv is None:
+        print("  No terminal for sudo to ask your password, and no pkexec. Run it yourself:")
+        print(f"    {cmd_str}")
+        return False
+    try:
+        subprocess.run(run_argv, check=True, timeout=timeout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"  Failed: {e} — run the command above manually.")
+        return False
+    print("  Done.")
+    return True
+
+
 def _cmd_doctor(args: argparse.Namespace) -> None:
     """Run diagnostic health check, offer to fix issues."""
     if not sys.platform.startswith("linux"):
@@ -96,12 +125,17 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     import subprocess
 
     if missing_deps and dep_cmd:
-        print(f"  Fixing system packages: {dep_cmd}")
-        try:
-            subprocess.run(dep_cmd.split(), check=True, timeout=600)
-            print("  Done.")
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-            print(f"  Failed: {e} — run the command above manually.")
+        if dep_cmd.startswith("sudo "):
+            if _run_privileged("Install system packages", dep_cmd.split(), 600,
+                               cmd_str=dep_cmd) is None:
+                print("  Skipped system packages (declined).")
+        else:
+            print(f"  Fixing system packages: {dep_cmd}")
+            try:
+                subprocess.run(dep_cmd.split(), check=True, timeout=600)
+                print("  Done.")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"  Failed: {e} — run the command above manually.")
 
     fixed_any = False
 
@@ -114,11 +148,12 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         if not b.ok and b.fix_cmd:
             cmd_str = " ".join(b.fix_cmd)
             if _is_privileged_cmd(b.fix_cmd):
-                if not _confirm_privileged(f"Fix {b.name}", cmd_str):
+                ran = _run_privileged(f"Fix {b.name}", b.fix_cmd, 120, cmd_str=cmd_str)
+                if ran is None:
                     print(f"  Skipped {b.name} (declined).")
-                    continue
-            else:
-                print(f"  Fixing {b.name}: {cmd_str}")
+                fixed_any = fixed_any or bool(ran)
+                continue
+            print(f"  Fixing {b.name}: {cmd_str}")
             try:
                 subprocess.run(b.fix_cmd, check=True, timeout=30)
                 print("  Done.")
