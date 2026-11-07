@@ -28,6 +28,7 @@ from pathlib import Path
 
 from voiceio.core.decoders.base import Bias, Decoder
 from voiceio.learn import metrics
+from voiceio import config
 from voiceio.learn.store import learn_dir, read_split
 from voiceio.learn.teacher import load_wav
 
@@ -146,8 +147,7 @@ def _replay(decoder: Decoder, audio, bias: Bias, freeze_secs: float,
 
 
 def save(result: EvalResult) -> Path:
-    runs = learn_dir() / "runs"
-    runs.mkdir(parents=True, exist_ok=True)
+    runs = config.private_dir(learn_dir() / "runs")
     path = runs / f"eval-{time.strftime('%Y%m%d-%H%M%S')}.json"
     data = asdict(result) | {"wer": result.wer, "term_recall": result.term_recall,
                              "rtf": result.rtf, "metrics": metrics.METRICS_VERSION}

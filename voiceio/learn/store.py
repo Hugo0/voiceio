@@ -32,9 +32,7 @@ SPLITS = ("train", "dev", "test")
 
 
 def learn_dir() -> Path:
-    base = os.environ.get("XDG_DATA_HOME", "")
-    root = Path(base) if os.path.isabs(base) else Path.home() / ".local" / "share"
-    return root / "voiceio" / "learn"
+    return config.data_dir() / "learn"
 
 
 def labels_path() -> Path:
@@ -174,8 +172,7 @@ def add_label(audio: str, segments: list[Segment] | tuple[Segment, ...],
               source: str) -> Label:
     lab = Label(audio=audio, segments=tuple(segments), source=source, ts=time.time())
     path = labels_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    config._chmod(path.parent, config._SECURE_DIR)
+    config.private_dir(path.parent)
     new = not path.exists()
     with open(path, "a", encoding="utf-8") as f:
         f.write(lab.to_json() + "\n")
@@ -293,8 +290,7 @@ def build_dataset(*, reviewed_only: bool = False) -> Path:
                      for p in group if p.text.strip()]
             rows[split].append({**base, "start": w.start, "end": w.end, "text": w.text,
                                 "parts": parts})
-    root = learn_dir() / "datasets"
-    root.mkdir(parents=True, exist_ok=True)
+    root = config.private_dir(learn_dir() / "datasets")
     existing = sorted(p.name for p in root.glob("v[0-9]*"))
     version = f"v{int(existing[-1][1:]) + 1:04d}" if existing else "v0001"
     # Built aside and moved into place whole: a build that is stopped halfway

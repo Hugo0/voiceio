@@ -95,7 +95,8 @@ def refresh_stale_launcher() -> bool:
 
 
 def _write_launcher() -> None:
-    LAUNCHER_DIR.mkdir(parents=True, exist_ok=True)
+    from voiceio.config import private_dir
+    private_dir(LAUNCHER_DIR)
     LAUNCHER_PATH.write_text(_launcher_script())
     LAUNCHER_PATH.chmod(LAUNCHER_PATH.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 

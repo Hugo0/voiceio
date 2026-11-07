@@ -156,7 +156,8 @@ class RepeatedErrorNotifier(logging.Handler):
                 fire = len(seen[key]) >= REPEATS and state.get("notified") != today
                 if fire:
                     state["notified"] = today
-                self._path.parent.mkdir(parents=True, exist_ok=True)
+                from voiceio.config import private_dir
+                private_dir(self._path.parent)
                 self._path.write_text(json.dumps(state))
             if fire:
                 notify = self._notify

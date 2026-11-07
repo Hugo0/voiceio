@@ -53,8 +53,7 @@ def save_audio(audio: np.ndarray, ts: float, cfg: DataConfig) -> str | None:
     name = time.strftime("%Y%m%d-%H%M%S", time.localtime(ts)) + f"-{int(ts * 1000) % 1000:03d}.wav"
     path = RECORDINGS_DIR / name
     try:
-        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
-        config._chmod(RECORDINGS_DIR, config._SECURE_DIR)
+        config.private_dir(RECORDINGS_DIR)
         pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
         with wave.open(str(path), "wb") as wf:
             wf.setnchannels(1)
@@ -126,8 +125,7 @@ def append_jsonl(path: Path, entry: dict) -> None:
     on a disk the min_free_gb floor is trying to protect.
     """
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        config._chmod(path.parent, config._SECURE_DIR)
+        config.private_dir(path.parent)
         newly_created = not path.exists()
         if not newly_created and path.stat().st_size > _JSONL_MAX_BYTES:
             lines = path.read_text(encoding="utf-8").splitlines(keepends=True)

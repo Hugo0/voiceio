@@ -63,7 +63,8 @@ class VocabStats:
     def save(self) -> None:
         p = self.path
         try:
-            p.parent.mkdir(parents=True, exist_ok=True)
+            from voiceio import config
+            config.private_dir(p.parent)
             tmp = p.with_suffix(".tmp")
             tmp.write_text(json.dumps(self._stats, indent=1), encoding="utf-8")
             tmp.replace(p)

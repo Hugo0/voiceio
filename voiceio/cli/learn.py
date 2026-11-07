@@ -536,7 +536,8 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     from voiceio.learn import quiet
     learn_cfg = _maintain_settings(args)
     if getattr(args, "when_idle", False) and os.environ.get(quiet.WORKER_ENV) != "1":
-        store.learn_dir().mkdir(parents=True, exist_ok=True)
+        from voiceio.config import private_dir
+        private_dir(store.learn_dir())
         code = quiet.run_while_away(
             quiet.worker_argv(), max_load=learn_cfg.max_load,
             away_minutes=learn_cfg.away_minutes, wait_hours=learn_cfg.wait_hours,

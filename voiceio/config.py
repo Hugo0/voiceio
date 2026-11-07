@@ -455,9 +455,17 @@ def _content_files() -> list[Path]:
     ]
 
 
+def data_dir() -> Path:
+    """$XDG_DATA_HOME/voiceio: the learning corpus and the IBus launcher.
+    Read at call time, like the learn paths built on it."""
+    base = os.environ.get("XDG_DATA_HOME", "")
+    root = Path(base) if os.path.isabs(base) else Path.home() / ".local" / "share"
+    return root / "voiceio"
+
+
 def _content_dirs() -> list[Path]:
     """Directories that hold user content (0700)."""
-    return [CONFIG_DIR, LOG_DIR, RECORDINGS_DIR]
+    return [CONFIG_DIR, LOG_DIR, RECORDINGS_DIR, data_dir(), data_dir() / "learn"]
 
 
 def _chmod(path: Path, mode: int) -> None:
@@ -470,6 +478,33 @@ def _chmod(path: Path, mode: int) -> None:
         log.debug("Could not chmod %s", path, exc_info=True)
 
 
+def private_dir(path: Path) -> Path:
+    """Create `path` (and any missing parents) as 0700 and return it.
+
+    `mkdir(parents=True)` gives every new directory the umask's mode, which
+    is 0775 under the 002 umask of user-private-group distros (Debian,
+    Fedora): the state dir was group-readable until the daemon's startup
+    hardening caught up, and never fixed when only setup, doctor or the CLI
+    ran. Missing parents (e.g. ~/.local/state) get 0700 too, as the XDG
+    base directory spec asks. Existing parents are left alone.
+    """
+    missing: list[Path] = []
+    p = path
+    while not p.exists() and p.parent != p:
+        missing.append(p)
+        p = p.parent
+    for d in reversed(missing):
+        try:
+            d.mkdir(mode=_SECURE_DIR)
+        except FileExistsError:
+            pass
+        _chmod(d, _SECURE_DIR)   # mkdir's mode is masked by the umask
+    if (not missing and sys.platform != "win32" and path.is_dir()
+            and stat.S_IMODE(path.stat().st_mode) != _SECURE_DIR):
+        _chmod(path, _SECURE_DIR)
+    return path
+
+
 def secure_write(path: Path, text: str, *, encoding: str = "utf-8") -> None:
     """Write text to a file guaranteed to be 0600 with a 0700 parent dir.
 
@@ -477,8 +512,7 @@ def secure_write(path: Path, text: str, *, encoding: str = "utf-8") -> None:
     over the target, so there is no world-readable window and a crash never
     leaves a half-written file.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _chmod(path.parent, _SECURE_DIR)
+    private_dir(path.parent)
     tmp = path.with_name(f".{path.name}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _SECURE_FILE)
     try:

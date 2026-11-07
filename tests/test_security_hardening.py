@@ -85,6 +85,94 @@ def test_check_permissions_flags_loose_and_clears_after_harden(tmp_path, monkeyp
     assert config.check_permissions() == []
 
 
+@pytest.fixture
+def umask_002():
+    """The user-private-group umask of Debian/Fedora desktops: plain mkdir
+    gives 0775, which is how the reported ~/.local/state/voiceio got there."""
+    import os
+    old = os.umask(0o002)
+    try:
+        yield
+    finally:
+        os.umask(old)
+
+
+@posix_only
+def test_private_dir_creates_0700_with_missing_parents(tmp_path, umask_002):
+    (tmp_path / "home").mkdir(mode=0o755)
+    target = tmp_path / "home" / ".local" / "state" / "voiceio"
+    assert config.private_dir(target) == target
+    assert _mode(target) == 0o700
+    assert _mode(target.parent) == 0o700          # XDG: created dirs are 0700
+    assert _mode(tmp_path / "home") == 0o755      # existing parents untouched
+
+
+@posix_only
+def test_private_dir_tightens_existing_lax_dir(tmp_path):
+    d = tmp_path / "voiceio"
+    d.mkdir()
+    d.chmod(0o775)
+    config.private_dir(d)
+    assert _mode(d) == 0o700
+
+
+@posix_only
+def test_crash_log_dir_is_private(tmp_path, monkeypatch, umask_002, capsys):
+    from voiceio import cli
+    log_dir = tmp_path / "state" / "voiceio"
+    monkeypatch.setattr(config, "LOG_DIR", log_dir)
+
+    def boom():
+        raise RuntimeError("crash before logging")
+
+    monkeypatch.setattr(cli, "main", boom)
+    with pytest.raises(SystemExit):
+        cli._entry_point()
+    assert (log_dir / "crash.log").exists()
+    assert _mode(log_dir) == 0o700
+    assert _mode(log_dir.parent) == 0o700
+
+
+@posix_only
+def test_error_notifier_state_dir_is_private(tmp_path, umask_002):
+    import logging
+    from voiceio.errorlog import RepeatedErrorNotifier
+    state = tmp_path / "state" / "voiceio" / "error-notify.json"
+    handler = RepeatedErrorNotifier(state_path=state, notify=lambda *a, **k: None)
+    handler.emit(logging.LogRecord("voiceio.x", logging.ERROR, __file__, 1, "boom", (), None))
+    assert state.exists()
+    assert _mode(state.parent) == 0o700
+
+
+@posix_only
+def test_secure_write_missing_parents_are_private(tmp_path, umask_002):
+    target = tmp_path / "config" / "voiceio" / "config.toml"
+    config.secure_write(target, "x = 1\n")
+    assert _mode(target.parent) == 0o700
+    assert _mode(target.parent.parent) == 0o700
+
+
+@posix_only
+def test_label_store_dirs_are_private(tmp_path, monkeypatch, umask_002):
+    from voiceio.learn import store
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+    store.add_label("a.wav", [], source="test")
+    assert _mode(store.learn_dir()) == 0o700
+    assert _mode(config.data_dir()) == 0o700
+
+
+@posix_only
+def test_check_permissions_flags_lax_learn_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+    learn = config.data_dir() / "learn"
+    learn.mkdir(parents=True)
+    learn.chmod(0o775)
+    assert learn in {p for p, _, _ in config.check_permissions()}
+    config.harden_permissions()
+    assert _mode(learn) == 0o700
+    assert learn not in {p for p, _, _ in config.check_permissions()}
+
+
 # ── udev rule (replaces sudo chmod 0666 /dev/uinput) ─────────────────────
 
 def test_uinput_udev_rule_content():

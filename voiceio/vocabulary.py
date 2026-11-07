@@ -181,7 +181,11 @@ def add_terms(terms: list[str], model_cfg: ModelConfig) -> int:
     Creates the file if missing. Returns the number of terms actually added.
     """
     path = resolve_vocab_path(model_cfg)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from voiceio import config
+    if path.parent == config.CONFIG_DIR:
+        config.private_dir(path.parent)
+    else:   # a vocabulary_file the user chose: their directory, their modes
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     existing = _read_terms(path) if path.exists() else []
     existing_lower = {t.lower() for t in existing}

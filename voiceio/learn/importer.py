@@ -70,9 +70,8 @@ def import_dir(src: Path, source: str) -> ImportReport:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg is required to import audio")
     out_dir = learn_dir() / IMPORT_PREFIX / source
-    out_dir.mkdir(parents=True, exist_ok=True)
     for d in (learn_dir(), out_dir.parent, out_dir):
-        config._chmod(d, config._SECURE_DIR)
+        config.private_dir(d)
     have = {row["audio"] for row in _rows(imports_path()) if "audio" in row}
     report = ImportReport()
     files = sorted(p for p in Path(src).expanduser().rglob("*")

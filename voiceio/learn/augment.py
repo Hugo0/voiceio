@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
+from voiceio import config
 from voiceio.learn.store import learn_dir
 
 log = logging.getLogger(__name__)
@@ -62,8 +63,7 @@ def synthesize(terms: Iterable[str], tts, *, per_term: int = 8, voices: tuple[st
                progress: Callable[[str, int], None] | None = None) -> int:
     """Write synthetic clips + manifest rows for each term. Returns clip count."""
     rng = random.Random(seed)
-    out = augment_dir()
-    out.mkdir(parents=True, exist_ok=True)
+    out = config.private_dir(augment_dir())
     manifest = out / "manifest.jsonl"
     n = 0
     with open(manifest, "a", encoding="utf-8") as mf:

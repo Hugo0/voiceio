@@ -117,8 +117,8 @@ class Transcriber:
             "cpu_threads": self._cfg.cpu_threads,
             "language": language,
         })
-        from voiceio.config import LOG_DIR
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        from voiceio.config import LOG_DIR, private_dir
+        private_dir(LOG_DIR)
         self._stderr_path = LOG_DIR / "worker.log"
         # Append (rotating at 1 MB) so a crash's stack dump survives the restart.
         if self._stderr_path.exists() and self._stderr_path.stat().st_size > 1_000_000:

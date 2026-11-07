@@ -7,6 +7,7 @@ import re
 import threading
 from pathlib import Path
 
+from voiceio import config
 from voiceio.config import CORRECTIONS_PATH, FLAGGED_PATH
 
 log = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ class CorrectionDict:
         """Write corrections.json atomically."""
         with self._lock:
             data = {orig: right for orig, right in self._corrections.values()}
-            self._path.parent.mkdir(parents=True, exist_ok=True)
+            config.private_dir(self._path.parent)
             tmp = self._path.with_suffix(".tmp")
             tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n",
                            encoding="utf-8")
@@ -110,7 +111,7 @@ class CorrectionDict:
             return
         word = word.strip()
         try:
-            self._flagged_path.parent.mkdir(parents=True, exist_ok=True)
+            config.private_dir(self._flagged_path.parent)
             with open(self._flagged_path, "a", encoding="utf-8") as f:
                 f.write(word + "\n")
             log.info("Flagged word: '%s'", word)

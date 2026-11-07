@@ -51,8 +51,7 @@ def append(
         return
     p = path or HISTORY_PATH
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        config._chmod(p.parent, config._SECURE_DIR)
+        config.private_dir(p.parent)
         from voiceio import __version__
         # The version lets `doctor` judge the current release on its own
         # numbers instead of months of older ones.

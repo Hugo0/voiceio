@@ -112,9 +112,9 @@ def _cmd_run(args: argparse.Namespace) -> None:
     console.setLevel(getattr(logging, cfg.daemon.log_level))
 
     # File: always log DEBUG to rotating file
-    from voiceio.config import LOG_DIR, LOG_PATH
+    from voiceio.config import LOG_DIR, LOG_PATH, private_dir
     from logging.handlers import RotatingFileHandler
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    private_dir(LOG_DIR)
     file_handler = RotatingFileHandler(
         str(LOG_PATH), maxBytes=2_000_000, backupCount=2,
     )
@@ -212,8 +212,8 @@ def _entry_point() -> None:
         import traceback
         tb = traceback.format_exc()
         try:
-            from voiceio.config import LOG_DIR
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            from voiceio.config import LOG_DIR, private_dir
+            private_dir(LOG_DIR)
             with open(LOG_DIR / "crash.log", "a", encoding="utf-8") as f:
                 f.write(f"\n===== {datetime.datetime.now().isoformat()} =====\n"
                         f"argv: {sys.argv}\n{tb}")

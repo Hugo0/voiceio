@@ -52,7 +52,8 @@ def _load_state() -> dict:
 
 def _save_state(state: dict) -> None:
     try:
-        _HINTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        from voiceio.config import private_dir
+        private_dir(_HINTS_PATH.parent)
         _HINTS_PATH.write_text(json.dumps(state))
     except Exception:
         log.debug("Failed to save hints state", exc_info=True)

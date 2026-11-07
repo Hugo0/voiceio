@@ -1010,11 +1010,11 @@ class VoiceIO:
             self._cancel_hotkey.start(self.cfg.hotkey.cancel_key, self.cancel)
 
     def run(self) -> None:
-        from voiceio.config import PID_PATH, LOG_DIR
+        from voiceio.config import PID_PATH, LOG_DIR, private_dir
 
         self._typers.redetect_at_start()
 
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        private_dir(LOG_DIR)
         self._pid_fd = open(PID_PATH, "a")   # not "w": the running daemon's PID stays
         try:
             from voiceio.pidlock import lock_pid_file

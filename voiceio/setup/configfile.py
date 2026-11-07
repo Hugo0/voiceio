@@ -1,7 +1,7 @@
 """Merge-preserving config.toml writer used by both setup paths."""
 from __future__ import annotations
 
-from voiceio.config import CONFIG_DIR, CONFIG_PATH
+from voiceio.config import CONFIG_DIR, CONFIG_PATH, private_dir
 from voiceio.ui import DIM, GREEN, RESET
 
 
@@ -84,7 +84,7 @@ def _write_config(
     keys, unknown keys, and secrets (e.g. a saved API key when the user didn't
     enter a new one) are preserved verbatim.
     """
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    private_dir(CONFIG_DIR)
     from voiceio.config import _migrate_v1
     cfg = _migrate_v1(_load_raw_config())   # e.g. [autocorrect] → [cloud]
 
