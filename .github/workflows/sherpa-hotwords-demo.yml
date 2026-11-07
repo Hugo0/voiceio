@@ -13,6 +13,22 @@ on:
         description: "Search LibriSpeech test-clean for words only the pieces fix"
         type: boolean
         default: false
+      clip:
+        description: "LibriSpeech test-clean utterance for the demo (empty: no demo)"
+        default: ""
+      word:
+        description: "Demo hotword as a plain word"
+        default: ""
+      pieces:
+        description: "The same hotword as pieces from tokens.txt"
+        default: ""
+      score:
+        description: "--hotwords-score for the demo"
+        default: "2.0"
+      upstream_test:
+        description: "Also run the branch's .github/scripts/test-offline-transducer.sh"
+        type: boolean
+        default: false
       reuse_run:
         description: "Run id whose cands artifact to reuse (skips the test-clean decode)"
         default: ""
@@ -88,3 +104,53 @@ jobs:
             cands
             hits.json
           if-no-files-found: ignore
+      - name: Demo
+        if: ${{ inputs.clip != '' }}
+        env:
+          CLIP: ${{ inputs.clip }}
+          WORD: ${{ inputs.word }}
+          PIECES: ${{ inputs.pieces }}
+          SCORE: ${{ inputs.score }}
+        run: |
+          [ -d LibriSpeech ] || curl -fsSL https://www.openslr.org/resources/12/test-clean.tar.gz | tar xz
+          IFS=- read spk ch _ <<< "$CLIP"
+          python -c "import soundfile as sf, sys; a, r = sf.read(sys.argv[1]); sf.write(sys.argv[2], a, r, subtype='PCM_16')" \
+            LibriSpeech/test-clean/$spk/$ch/$CLIP.flac $CLIP.wav
+          echo "Reference (LibriSpeech test-clean $CLIP):"
+          grep "^$CLIP " LibriSpeech/test-clean/$spk/$ch/$spk-$ch.trans.txt
+          echo "$WORD" > hotwords-plain.txt
+          echo "$PIECES" > hotwords-tokens.txt
+          m=sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+          run() {
+            echo
+            echo "================================================================"
+            echo "== $1"
+            echo "================================================================"
+            shift
+            set -x
+            ./sherpa-onnx/build/bin/sherpa-onnx-offline \
+              --tokens=$m/tokens.txt \
+              --encoder=$m/encoder.int8.onnx \
+              --decoder=$m/decoder.int8.onnx \
+              --joiner=$m/joiner.int8.onnx \
+              --model-type=nemo_transducer \
+              --decoding-method=modified_beam_search \
+              "$@" \
+              $CLIP.wav 2>&1
+            { set +x; } 2>/dev/null
+          }
+          run "1. no hotwords"
+          for f in hotwords-plain.txt hotwords-tokens.txt; do
+            echo; echo "\$ cat $f"; cat $f
+          done
+          run "2. hotword as a plain word" --modeling-unit=bpe --bpe-vocab=bpe.vocab \
+            --hotwords-file=hotwords-plain.txt --hotwords-score=$SCORE
+          run "3. the same hotword as tokens from tokens.txt" --modeling-unit=bpe --bpe-vocab=bpe.vocab \
+            --hotwords-file=hotwords-tokens.txt --hotwords-score=$SCORE
+      - name: Upstream test-offline-transducer.sh
+        if: ${{ inputs.upstream_test }}
+        run: |
+          cd sherpa-onnx
+          export PATH=$PWD/build/bin:$PATH
+          export EXE=sherpa-onnx-offline
+          .github/scripts/test-offline-transducer.sh
