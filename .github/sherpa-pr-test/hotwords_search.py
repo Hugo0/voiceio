@@ -82,7 +82,9 @@ def cli(exe, model, wavs, extra):
            f"--joiner={model}/joiner.int8.onnx",
            "--model-type=nemo_transducer",
            "--decoding-method=modified_beam_search"] + extra + wavs
-    p = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode:
+        raise SystemExit(f"{cmd}\n{p.stderr[-3000:]}")
     lines = [ln for ln in p.stdout.splitlines() if ln.startswith("{")]
     assert len(lines) == len(wavs), p.stderr[-2000:]
     return [json.loads(ln)["text"].strip() for ln in lines]
@@ -97,7 +99,17 @@ def main():
     ap.add_argument("--exe", required=True)
     ap.add_argument("--score", default="2.0")
     ap.add_argument("--out", default="cands")
+    ap.add_argument("--reuse", action="store_true",
+                    help="reuse cands/cands.json from an earlier run")
     args = ap.parse_args()
+    if args.reuse:
+        cands = json.load(open(f"{args.out}/cands.json"))
+    else:
+        cands = decode(args)
+    screen(args, cands)
+
+
+def decode(args):
 
     import sherpa_onnx as so
 
@@ -146,6 +158,11 @@ def main():
                                           model=model_split, vocab=vocab_split,
                                           ref=refs[k], greedy=s.result.text.strip()))
                         break
+    json.dump(cands, open(f"{args.out}/cands.json", "w"), indent=1)
+    return cands
+
+
+def screen(args, cands):
     print(f"{len(cands)} candidate words in {len({c['key'] for c in cands})} utterances")
     for c in cands:
         print(f"{c['key']} {c['form']!r}: model {c['model']} vocab {c['vocab']}")

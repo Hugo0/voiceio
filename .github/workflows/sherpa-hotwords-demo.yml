@@ -13,9 +13,13 @@ on:
         description: "Search LibriSpeech test-clean for words only the pieces fix"
         type: boolean
         default: false
+      reuse_run:
+        description: "Run id whose cands artifact to reuse (skips the test-clean decode)"
+        default: ""
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   demo:
@@ -39,7 +43,7 @@ jobs:
           cd sherpa-onnx
           git log -1 --format='%H %s'
           mkdir build && cd build
-          cmake -DCMAKE_BUILD_TYPE=Release -DSHERPA_ONNX_ENABLE_TTS=OFF \
+          cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DSHERPA_ONNX_ENABLE_TTS=OFF \
             -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF .. > cmake.log 2>&1 || { tail -50 cmake.log; exit 1; }
           make -j4 sherpa-onnx-offline > make.log 2>&1 || { grep -n "error" make.log | head -40; tail -50 make.log; exit 1; }
           ls -lh bin
@@ -64,8 +68,23 @@ jobs:
             --model-type=nemo_transducer --decoding-method=modified_beam_search $m/test_wavs/*.wav 2>&1 | tail -40 || true
       - name: Search
         if: ${{ inputs.search }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -fsSL https://www.openslr.org/resources/12/test-clean.tar.gz | tar xz
+          if [ -n "${{ inputs.reuse_run }}" ]; then
+            gh run download ${{ inputs.reuse_run }} -R ${{ github.repository }} -n cands -D cands
+            reuse=--reuse
+          else
+            curl -fsSL https://www.openslr.org/resources/12/test-clean.tar.gz | tar xz
+          fi
           python voiceio/.github/sherpa-pr-test/hotwords_search.py --librispeech LibriSpeech/test-clean \
             --model sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 --sp tokenizer.model --bpe-vocab bpe.vocab \
-            --exe ./sherpa-onnx/build/bin/sherpa-onnx-offline
+            --exe ./sherpa-onnx/build/bin/sherpa-onnx-offline $reuse
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.search }}
+        with:
+          name: cands
+          path: |
+            cands
+            hits.json
+          if-no-files-found: ignore
