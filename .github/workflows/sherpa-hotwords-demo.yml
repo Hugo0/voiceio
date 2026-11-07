@@ -61,7 +61,7 @@ jobs:
           m=sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8
           ./sherpa-onnx/build/bin/sherpa-onnx-offline --tokens=$m/tokens.txt \
             --encoder=$m/encoder.int8.onnx --decoder=$m/decoder.int8.onnx --joiner=$m/joiner.int8.onnx \
-            --model-type=nemo_transducer --decoding-method=modified_beam_search $m/test_wavs/*.wav 2>/dev/null
+            --model-type=nemo_transducer --decoding-method=modified_beam_search $m/test_wavs/*.wav 2>&1 | tail -40 || true
       - name: Search
         if: ${{ inputs.search }}
         run: |
