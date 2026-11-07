@@ -247,6 +247,9 @@ class PostCorrectConfig:
 
 @dataclass
 class TTSConfig:
+    # With engine = "auto" this means "read aloud once an engine is
+    # installed": no engine is a quiet no-op (doctor says "off"), never a
+    # warning. Naming an engine that is missing does warn.
     enabled: bool = True
     engine: str = "auto"         # "auto" | "piper" | "supertonic" | "espeak" | "edge-tts"
     hotkey: str = "ctrl+alt+s"   # "s" for speak

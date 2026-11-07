@@ -342,7 +342,11 @@ def _select_output_backend(state: SetupState) -> None:
 def _step_tts(state: SetupState) -> None:
     _print_step(5, _TOTAL_STEPS, "Text-to-speech")
     print(f"  {DIM}Select text and press ctrl+alt+s to hear it spoken.{RESET}")
-    print(f"  {DIM}Engines: piper (offline), edge-tts (cloud), espeak-ng (system).{RESET}\n")
+    print(f"  {DIM}Engines: piper (offline), edge-tts (cloud), espeak-ng (system).{RESET}")
+    if not _tts_engine_installed():
+        print(f"  {DIM}None is installed yet: 'Enabled' stays silent until you install one,"
+              f" 'Choose engine' installs one now.{RESET}")
+    print()
     tts_top_options = [
         ("Enabled", "auto-select best available engine"),
         ("Choose engine", "hear a demo and pick"),
@@ -353,6 +357,16 @@ def _step_tts(state: SetupState) -> None:
         state.tts_enabled = False
     elif tts_choice == 1:
         _choose_tts_engine(state)
+
+
+def _tts_engine_installed() -> bool:
+    """Is any auto-selectable TTS engine usable right now? Never raises."""
+    try:
+        from voiceio.config import TTSConfig
+        from voiceio.tts import probe_all
+        return any(probe.ok for _, probe in probe_all(TTSConfig()))
+    except Exception:  # noqa: BLE001 — a hint only
+        return True
 
 
 def _choose_tts_engine(state: SetupState) -> None:

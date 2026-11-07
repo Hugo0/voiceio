@@ -98,5 +98,7 @@ def select(cfg: TTSConfig, allow_network: bool = True):
         except Exception as e:
             log.debug("TTS: %s failed: %s", name, e)
 
-    log.warning("TTS: no engine available")
+    # Auto-selection finding nothing is the normal state of an install
+    # without the [tts] extra or espeak-ng; the caller decides if it matters.
+    log.info("TTS: no engine available")
     return None

@@ -499,3 +499,54 @@ def test_chain_passes_language_to_supertonic():
     from voiceio.tts import chain
     engine = chain._create("supertonic", TTSConfig(engine="supertonic", language="de"))
     assert engine.name == "supertonic" and engine._language == "de"
+
+
+# ── no engine installed: the default config stays quiet ─────────────
+
+def _no_engines(cfg):
+    names = ["piper", "supertonic", "edge-tts", "espeak"] if cfg.engine == "auto" else [cfg.engine]
+    return [(n, ProbeResult(ok=False, reason=f"{n} not installed")) for n in names]
+
+
+def test_doctor_tts_auto_without_engine_is_quiet_off():
+    from voiceio import health
+    with patch("voiceio.tts.probe_all", side_effect=_no_engines):
+        status = health._tts_status(TTSConfig())
+    assert status.startswith("off")
+    assert "enabled but" not in status
+    assert "⚠" not in health._feature_line("Text-to-speech", status)
+
+
+def test_doctor_tts_named_engine_missing_still_warns():
+    from voiceio import health
+    with patch("voiceio.tts.probe_all", side_effect=_no_engines):
+        status = health._tts_status(TTSConfig(engine="piper"))
+    assert status.startswith("enabled but piper unavailable")
+
+
+def test_doctor_tts_on_when_engine_present():
+    from voiceio import health
+    with patch("voiceio.tts.probe_all",
+               return_value=[("piper", ProbeResult(ok=False, reason="x")),
+                             ("espeak", ProbeResult(ok=True))]):
+        assert health._tts_status(TTSConfig()) == "on (espeak)"
+
+
+def test_doctor_tts_disabled_is_off():
+    from voiceio import health
+    assert health._tts_status(TTSConfig(enabled=False)) == "off"
+
+
+def test_auto_select_without_engine_logs_no_warning(caplog):
+    import logging
+    from voiceio.tts.chain import select, _create
+
+    def none_ok(name, cfg):
+        engine = _create(name, cfg)
+        engine.probe = lambda: ProbeResult(ok=False, reason="not installed")
+        return engine
+
+    with patch("voiceio.tts.chain._create", side_effect=none_ok), \
+            caplog.at_level(logging.DEBUG, logger="voiceio.tts.chain"):
+        assert select(TTSConfig()) is None
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]

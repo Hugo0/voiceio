@@ -87,7 +87,7 @@ enabled = false
 log_level = "INFO"
 
 [tts]
-enabled = true                # read selected text aloud
+enabled = true                # read selected text aloud (auto: once an engine is installed)
 engine = "auto"               # auto | piper | supertonic | espeak | edge-tts (cloud)
 hotkey = "ctrl+alt+s"
 voice = ""

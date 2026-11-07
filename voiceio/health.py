@@ -222,17 +222,7 @@ def _check_features() -> FeatureGroups:
         else:
             groups.processing["LLM cleanup"] = "off (enable in config or re-run 'voiceio setup')"
 
-        # TTS
-        if cfg.tts.enabled:
-            from voiceio.tts import probe_all as tts_probe_all
-            results = tts_probe_all(cfg.tts)
-            active = next((name for name, probe in results if probe.ok), None)
-            if active:
-                groups.processing["Text-to-speech"] = f"on ({active})"
-            else:
-                groups.processing["Text-to-speech"] = "enabled but no engine available"
-        else:
-            groups.processing["Text-to-speech"] = "off"
+        groups.processing["Text-to-speech"] = _tts_status(cfg.tts)
 
         # ── Accuracy (learning stack) ──
 
@@ -299,6 +289,30 @@ def _check_features() -> FeatureGroups:
     except Exception:
         pass
     return groups
+
+
+TTS_INSTALL_HINT = "pip install 'python-voiceio[tts]' or install espeak-ng"
+
+
+def _tts_status(tts_cfg) -> str:
+    """Doctor's Text-to-speech line.
+
+    `enabled = true` with `engine = "auto"` (the default) means "read aloud
+    when an engine is installed", so no engine there is a quiet "off", not a
+    warning: the user never asked for a particular engine. Naming an engine
+    that is missing is a real misconfiguration and still warns.
+    """
+    if not tts_cfg.enabled:
+        return "off"
+    from voiceio.tts import probe_all as tts_probe_all
+    results = tts_probe_all(tts_cfg)
+    active = next((name for name, probe in results if probe.ok), None)
+    if active:
+        return f"on ({active})"
+    if tts_cfg.engine == "auto":
+        return f"off (no engine installed: {TTS_INSTALL_HINT})"
+    reason = next((probe.reason for _, probe in results if probe.reason), "")
+    return f"enabled but {tts_cfg.engine} unavailable" + (f" ({reason})" if reason else "")
 
 
 def _decoder_status(cfg) -> dict[str, str]:

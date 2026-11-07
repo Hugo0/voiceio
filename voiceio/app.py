@@ -202,8 +202,11 @@ class VoiceIO:
                 # Create a second hotkey backend for TTS
                 self._tts_hotkey = hotkey_chain.select(platform, cfg.hotkey.backend)
                 log.info("TTS: engine=%s, hotkey=%s", self._tts_engine.name, cfg.tts.hotkey)
+            elif cfg.tts.engine == "auto":
+                # The default config: read aloud once an engine is installed.
+                log.info("TTS: no engine installed, read-aloud hotkey off")
             else:
-                log.warning("TTS enabled but no engine available")
+                log.warning("TTS: engine '%s' is configured but unavailable", cfg.tts.engine)
 
         # Optional key that cancels a dictation (read only, never grabbed: the
         # key also reaches the focused app). Needs a backend that sees keys.
