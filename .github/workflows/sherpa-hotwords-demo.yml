@@ -1,0 +1,71 @@
+name: sherpa-onnx hotwords demo
+
+# Builds sherpa-onnx-offline from a Hugo0/sherpa-onnx branch and shows hotwords
+# given as tokens.txt pieces on a NeMo TDT model, for k2-fsa/sherpa-onnx#4088.
+# Public models and LibriSpeech only; publishes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Hugo0/sherpa-onnx branch, tag or commit"
+        default: hotwords-pretokenized
+      search:
+        description: "Search LibriSpeech test-clean for words only the pieces fix"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: Hugo0/sherpa-onnx
+          ref: ${{ inputs.ref }}
+          path: sherpa-onnx
+      - uses: actions/checkout@v6
+        with:
+          path: voiceio
+          sparse-checkout: .github/sherpa-pr-test
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build sherpa-onnx-offline
+        run: |
+          cd sherpa-onnx
+          git log -1 --format='%H %s'
+          mkdir build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release -DSHERPA_ONNX_ENABLE_TTS=OFF \
+            -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF .. > cmake.log 2>&1 || { tail -50 cmake.log; exit 1; }
+          make -j4 sherpa-onnx-offline > make.log 2>&1 || { grep -n "error" make.log | head -40; tail -50 make.log; exit 1; }
+          ls -lh bin
+      - name: Models
+        run: |
+          pip install -q sentencepiece sherpa-onnx numpy soundfile
+          for name in sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8; do
+            curl -fsSL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$name.tar.bz2 | tar xj
+          done
+          curl -fsSL -o v2.nemo https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2/resolve/main/parakeet-tdt-0.6b-v2.nemo
+          tar xf v2.nemo --wildcards '*tokenizer.model' && mv $(ls *tokenizer.model | head -1) tokenizer.model && rm v2.nemo
+          python -c "
+          import sys; sys.path.insert(0, 'sherpa-onnx/scripts/nemo')
+          import sentencepiece as spm
+          from generate_bpe_vocab import generate_bpe_vocab_from_tokenizer
+          generate_bpe_vocab_from_tokenizer(spm.SentencePieceProcessor(model_file='tokenizer.model'), 'bpe.vocab')"
+      - name: 110m test_wavs tokens
+        run: |
+          m=sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8
+          ./sherpa-onnx/build/bin/sherpa-onnx-offline --tokens=$m/tokens.txt \
+            --encoder=$m/encoder.int8.onnx --decoder=$m/decoder.int8.onnx --joiner=$m/joiner.int8.onnx \
+            --model-type=nemo_transducer --decoding-method=modified_beam_search $m/test_wavs/*.wav 2>/dev/null
+      - name: Search
+        if: ${{ inputs.search }}
+        run: |
+          curl -fsSL https://www.openslr.org/resources/12/test-clean.tar.gz | tar xz
+          python voiceio/.github/sherpa-pr-test/hotwords_search.py --librispeech LibriSpeech/test-clean \
+            --model sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 --sp tokenizer.model --bpe-vocab bpe.vocab \
+            --exe ./sherpa-onnx/build/bin/sherpa-onnx-offline
