@@ -35,9 +35,24 @@ class ModelInfo:
     experimental: bool = False
     # Models voiceio downloads itself (sherpa-onnx): a release tarball, its
     # sha256, and its size. faster-whisper models come from the HF cache.
+    # `sha256` may be a tuple of known-good digests: upstream sometimes
+    # re-uploads an archive, and old caches and mirrors still hold the old one.
+    # Every digest is pinned by hand; never trust a live one from GitHub.
     url: str = ""
-    sha256: str = ""
+    sha256: str | tuple[str, ...] = ""
     size_mb: int = 0
+
+    @property
+    def sha256s(self) -> tuple[str, ...]:
+        """Every known-good sha256 of the archive (empty when there is none)."""
+        return pins(self.sha256)
+
+
+def pins(sha256: str | tuple[str, ...]) -> tuple[str, ...]:
+    """A pin (one digest or a tuple of them) as a tuple, lower-cased."""
+    if isinstance(sha256, str):
+        sha256 = (sha256,) if sha256 else ()
+    return tuple(h.lower() for h in sha256)
 
 
 _SHERPA_RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
@@ -51,14 +66,18 @@ CATALOG: tuple[ModelInfo, ...] = (
               notes="default when sherpa-onnx has the NeMo TDT beam-search fix: text ~0.7s after you stop "
                     "talking vs ~4.4s with Whisper, every proper noun of your vocabulary as a hotword",
               url=f"{_SHERPA_RELEASES}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
-              sha256="157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad",
+              # Re-uploaded upstream 2026-11-07 (Hugo0/voiceio#9); the old one stays valid.
+              sha256=("6fc4426b54aa549a0019b8a75b8dea59164e71790a37ac56a045ad57f915f714",
+                      "157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad"),
               size_mb=482),
     ModelInfo(PARAKEET_V3, "sherpa-onnx", "600M", "CC-BY-4.0", BiasMode.UNBOUNDED,
               languages=",".join(sorted(PARAKEET_V3_LANGUAGES)),
               notes="the default for the other 24 European languages it covers; v2 stays the "
                     "English default (trained on English only, lower English WER)",
               url=f"{_SHERPA_RELEASES}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
-              sha256="5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf",
+              # Re-uploaded upstream 2026-11-07 (Hugo0/voiceio#9); the old one stays valid.
+              sha256=("1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9",
+                      "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf"),
               size_mb=487),
     ModelInfo("small", "faster-whisper", "244M", "MIT", BiasMode.HOTWORDS | BiasMode.PROMPT,
               notes="~5x realtime on a laptop CPU; hotwords cap ~35 terms; "

@@ -16,7 +16,7 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-from voiceio.core.decoders.catalog import ModelInfo, info
+from voiceio.core.decoders.catalog import ModelInfo, info, pins
 
 log = logging.getLogger(__name__)
 
@@ -72,15 +72,22 @@ def download(name: str, *, progress: Callable[[int, int], None] | None = None) -
                             what="encoder/decoder/joiner/tokens.txt", progress=progress)
 
 
-def download_archive(name: str, url: str, sha256: str, size_mb: int,
+ISSUES = "https://github.com/Hugo0/voiceio/issues"
+
+
+def download_archive(name: str, url: str, sha256: str | tuple[str, ...], size_mb: int,
                      complete: Callable[[Path], bool], *, what: str,
                      progress: Callable[[int, int], None] | None = None) -> Path:
     """Fetch, verify and unpack a sherpa-onnx release tarball as
-    `models_dir()/name`. `complete` says whether a directory holds the whole
-    model (`what` names its files for the error)."""
+    `models_dir()/name`. `sha256` is one known-good digest or a tuple of
+    them; the archive must match one. `complete` says whether a directory
+    holds the whole model (`what` names its files for the error)."""
     dest = model_path(name)
     if complete(dest):
         return dest
+    known = pins(sha256)
+    if not known:
+        raise OSError(f"{name}: no pinned sha256 — not downloading")
     root = models_dir()
     root.mkdir(parents=True, exist_ok=True)
     part = root / f".{name}.{os.getpid()}.part"
@@ -98,9 +105,11 @@ def download_archive(name: str, url: str, sha256: str, size_mb: int,
                 done += len(block)
                 if progress is not None:
                     progress(done, total)
-        if digest.hexdigest() != sha256:
+        if digest.hexdigest() not in known:
+            want = " or ".join(f"{h[:12]}…" for h in known)
             raise OSError(f"{name}: checksum mismatch (got {digest.hexdigest()[:12]}…, "
-                          f"want {sha256[:12]}…) — download again")
+                          f"want {want}) — download again; if it keeps failing, upstream "
+                          f"may have re-uploaded the archive: report it at {ISSUES}")
         _unpack(part, staging)
         if not complete(staging):
             raise OSError(f"{name}: the archive has no {what}")

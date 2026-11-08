@@ -226,7 +226,32 @@ def test_runtime_and_whisper_detection():
     assert not catalog.is_whisper(catalog.PARAKEET)
     m = catalog.info(catalog.PARAKEET)
     assert m.url.startswith("https://github.com/k2-fsa/sherpa-onnx/releases/")
-    assert len(m.sha256) == 64 and "huggingface" not in m.url
+    assert m.sha256s and all(len(h) == 64 for h in m.sha256s) and "huggingface" not in m.url
+
+
+def test_every_downloaded_model_pins_valid_sha256s():
+    for m in catalog.CATALOG:
+        if m.url:
+            assert m.sha256s, m.name
+            assert all(len(h) == 64 and int(h, 16) >= 0 for h in m.sha256s), m.name
+
+
+def test_parakeet_pins_both_the_reuploaded_and_the_old_archive():
+    # Hugo0/voiceio#9: sherpa-onnx re-uploaded both archives on 2026-11-07.
+    v3 = catalog.info(catalog.PARAKEET_V3).sha256s
+    assert "1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9" in v3
+    assert "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf" in v3
+    v2 = catalog.info(catalog.PARAKEET).sha256s
+    assert "6fc4426b54aa549a0019b8a75b8dea59164e71790a37ac56a045ad57f915f714" in v2
+    assert "157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad" in v2
+
+
+def test_pins_accepts_a_string_or_a_tuple():
+    assert catalog.pins("") == ()
+    assert catalog.pins("AB") == ("ab",)
+    assert catalog.pins(("a", "b")) == ("a", "b")
+    assert catalog.ModelInfo("x", "sherpa-onnx", "1", "x", BiasMode.UNBOUNDED,
+                             sha256="cd").sha256s == ("cd",)
 
 
 def test_catalog_model_is_fetched_on_first_use(fake, monkeypatch, tmp_path):
@@ -271,10 +296,11 @@ def _serve(monkeypatch, body: bytes):
     monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=0: Resp(body))
 
 
-def _entry(monkeypatch, body: bytes):
+def _entry(monkeypatch, body: bytes, sha256=None):
     m = catalog.ModelInfo("pk-test", "sherpa-onnx", "1", "x", BiasMode.UNBOUNDED,
                           url="https://github.com/x.tar.bz2",
-                          sha256=hashlib.sha256(body).hexdigest(), size_mb=1)
+                          sha256=hashlib.sha256(body).hexdigest() if sha256 is None else sha256,
+                          size_mb=1)
     monkeypatch.setattr(fetch, "info", lambda name: m if name == "pk-test" else None)
 
 
@@ -377,3 +403,33 @@ def test_wizard_offers_parakeet_first_only_where_it_can_bias(monkeypatch):
     assert choices[0][0] == catalog.PARAKEET and speech.default_choice(choices) == 0
     assert not any("recommended" in c[2] for c in choices[1:])
     assert speech.model_choices("es") is speech.MODELS
+
+
+def test_download_accepts_any_pinned_sha256(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MODELS_DIR", tmp_path)
+    body = _tarball()
+    _entry(monkeypatch, body, sha256=("0" * 64, hashlib.sha256(body).hexdigest()))
+    _serve(monkeypatch, body)
+    assert fetch.download("pk-test") == tmp_path / "pk-test"
+
+
+def test_checksum_mismatch_names_every_pin_and_the_issue_tracker(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MODELS_DIR", tmp_path)
+    body = _tarball()
+    _entry(monkeypatch, body, sha256=("a" * 64, "b" * 64))
+    _serve(monkeypatch, body)
+    with pytest.raises(OSError) as e:
+        fetch.download("pk-test")
+    msg = str(e.value)
+    assert "checksum mismatch" in msg and "download again" in msg
+    assert "aaaaaaaaaaaa… or bbbbbbbbbbbb…" in msg
+    assert "re-uploaded" in msg and "https://github.com/Hugo0/voiceio/issues" in msg
+    assert sorted(p.name for p in tmp_path.iterdir()) == []   # nothing left behind
+
+
+def test_download_without_a_pin_refuses_before_fetching(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MODELS_DIR", tmp_path)
+    _entry(monkeypatch, b"", sha256=())
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: pytest.fail("fetched"))
+    with pytest.raises(OSError, match="no pinned sha256"):
+        fetch.download("pk-test")
