@@ -183,6 +183,8 @@ def _gpu_libs_warning() -> str:
     except Exception:  # noqa: BLE001
         return ""
     missing = plat.missing_cuda_libs()
+    if missing is None:
+        return plat.cuda_device_problem()
     if not missing:
         return ""
     return (f"A GPU is present but {', '.join(missing)} can't be loaded, so Whisper "

@@ -200,6 +200,9 @@ def _print_cuda_check(checks: dict) -> None:
                      f"GPU found, but {', '.join(missing)} can't be loaded: will use CPU",
                      optional=True)
         print(f"      {DIM}{cuda_libs_hint(missing)}{RESET}")
+    elif problem := checks.get("cuda_device_problem"):
+        _print_check("CUDA GPU", False, "will use CPU", optional=True)
+        print(f"      {DIM}{problem}{RESET}")
     else:
         _print_check("CUDA GPU", checks["cuda"],
                      "will use GPU" if checks["cuda"] else "will use CPU (still fast)",

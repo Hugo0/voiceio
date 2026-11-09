@@ -132,7 +132,10 @@ def _check_system() -> dict:
     except Exception:
         checks["cuda"] = False
     from voiceio.platform import missing_cuda_libs
-    checks["cuda_missing"] = missing_cuda_libs()  # None: no NVIDIA GPU seen
+    checks["cuda_missing"] = missing_cuda_libs()  # None: CTranslate2 sees no GPU
+    if checks["cuda_missing"] is None:
+        from voiceio.platform import cuda_device_problem
+        checks["cuda_device_problem"] = cuda_device_problem()
 
     # evdev keyboard access (Linux only): udev uaccess rule or input group
     checks["evdev_access"] = False

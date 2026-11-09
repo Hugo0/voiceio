@@ -86,3 +86,88 @@ def test_setup_gpu_ok(capsys):
     assert "will use GPU" in capsys.readouterr().out
     steps._print_cuda_check({"cuda": True})  # older checks dicts
     assert "will use GPU" in capsys.readouterr().out
+
+
+# ── GPU present, but CTranslate2 sees no CUDA device ─────────────────────
+
+def _os_gpu(monkeypatch, present: bool, libcuda: bool):
+    monkeypatch.setattr(plat, "nvidia_gpu_present", lambda: present)
+    real = __import__("ctypes").CDLL
+
+    def cdll(name, *a, **k):
+        if name == "libcuda.so.1" and not libcuda:
+            raise OSError(name)
+        return real("libc.so.6")
+    monkeypatch.setattr("ctypes.CDLL", cdll)
+
+
+_DEVICE_MSG = ("NVIDIA GPU found, but CTranslate2 sees no CUDA device: check that the "
+               "driver's libcuda.so.1 loads (ldconfig -p | grep libcuda.so.1) and that "
+               "nvidia-smi works.")
+
+
+def test_device_problem_when_os_sees_gpu(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ctranslate2",
+                        SimpleNamespace(get_cuda_device_count=lambda: 0))
+    _os_gpu(monkeypatch, True, libcuda=True)
+    assert plat.cuda_device_problem() == _DEVICE_MSG
+
+
+def test_device_problem_names_libcuda(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ctranslate2",
+                        SimpleNamespace(get_cuda_device_count=lambda: 0))
+    _os_gpu(monkeypatch, True, libcuda=False)
+    assert plat.cuda_device_problem().startswith(
+        "NVIDIA GPU found, but CTranslate2 sees no CUDA device (libcuda.so.1 can't be loaded): ")
+
+
+@pytest.mark.parametrize("count,present", [(0, False), (1, True)])
+def test_no_device_problem(monkeypatch, count, present):
+    monkeypatch.setitem(sys.modules, "ctranslate2",
+                        SimpleNamespace(get_cuda_device_count=lambda: count))
+    _os_gpu(monkeypatch, present, libcuda=False)
+    assert plat.cuda_device_problem() == ""
+
+
+def test_device_problem_needs_ctranslate2(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ctranslate2", None)  # import raises
+    _os_gpu(monkeypatch, True, libcuda=False)
+    assert plat.cuda_device_problem() == ""
+
+
+def test_nvidia_gpu_present_via_proc_or_smi(monkeypatch):
+    import subprocess
+    monkeypatch.setattr(plat.os.path, "exists", lambda p: p == "/dev/nvidia0")
+    assert plat.nvidia_gpu_present()
+    monkeypatch.setattr(plat.os.path, "exists", lambda p: False)
+    monkeypatch.setattr(plat.shutil, "which", lambda b: None)
+    assert not plat.nvidia_gpu_present()
+    monkeypatch.setattr(plat.shutil, "which", lambda b: "/usr/bin/nvidia-smi")
+    ok = SimpleNamespace(returncode=0, stdout="GPU 0: NVIDIA GeForce RTX 3060 (UUID: x)\n")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: ok)
+    assert plat.nvidia_gpu_present()
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired("nvidia-smi", 3)
+    monkeypatch.setattr(subprocess, "run", hang)
+    assert not plat.nvidia_gpu_present()
+
+
+def test_setup_prints_device_problem(capsys):
+    steps._print_cuda_check({"cuda": False, "cuda_missing": None,
+                             "cuda_device_problem": _DEVICE_MSG})
+    out = capsys.readouterr().out
+    assert "will use CPU" in out and _DEVICE_MSG in out and "still fast" not in out
+
+
+def test_doctor_prints_device_problem(monkeypatch):
+    from voiceio import health
+    from voiceio.config import Config
+    cfg = Config()
+    cfg.model.name, cfg.model.device = "small", "auto"
+    monkeypatch.setattr("voiceio.config.load", lambda: cfg)
+    monkeypatch.setattr(plat, "missing_cuda_libs", lambda: None)
+    monkeypatch.setattr(plat, "cuda_device_problem", lambda: _DEVICE_MSG)
+    assert health._gpu_libs_warning() == _DEVICE_MSG
+    monkeypatch.setattr(plat, "cuda_device_problem", lambda: "")
+    assert health._gpu_libs_warning() == ""

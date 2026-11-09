@@ -493,6 +493,46 @@ def missing_cuda_libs() -> list[str] | None:
     return missing
 
 
+def nvidia_gpu_present() -> bool:
+    """An NVIDIA GPU with its kernel driver loaded, asked of the OS rather
+    than of CTranslate2 (which reports 0 devices when libcuda won't load)."""
+    if os.path.exists("/proc/driver/nvidia/version") or os.path.exists("/dev/nvidia0"):
+        return True
+    if not shutil.which("nvidia-smi"):
+        return False
+    import subprocess
+    try:
+        r = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and "GPU" in r.stdout
+
+
+def cuda_device_problem() -> str:
+    """Why CTranslate2 sees no CUDA device on a machine that has an NVIDIA
+    GPU, or "" (no GPU, no CTranslate2, or it sees the device)."""
+    try:
+        import ctranslate2
+    except Exception:  # noqa: BLE001 — no faster-whisper installed
+        return ""
+    try:
+        if ctranslate2.get_cuda_device_count() > 0:
+            return ""
+    except Exception:  # noqa: BLE001 — treat a failing query as no device
+        pass
+    if not nvidia_gpu_present():
+        return ""
+    import ctypes
+    try:
+        ctypes.CDLL("libcuda.so.1")
+        why = ""
+    except OSError:
+        why = " (libcuda.so.1 can't be loaded)"
+    return (f"NVIDIA GPU found, but CTranslate2 sees no CUDA device{why}: check that "
+            "the driver's libcuda.so.1 loads (ldconfig -p | grep libcuda.so.1) and "
+            "that nvidia-smi works.")
+
+
 def cuda_libs_hint(missing: list[str]) -> str:
     """Where to look for the libraries missing_cuda_libs() named."""
     hint = ""
