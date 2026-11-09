@@ -179,9 +179,7 @@ def _print_capability_checks(checks: dict) -> None:
                          "fallback" if checks["xdotool"] else f"optional: {pkg_install('xdotool')}",
                          optional=True)
 
-    _print_check("CUDA GPU", checks["cuda"],
-                 "will use GPU" if checks["cuda"] else "will use CPU (still fast)",
-                 optional=True)
+    _print_cuda_check(checks)
 
     if checks["is_linux"]:
         from voiceio.hotkeys.evdev import NOT_NEEDED_ON_X11
@@ -192,6 +190,20 @@ def _print_capability_checks(checks: dict) -> None:
             _print_check("Keyboard access (evdev)", False, NOT_NEEDED_ON_X11, optional=True)
         else:
             _print_check("Keyboard access (evdev)", False, evdev_access_hint())
+
+
+def _print_cuda_check(checks: dict) -> None:
+    missing = checks.get("cuda_missing")
+    if missing:  # an NVIDIA GPU, but CTranslate2 can't load its libraries
+        from voiceio.platform import cuda_libs_hint
+        _print_check("CUDA GPU", False,
+                     f"GPU found, but {', '.join(missing)} can't be loaded: will use CPU",
+                     optional=True)
+        print(f"      {DIM}{cuda_libs_hint(missing)}{RESET}")
+    else:
+        _print_check("CUDA GPU", checks["cuda"],
+                     "will use GPU" if checks["cuda"] else "will use CPU (still fast)",
+                     optional=True)
 
 
 def _print_tray_check() -> bool:

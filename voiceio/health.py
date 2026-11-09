@@ -170,10 +170,6 @@ def _kde_input_method_warning(p: plat.Platform, kwinrc: Path | None = None) -> s
             "System Settings → Keyboard → Virtual Keyboard → IBus Wayland, then log out and in.")
 
 
-# What CTranslate2 4.x's CUDA build loads at the first encode.
-_CUDA_LIBS = ("libcublas.so.12", "libcudnn.so.9")
-
-
 def _gpu_libs_warning() -> str:
     """Why Whisper can't use the GPU it sees, when that's a missing CUDA
     library (a torch for another CUDA major, pulled in by the train extra,
@@ -184,23 +180,14 @@ def _gpu_libs_warning() -> str:
         from voiceio.core.decoders.catalog import is_whisper
         if cfg.device not in ("auto", "cuda") or not is_whisper(cfg.name):
             return ""
-        import ctranslate2
-        if ctranslate2.get_cuda_device_count() == 0:
-            return ""
-    except Exception:  # noqa: BLE001 — no faster-whisper, or no CUDA build
+    except Exception:  # noqa: BLE001
         return ""
-    import ctypes
-    missing = []
-    for lib in _CUDA_LIBS:
-        try:
-            ctypes.CDLL(lib)
-        except OSError:
-            missing.append(lib)
+    missing = plat.missing_cuda_libs()
     if not missing:
         return ""
     return (f"A GPU is present but {', '.join(missing)} can't be loaded, so Whisper "
-            "decodes on CPU. Set model.device = \"cpu\" in config.toml to stay on CPU, "
-            "or install the CUDA 12 runtime (cuBLAS 12 and cuDNN 9) to use the GPU.")
+            f"decodes on CPU. {plat.cuda_libs_hint(missing)}. Or set "
+            "model.device = \"cpu\" in config.toml to stay on CPU.")
 
 
 def _check_features() -> FeatureGroups:

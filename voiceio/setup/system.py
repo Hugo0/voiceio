@@ -131,6 +131,8 @@ def _check_system() -> dict:
         checks["cuda"] = "cuda" in ctranslate2.get_supported_compute_types("cuda")
     except Exception:
         checks["cuda"] = False
+    from voiceio.platform import missing_cuda_libs
+    checks["cuda_missing"] = missing_cuda_libs()  # None: no NVIDIA GPU seen
 
     # evdev keyboard access (Linux only): udev uaccess rule or input group
     checks["evdev_access"] = False

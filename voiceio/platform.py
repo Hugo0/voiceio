@@ -386,6 +386,7 @@ _PKG_NAMES: dict[str, dict[str, str]] = {
         "portaudio19-dev": "portaudio",
         "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator",
         "espeak-ng": "espeak-ng",
+        "cudnn": "cudnn",
     },
     "zypper": {
         "gir1.2-ibus-1.0": "typelib-1_0-IBus-1_0",
@@ -407,6 +408,9 @@ _PKG_NAMES: dict[str, dict[str, str]] = {
     },
     # Gentoo atoms. Names not listed stay bare (`emerge ydotool`), which
     # emerge resolves when the name is unique in the tree.
+    "apt": {
+        "cudnn": "nvidia-cudnn",
+    },
     "emerge": {
         "ibus": "app-i18n/ibus",
         "gir1.2-ibus-1.0": "app-i18n/ibus",  # typelib comes with USE=introspection
@@ -418,6 +422,7 @@ _PKG_NAMES: dict[str, dict[str, str]] = {
         "xclip": "x11-misc/xclip",
         "wl-clipboard": "gui-apps/wl-clipboard",
         "wtype": "gui-apps/wtype",
+        "cudnn": "dev-libs/cudnn",
     },
     "nix": {
         "gir1.2-ibus-1.0": "ibus",
@@ -461,6 +466,47 @@ def pkg_install(*packages: str) -> str:
             seen.add(resolved)
             mapped.append(resolved)
     return f"{prefix} {' '.join(mapped)}"
+
+
+# ── CUDA libraries ───────────────────────────────────────────────────────────
+
+# What CTranslate2 4.x's CUDA build loads at the first encode.
+CUDA_LIBS = ("libcublas.so.12", "libcudnn.so.9")
+
+
+def missing_cuda_libs() -> list[str] | None:
+    """The CUDA_LIBS the loader can't open, or None when CTranslate2 sees no
+    NVIDIA GPU (or has no CUDA build). [] means the GPU is usable."""
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() == 0:
+            return None
+    except Exception:  # noqa: BLE001 — no faster-whisper, or no CUDA build
+        return None
+    import ctypes
+    missing = []
+    for lib in CUDA_LIBS:
+        try:
+            ctypes.CDLL(lib)
+        except OSError:
+            missing.append(lib)
+    return missing
+
+
+def cuda_libs_hint(missing: list[str]) -> str:
+    """Where to look for the libraries missing_cuda_libs() named."""
+    hint = ""
+    if any("cudnn" in lib for lib in missing):
+        hint = "cuDNN 9 is a separate package from the CUDA toolkit"
+        # Only the managers whose package name we know; others stay generic.
+        mgr = _detect_pkg_manager()
+        if "cudnn" in _PKG_NAMES.get(mgr, {}):
+            # Older Debian/Ubuntu releases package cuDNN 8; NVIDIA's repo has 9.
+            alt = " or NVIDIA's CUDA repo" if mgr == "apt" else ""
+            hint += f" ({pkg_install('cudnn')}{alt})"
+        hint += ". "
+    return (hint + "The libraries must be on the loader path: "
+            "ldconfig -p | grep -E 'cublas.so.12|cudnn.so.9'")
 
 
 # ── System-dependency preflight ──────────────────────────────────────────────
