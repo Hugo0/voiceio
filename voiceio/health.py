@@ -80,15 +80,9 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
         ))
 
     # Check audio
-    try:
+    report.audio_reason = plat.audio_problem()
+    if not report.audio_reason:
         import sounddevice as _sd
-    except OSError:
-        # sounddevice imports but PortAudio's shared library is missing.
-        report.audio_reason = ("PortAudio library not found — install: "
-                               + plat.system_deps_install_cmd(["portaudio"]))
-    except ImportError:
-        report.audio_reason = plat.desktop_dep_hint("sounddevice")
-    else:
         try:
             _sd.query_devices(kind="input")
             report.audio_ok = True

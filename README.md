@@ -29,6 +29,7 @@ Install voiceio on this machine following https://voiceio.dev/llms.txt. Ask me w
 sudo apt install pipx build-essential python3-dev portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi   # Debian/Ubuntu
 sudo dnf install pipx gcc gcc-c++ make python3-devel portaudio-devel ibus ibus-libs python3-gobject   # Fedora
 sudo pacman -S python-pipx base-devel portaudio ibus python-gobject                                   # Arch
+sudo emerge --ask media-libs/portaudio app-i18n/ibus dev-python/pygobject                             # Gentoo
 
 pipx install 'python-voiceio[desktop]'      # or: uv tool install 'python-voiceio[desktop]'
 voiceio setup        # model, hotkey, autostart

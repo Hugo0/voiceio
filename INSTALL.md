@@ -45,6 +45,9 @@ sudo dnf install -y pipx gcc gcc-c++ make python3-devel portaudio-devel ibus ibu
 
 # Arch
 sudo pacman -S --noconfirm python-pipx base-devel portaudio ibus python-gobject
+
+# Gentoo (ibus needs USE=introspection, the default; then install with uv tool or pipx)
+sudo emerge --ask media-libs/portaudio app-i18n/ibus dev-python/pygobject
 ```
 
 Not sure of the exact set? After installing voiceio you can always ask it:

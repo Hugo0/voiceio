@@ -104,7 +104,11 @@ def _check_system() -> dict:
         checks["ibus_gi"] = has_ibus_gi()
 
     # Audio
+    from voiceio.platform import audio_problem
+    checks["audio_reason"] = audio_problem()
     try:
+        if checks["audio_reason"]:
+            raise RuntimeError(checks["audio_reason"])
         import sounddevice as sd
         devices = sd.query_devices()
         input_devs = [d for d in devices if d["max_input_channels"] > 0]
@@ -113,6 +117,8 @@ def _check_system() -> dict:
     except Exception:
         checks["audio"] = False
         checks["audio_devices"] = []
+    if not checks["audio"] and not checks["audio_reason"]:
+        checks["audio_reason"] = "no microphone/audio input device found"
 
     # GPU
     try:

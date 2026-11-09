@@ -33,11 +33,15 @@ class LazySounddevice:
 
 def desktop_dep_hint(package: str) -> str:
     """One-line message for a desktop dependency that failed to import."""
-    return (
-        f"{package} is not installed. The dictation app needs voiceio's "
-        f"'desktop' extra: {DESKTOP_EXTRA_INSTALL} "
-        "(or pip install 'python-voiceio[desktop]' in your venv)"
-    )
+    from voiceio.install_env import running_ephemeral
+    if running_ephemeral():
+        # `uvx python-voiceio` resolves the base package only.
+        fix = ("run it as uvx 'python-voiceio[desktop]' ..., or install it: "
+               "uv tool install 'python-voiceio[desktop]'")
+    else:
+        fix = (f"{DESKTOP_EXTRA_INSTALL} (or uv tool install --force "
+               "'python-voiceio[desktop]', or pip install 'python-voiceio[desktop]' in your venv)")
+    return f"{package} is not installed. The dictation app needs voiceio's 'desktop' extra: {fix}"
 
 
 @dataclass(frozen=True)
@@ -238,6 +242,8 @@ _INSTALL_CMDS: dict[str, str] = {
     "zypper": "sudo zypper install",
     "xbps": "sudo xbps-install -S",
     "apk": "sudo apk add",
+    # emerge asks before merging; _assume_yes drops --ask when nobody can answer.
+    "emerge": "sudo emerge --ask",
     # NixOS has no imperative install; point at the declarative config.
     "nix": "add to environment.systemPackages:",
     "brew": "brew install",
@@ -272,8 +278,15 @@ def _sudo_without_password() -> bool:
         return False
 
 
+# Flags that make a package manager prompt; dropped instead (emerge has no
+# subcommand to put a yes-flag after, and without --ask it never asks).
+_ASK_FLAGS: dict[str, tuple[str, ...]] = {"emerge": ("--ask", "-a")}
+
+
 def _assume_yes(argv: list[str]) -> list[str]:
     """`apt install x` -> `apt install -y x` (flag after the subcommand)."""
+    if argv and (ask := _ASK_FLAGS.get(os.path.basename(argv[0]))):
+        return [a for a in argv if a not in ask]
     flag = _ASSUME_YES.get(os.path.basename(argv[0])) if argv else None
     if not flag or flag in argv or len(argv) < 2:
         return argv
@@ -341,6 +354,20 @@ _PKG_NAMES: dict[str, dict[str, str]] = {
         "portaudio19-dev": "portaudio-dev",
         "gir1.2-ayatanaappindicator3-0.1": "libayatana-appindicator",
     },
+    # Gentoo atoms. Names not listed stay bare (`emerge ydotool`), which
+    # emerge resolves when the name is unique in the tree.
+    "emerge": {
+        "ibus": "app-i18n/ibus",
+        "gir1.2-ibus-1.0": "app-i18n/ibus",  # typelib comes with USE=introspection
+        "python3-gi": "dev-python/pygobject",
+        "portaudio19-dev": "media-libs/portaudio",
+        "gir1.2-ayatanaappindicator3-0.1": "dev-libs/libayatana-appindicator",
+        "espeak-ng": "app-accessibility/espeak-ng",
+        "xdotool": "x11-misc/xdotool",
+        "xclip": "x11-misc/xclip",
+        "wl-clipboard": "gui-apps/wl-clipboard",
+        "wtype": "gui-apps/wtype",
+    },
     "nix": {
         "gir1.2-ibus-1.0": "ibus",
         "python3-gi": "python3Packages.pygobject3",
@@ -357,7 +384,7 @@ def _detect_pkg_manager() -> str:
         return "nix"
     for mgr, binary in (
         ("apt", "apt"), ("dnf", "dnf"), ("pacman", "pacman"), ("zypper", "zypper"),
-        ("xbps", "xbps-install"), ("apk", "apk"), ("brew", "brew"),
+        ("xbps", "xbps-install"), ("apk", "apk"), ("emerge", "emerge"), ("brew", "brew"),
     ):
         if shutil.which(binary):
             return mgr
@@ -401,6 +428,7 @@ SYSTEM_DEPS: dict[str, dict[str, list[str]]] = {
         "zypper": ["gcc", "gcc-c++", "make", "python3-devel"],
         "xbps": ["base-devel", "python3-devel"],
         "apk": ["build-base", "python3-dev", "linux-headers"],
+        "emerge": ["sys-devel/gcc"],  # Python headers ship with dev-lang/python
         "nix": ["gcc"],
     },
     # PortAudio backs sounddevice (microphone capture).
@@ -411,6 +439,7 @@ SYSTEM_DEPS: dict[str, dict[str, list[str]]] = {
         "zypper": ["portaudio-devel"],
         "xbps": ["portaudio-devel"],
         "apk": ["portaudio-dev"],
+        "emerge": ["media-libs/portaudio"],
         "nix": ["portaudio"],
     },
     # IBus engine + GObject bindings — the only reliable Wayland text injection.
@@ -421,6 +450,7 @@ SYSTEM_DEPS: dict[str, dict[str, list[str]]] = {
         "zypper": ["ibus", "typelib-1_0-IBus-1_0", "python3-gobject"],
         "xbps": ["ibus", "python3-gobject"],
         "apk": ["ibus", "py3-gobject3"],
+        "emerge": ["app-i18n/ibus", "dev-python/pygobject"],
         "nix": ["ibus", "python3Packages.pygobject3"],
     },
 }
@@ -443,12 +473,37 @@ def _probe_compiler() -> bool:
     return shutil.which("cc") is not None or shutil.which("gcc") is not None
 
 
+def _portaudio_lib_present() -> bool:
+    """Is the PortAudio shared library installed? The lookup sounddevice does."""
+    import ctypes.util
+    return ctypes.util.find_library("portaudio") is not None
+
+
 def _probe_portaudio() -> bool:
     try:
         import sounddevice  # noqa: F401
         return True
-    except (OSError, ImportError):
-        return False
+    except OSError:
+        return False  # sounddevice is there, the PortAudio library is not
+    except ImportError:
+        # The pip package is missing (no [desktop] extra), which says nothing
+        # about the system library: audio_problem() names the extra instead.
+        return _portaudio_lib_present()
+
+
+def audio_problem() -> str:
+    """Why sounddevice can't be used, or "" when it imports. A missing pip
+    package (the desktop extra) and a missing system PortAudio need
+    different fixes, so they get different messages."""
+    try:
+        import sounddevice  # noqa: F401
+    except OSError:
+        return "PortAudio library not found — install: " + system_deps_install_cmd(["portaudio"])
+    except ImportError:
+        return desktop_dep_hint("sounddevice")
+    except Exception as e:  # PortAudioError: library there, sound server isn't
+        return f"PortAudio could not start: {e}"
+    return ""
 
 
 def _probe_ibus() -> bool:

@@ -152,7 +152,8 @@ def _step_system_check(state: SetupState) -> None:
 def _print_capability_checks(checks: dict) -> None:
     _print_check("Platform", True, checks["display"])
     _print_check("Audio input", checks["audio"],
-                 f"{len(checks['audio_devices'])} device(s)" if checks["audio"] else "no devices found")
+                 f"{len(checks['audio_devices'])} device(s)" if checks["audio"]
+                 else checks.get("audio_reason") or "no devices found")
 
     if checks["is_windows"] or checks["is_mac"]:
         _print_check("pynput", checks["pynput"],
@@ -229,6 +230,10 @@ def _ensure_cli_commands() -> None:
 def _require_mic_and_typer(state: SetupState) -> None:
     """Exit unless there is a microphone and some text injection backend."""
     checks = state.checks
+    reason = checks.get("audio_reason", "")
+    if not checks["audio"] and reason and "microphone" not in reason:
+        print(f"\n  {RED}{reason}{RESET}")  # a missing package, not a missing mic
+        sys.exit(1)
     if not checks["audio"]:
         print(f"\n  {RED}No microphone found. Connect one and try again.{RESET}")
         sys.exit(1)

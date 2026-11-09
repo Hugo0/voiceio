@@ -106,9 +106,9 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     checks = _check_system()
     system_error: tuple[str, int] | None = None  # (reason, exit code)
     if not checks["audio"]:
-        _progress("system", check="audio", status="missing",
-                  reason=repr("no microphone/audio input device found"))
-        system_error = ("no microphone/audio input device found", 5)
+        reason = checks.get("audio_reason") or "no microphone/audio input device found"
+        _progress("system", check="audio", status="missing", reason=repr(reason))
+        system_error = (reason, 5)
     if checks["is_windows"] or checks["is_mac"]:
         if not checks["pynput"]:
             _progress("system", check="typer", status="missing",

@@ -4,6 +4,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import os
+import sys
 
 import pytest
 
@@ -108,6 +109,7 @@ def test_dump_toml_escapes_quotes():
     ("apt", "sudo apt install build-essential python3-dev portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi"),
     ("dnf", "sudo dnf install gcc gcc-c++ make python3-devel portaudio-devel ibus ibus-libs python3-gobject"),
     ("pacman", "sudo pacman -S base-devel portaudio ibus python-gobject"),
+    ("emerge", "sudo emerge --ask sys-devel/gcc media-libs/portaudio app-i18n/ibus dev-python/pygobject"),
 ])
 def test_system_deps_install_cmd_per_distro(mgr, expected):
     with patch("voiceio.platform._detect_pkg_manager", return_value=mgr):
@@ -127,6 +129,72 @@ def test_check_system_deps_reports_missing():
              "ibus": lambda: False,
          }):
         assert plat.check_system_deps() == ["portaudio", "ibus"]
+
+
+def test_gentoo_hints_use_atoms():
+    with patch("voiceio.platform._detect_pkg_manager", return_value="emerge"):
+        assert plat.pkg_install("gir1.2-ibus-1.0", "python3-gi") == \
+            "sudo emerge --ask app-i18n/ibus dev-python/pygobject"
+        assert plat.pkg_install("xdotool", "xclip") == "sudo emerge --ask x11-misc/xdotool x11-misc/xclip"
+        assert plat.pkg_install("wtype") == "sudo emerge --ask gui-apps/wtype"
+        assert plat.pkg_install("ydotool") == "sudo emerge --ask ydotool"  # emerge resolves it
+
+
+def test_gentoo_is_detected_by_emerge(monkeypatch):
+    plat._detect_pkg_manager.cache_clear()
+    monkeypatch.setattr(plat, "is_nixos", lambda: False)
+    monkeypatch.setattr(plat.shutil, "which", lambda b: "/usr/bin/emerge" if b == "emerge" else None)
+    try:
+        assert plat._detect_pkg_manager() == "emerge"
+    finally:
+        plat._detect_pkg_manager.cache_clear()
+
+
+def test_missing_sounddevice_is_not_missing_portaudio(monkeypatch):
+    """`uvx python-voiceio` (no [desktop]) has no sounddevice: that is the
+    extra, not the system library, when the library is installed."""
+    import builtins
+    real_import = builtins.__import__
+
+    def no_sounddevice(name, *a, **k):
+        if name == "sounddevice":
+            raise ImportError("No module named 'sounddevice'")
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", no_sounddevice)
+    monkeypatch.delitem(sys.modules, "sounddevice", raising=False)
+
+    monkeypatch.setattr(plat, "_portaudio_lib_present", lambda: True)
+    assert plat._probe_portaudio()
+    problem = plat.audio_problem()
+    assert "sounddevice is not installed" in problem and "[desktop]" in problem
+    assert "PortAudio" not in problem
+    monkeypatch.setattr(plat, "_portaudio_lib_present", lambda: False)
+    assert not plat._probe_portaudio()  # both missing: still list the system dep
+
+
+def test_portaudio_library_missing_is_a_system_dep(monkeypatch):
+    import builtins
+    real_import = builtins.__import__
+
+    def no_lib(name, *a, **k):
+        if name == "sounddevice":
+            raise OSError("PortAudio library not found")
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", no_lib)
+    monkeypatch.delitem(sys.modules, "sounddevice", raising=False)
+    monkeypatch.setattr(plat, "_detect_pkg_manager", lambda: "emerge")
+    assert not plat._probe_portaudio()
+    assert plat.audio_problem() == ("PortAudio library not found — install: "
+                                    "sudo emerge --ask media-libs/portaudio")
+
+
+def test_desktop_hint_under_uvx_names_the_extra(monkeypatch, tmp_path):
+    cache = tmp_path / "uv"
+    (cache / "archive-v0" / "h").mkdir(parents=True)
+    monkeypatch.setenv("UV_CACHE_DIR", str(cache))
+    monkeypatch.setattr(sys, "prefix", str(cache / "archive-v0" / "h"))
+    hint = plat.desktop_dep_hint("sounddevice")
+    assert "uvx 'python-voiceio[desktop]'" in hint and "uv tool install" in hint
 
 
 def test_check_system_deps_empty_on_non_linux():
@@ -321,6 +389,14 @@ def test_privileged_argv_runs_shell_scripts_with_inner_sudo_under_pkexec(monkeyp
     assert plat.privileged_argv(script) == ["pkexec", *script]
 
 
+def test_privileged_argv_drops_emerge_ask_without_a_terminal(monkeypatch):
+    _no_terminal(monkeypatch)
+    assert plat.privileged_argv(["sudo", "emerge", "--ask", "media-libs/portaudio"]) == [
+        "pkexec", "emerge", "media-libs/portaudio"]
+    monkeypatch.setattr(plat, "_has_tty", lambda: True)
+    assert plat.privileged_argv(["sudo", "emerge", "--ask", "x"]) == ["sudo", "emerge", "--ask", "x"]
+
+
 def test_privileged_argv_prefers_cached_sudo(monkeypatch):
     _no_terminal(monkeypatch, sudo_cached=True)
     assert plat.privileged_argv(["sudo", "apt", "install", "x"]) == [
@@ -385,3 +461,14 @@ def test_doctor_privileged_fix_without_terminal_prints_command(monkeypatch, caps
     assert doctor._run_privileged("Fix x", ["sudo", "udevadm", "trigger"], 5) is False
     assert ran == []
     assert "sudo udevadm trigger" in capsys.readouterr().out
+
+
+def test_wizard_names_the_missing_extra_not_a_missing_mic(capsys):
+    from voiceio.setup import steps
+    state = steps.SetupState()
+    state.checks = {"audio": False, "audio_devices": [], "is_windows": False, "is_mac": False,
+                    "audio_reason": plat.desktop_dep_hint("sounddevice")}
+    with pytest.raises(SystemExit):
+        steps._require_mic_and_typer(state)
+    out = capsys.readouterr().out
+    assert "sounddevice is not installed" in out and "No microphone" not in out
