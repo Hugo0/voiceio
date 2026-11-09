@@ -58,6 +58,16 @@ def _find_voiceio_bin() -> str:
     return "voiceio"
 
 
+def _refuse_ephemeral(bin_path: str) -> bool:
+    """True (and says why) when ``bin_path`` lives in uv's cache: a unit
+    pointing there breaks the day uv prunes it."""
+    from voiceio.install_env import ephemeral_message, in_uv_cache
+    if not in_uv_cache(bin_path):
+        return False
+    print(ephemeral_message(), file=sys.stderr)
+    return True
+
+
 def _service_unit(bin_path: str) -> str:
     """Generate the systemd unit file content."""
     return f"""\
@@ -170,7 +180,10 @@ def install_learn_timer(auto_promote: bool = False) -> bool:
         return False
     from voiceio import config
     learn = config.load().learn
-    service, timer = _learn_units(_find_voiceio_bin(), auto_promote,
+    bin_path = _find_voiceio_bin()
+    if _refuse_ephemeral(bin_path):
+        return False
+    service, timer = _learn_units(bin_path, auto_promote,
                                   learn_calendar(learn.at, learn.every))
     SERVICE_DIR.mkdir(parents=True, exist_ok=True)
     LEARN_SERVICE_PATH.write_text(service)
@@ -262,6 +275,8 @@ def install_windows_startup() -> bool:
     """Create a .bat file in the Windows Startup folder."""
     bat_path = _windows_startup_bat()
     voiceio_bin = _find_voiceio_bin()
+    if _refuse_ephemeral(voiceio_bin):
+        return False
     bat_path.parent.mkdir(parents=True, exist_ok=True)
     bat_path.write_text(f'@echo off\nstart /B "" "{voiceio_bin}"\n')
     log.info("Windows startup script created: %s", bat_path)
@@ -292,6 +307,8 @@ def install_service() -> bool:
         return False
 
     bin_path = _find_voiceio_bin()
+    if _refuse_ephemeral(bin_path):
+        return False
 
     SERVICE_DIR.mkdir(parents=True, exist_ok=True)
     SERVICE_PATH.write_text(_service_unit(bin_path))
@@ -452,6 +469,12 @@ def install_symlinks() -> list[str]:
     if packaged_by():
         # The package installed them in /usr/bin.
         return [name for name in SCRIPT_NAMES if shutil.which(name)]
+
+    from voiceio.install_env import running_ephemeral
+    if running_ephemeral():
+        # Links into uv's cache dangle once uv prunes it.
+        log.warning("Not linking commands into ~/.local/bin from a uvx environment")
+        return []
 
     venv_bin = Path(sys.prefix) / "bin"
     LOCAL_BIN.mkdir(parents=True, exist_ok=True)

@@ -66,6 +66,13 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     if not hotkey:
         return _fail("validate", "hotkey must not be empty", 2)
 
+    from voiceio.install_env import UV_TOOL_INSTALL, running_ephemeral
+    if running_ephemeral():
+        # The service and IBus launcher would point into uv's cache.
+        return _fail("install", "running from a temporary uvx environment that uv may "
+                     f"delete; install it with: {UV_TOOL_INSTALL} (or pipx), "
+                     "then run voiceio setup again", 3)
+
     _progress("start", mode="noninteractive", model=model, language=language, hotkey=hotkey)
 
     from voiceio import platform as plat

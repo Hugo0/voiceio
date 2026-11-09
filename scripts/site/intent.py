@@ -6,7 +6,7 @@ INSTALL_STEPS = """<ol class="steps">
     portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi</code></pre>
   Fedora, Arch and NixOS commands are in the <a href="https://github.com/Hugo0/voiceio#install">README</a>.</li>
   <li><b>Install voiceio</b> with the desktop extra (microphone, hotkeys, tray):
-<pre><code><span class="p">$</span> pipx install 'python-voiceio[desktop]'</code></pre></li>
+<pre><code><span class="p">$</span> pipx install 'python-voiceio[desktop]'   <span class="c"># or: uv tool install 'python-voiceio[desktop]'</span></code></pre></li>
   <li><b>Run the guided setup.</b> It downloads the speech model, sets your hotkey and installs a systemd user service so voiceio starts on login:
 <pre><code><span class="p">$</span> voiceio setup</code></pre></li>
   <li><b>Dictate.</b> Press the hotkey you picked during setup in any app, speak, and press it again. <code>voiceio doctor</code> shows what works; <code>voiceio doctor --fix</code> repairs what it can.</li>

@@ -98,6 +98,7 @@ class SetupState:
 
 
 def run_wizard() -> None:
+    _refuse_ephemeral_env()
     state = _welcome()
     _preflight_deps(interactive=True)
     _step_system_check(state)    # 1
@@ -109,6 +110,15 @@ def run_wizard() -> None:
     _step_advanced(state)        # 7
     _step_finalize(state)        # 8
     _print_ready_panel(state.hotkey, autostart=state.autostart)
+
+
+def _refuse_ephemeral_env() -> None:
+    """Setup bakes this install's paths into the service, IBus launcher and
+    ~/.local/bin; from a uvx environment they would point into uv's cache."""
+    from voiceio.install_env import ephemeral_message, running_ephemeral
+    if running_ephemeral():
+        print(f"\n  {YELLOW}⚠{RESET}  " + ephemeral_message().replace("\n", "\n     "))
+        sys.exit(3)
 
 
 def _welcome() -> SetupState:

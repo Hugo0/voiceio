@@ -60,6 +60,13 @@ pipx install 'python-voiceio[desktop]'   # the base package alone is headless (n
 pipx ensurepath          # puts ~/.local/bin on PATH; open a new shell after
 ```
 
+No pipx, but uv? `uv tool install 'python-voiceio[desktop]'` (then
+`uv tool update-shell` if `~/.local/bin` is not on PATH) is equivalent. Do not
+set up from `uvx`: it runs from uv's cache, which uv deletes on
+`uv cache clean`/`prune`, so `voiceio setup` refuses there (exit 3,
+`step=install`) and `voiceio doctor` flags a service or IBus launcher that
+points into the cache.
+
 Verify:
 
 ```bash
@@ -144,7 +151,8 @@ press it again to commit.
 - **`[voiceio-setup] step=preflight status=missing`** → run the printed `cmd=`,
   or re-run setup with `--yes`.
 - **`[voiceio-setup] step=... status=error reason='...'`** → non-zero exit; read
-  the `reason`. `step=validate` = bad `--answers` JSON/keys; `step=model` =
+  the `reason`. `step=validate` = bad `--answers` JSON/keys (exit 2); `step=install` = run from
+  a temporary `uvx` environment (exit 3, see section 2); `step=model` =
   model download failed (network); `step=system` = no mic (exit 5) or no typer
   backend (exit 6). On `step=system` failures a valid `config.toml` is still
   written (look for `step=config status=written`) — fix the hardware/packages
@@ -157,7 +165,13 @@ press it again to commit.
   without re-login). Fallback: `sudo usermod -aG input $USER` (log out/in).
   Then re-run setup.
 - **`sounddevice is not installed` / desktop extra missing** → reinstall with
-  `pipx install --force 'python-voiceio[desktop]'`.
+  `pipx install --force 'python-voiceio[desktop]'` (or
+  `uv tool install --force 'python-voiceio[desktop]'`). Under `uvx`, name the
+  extra: `uvx 'python-voiceio[desktop]' doctor`.
+- **doctor: "Install paths that will break"** → the service or IBus launcher
+  runs voiceio from uv's cache (it was set up from `uvx`) or from a path that
+  is gone. `uv tool install 'python-voiceio[desktop]'` (or pipx), then
+  `voiceio setup` or `voiceio doctor --fix` from that install.
 - **Nothing types in a terminal** → expected; terminals use the clipboard
   fallback, GUI apps use IBus.
 

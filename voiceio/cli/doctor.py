@@ -92,6 +92,15 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         for path, mode, expected in perm_issues:
             print(f"  {oct(mode)[2:]:>4} → {oct(expected)[2:]:>4}  {path}")
 
+    # Units and launchers that run voiceio from uv's cache (uvx) or a path
+    # that is gone: they work until uv prunes it, then autostart breaks.
+    from voiceio import install_env
+    stale_paths = install_env.stale_install_paths()
+    if stale_paths:
+        print(install_env.stale_paths_report(stale_paths))
+    elif install_env.running_ephemeral():
+        print("\nNote: " + install_env.ephemeral_message())
+
     # System-dependency preflight: the #1 install funnel killer.
     from voiceio import platform as plat
     missing_deps = plat.check_system_deps()
@@ -115,7 +124,7 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
             print("Run 'voiceio doctor --fix' to tighten file permissions.")
         from voiceio.hints import hint
         hint("vocab_suggest", "Run 'voiceio vocab suggest' to find names it keeps mishearing")
-        healthy = report.all_ok and not perm_issues and not missing_deps
+        healthy = report.all_ok and not perm_issues and not missing_deps and not stale_paths
         if args.report or _offer_report(args, healthy and not report.warnings):
             _share_report(args, report, missing_deps, [p for p, _, _ in perm_issues])
         sys.exit(0 if healthy else 1)
@@ -160,6 +169,9 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
                 fixed_any = True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
                 print(f"  Failed: {e}")
+
+    if stale_paths and not install_env.running_ephemeral():
+        fixed_any = _rewrite_stale_paths(stale_paths) or fixed_any
 
     # CLI symlinks
     if not report.cli_in_path:
@@ -235,10 +247,40 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
 
     missing_deps = plat.check_system_deps()
     perm_issues = _config.check_permissions()
-    healthy = report.all_ok and not perm_issues and not missing_deps and not report.warnings
+    stale_paths = install_env.stale_install_paths()
+    healthy = (report.all_ok and not perm_issues and not missing_deps and not report.warnings
+               and not stale_paths)
     if args.report or _offer_report(args, healthy):
         _share_report(args, report, missing_deps, [p for p, _, _ in perm_issues])
-    sys.exit(0 if report.all_ok else 1)
+    sys.exit(0 if report.all_ok and not stale_paths else 1)
+
+
+def _rewrite_stale_paths(stale: list[tuple[str, str, str]]) -> bool:
+    """Rewrite each file stale_install_paths() flagged for the running install."""
+    from voiceio import service
+    whats = " ".join(what for what, _, _ in stale)
+    fixed = False
+    for label, needed, fix in (
+        ("autostart service", "autostart service", service.install_service),
+        ("learning service", "learning service", service.refresh_learn_timer),
+        ("IBus launcher", "IBus launcher", None),
+        ("command links", "command link", service.install_symlinks),
+    ):
+        if needed not in whats:
+            continue
+        print(f"  Fixing {label}: pointing it at {service._find_voiceio_bin()}")
+        try:
+            if fix is None:
+                from voiceio.ibus import install
+                ok = install.install_component()
+            else:
+                ok = bool(fix())
+        except Exception as e:  # noqa: BLE001 — report, keep fixing the rest
+            print(f"  Failed: {e}")
+            continue
+        print("  Done." if ok else "  Failed: run 'voiceio setup' again.")
+        fixed = fixed or ok
+    return fixed
 
 
 def _offer_report(args: argparse.Namespace, healthy: bool) -> bool:

@@ -30,9 +30,11 @@ sudo apt install pipx build-essential python3-dev portaudio19-dev ibus gir1.2-ib
 sudo dnf install pipx gcc gcc-c++ make python3-devel portaudio-devel ibus ibus-libs python3-gobject   # Fedora
 sudo pacman -S python-pipx base-devel portaudio ibus python-gobject                                   # Arch
 
-pipx install 'python-voiceio[desktop]'
+pipx install 'python-voiceio[desktop]'      # or: uv tool install 'python-voiceio[desktop]'
 voiceio setup        # model, hotkey, autostart
 ```
+
+`uvx` is fine for a quick try, but run `voiceio setup` from a `pipx` or `uv tool` install: uvx runs from uv's cache, which uv deletes on `uv cache clean`, and the autostart service would point there.
 
 **Or as a Debian/Ubuntu package** (new; bundles everything, nothing to compile):
 
