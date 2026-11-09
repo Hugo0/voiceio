@@ -26,20 +26,47 @@ def uaccess_rule() -> str:
 
 
 def uaccess_install_cmd() -> list[str]:
-    """argv that installs the uaccess rule and applies it (runs via sudo).
+    """argv that installs the uaccess rule and applies it, as root.
 
-    One ``sh -c`` so the whole privileged action shows as a single string in
-    doctor's consent prompt. `trigger` re-runs the rules for existing input
-    devices, so access is granted immediately — no re-login, unlike the
-    `input` group.
+    One root ``sh -c`` so the whole privileged action shows as a single
+    string in doctor's consent prompt. It starts with ``sudo``;
+    platform.privileged_argv swaps that for doas or pkexec when needed, and
+    the script itself never calls sudo. `mkdir -p` because some distros
+    (Gentoo) ship no /etc/udev/rules.d. `trigger` re-runs the rules for
+    existing input devices, so access is granted immediately — no re-login,
+    unlike the `input` group.
     """
     script = (
-        f"printf %s {shlex.quote(uaccess_rule())} "
-        f"| sudo tee {UACCESS_RULE_PATH} > /dev/null "
-        "&& sudo udevadm control --reload-rules "
-        "&& sudo udevadm trigger --subsystem-match=input --action=change"
+        f"mkdir -p {shlex.quote(str(Path(UACCESS_RULE_PATH).parent))} "
+        f"&& printf %s {shlex.quote(uaccess_rule())} > {UACCESS_RULE_PATH} "
+        "&& udevadm control --reload-rules "
+        "&& udevadm trigger --subsystem-match=input --action=change"
     )
-    return ["sh", "-c", script]
+    return ["sudo", "sh", "-c", script]
+
+
+# Shown by setup and doctor instead of a failing evdev check.
+NOT_NEEDED_ON_X11 = "optional, not needed: pynput handles the hotkey on X11"
+
+
+def evdev_optional(display_server: str, pynput_ok: bool, backend: str = "auto") -> bool:
+    """True when evdev access is not needed: on X11 the chain tries pynput
+    first, so a working pynput covers the hotkey. Not when the config pins
+    the evdev backend, and never on Wayland, where evdev is the only
+    physical listener.
+    """
+    return display_server == "x11" and pynput_ok and backend != "evdev"
+
+
+def _pynput_covers_hotkey() -> bool:
+    try:
+        from voiceio.config import load
+        from voiceio.hotkeys.pynput_backend import PynputHotkey
+        from voiceio.platform import _detect_display_server
+        return evdev_optional(_detect_display_server(), PynputHotkey().probe().ok,
+                              load().hotkey.backend)
+    except Exception:
+        return False
 
 
 def nixos_hint() -> str:
@@ -127,6 +154,10 @@ class EvdevHotkey:
                     ok=False, reason="No permission to read /dev/input",
                     fix_hint=nixos_hint(),
                 )
+            if _pynput_covers_hotkey():
+                # The udev rule needs root; don't offer it for nothing.
+                return ProbeResult(ok=False, reason="No permission to read /dev/input",
+                                   fix_hint=NOT_NEEDED_ON_X11)
             return ProbeResult(
                 ok=False, reason="No permission to read /dev/input",
                 fix_hint=(

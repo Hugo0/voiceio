@@ -22,19 +22,22 @@ UINPUT_UDEV_RULE = 'KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"
 
 
 def uinput_udev_install_cmd() -> list[str]:
-    """argv that installs the udev rule and reloads it (runs via sudo).
+    """argv that installs the udev rule and reloads it, as root.
 
-    Returned as a single ``sh -c`` invocation so the whole privileged action
-    is visible as one string in the consent prompt.
+    One root ``sh -c`` so the whole privileged action is visible as one
+    string in the consent prompt; platform.privileged_argv swaps the leading
+    sudo for doas or pkexec when needed. `mkdir -p` because some distros
+    (Gentoo) ship no /etc/udev/rules.d.
     """
+    rules_dir = os.path.dirname(UINPUT_UDEV_RULE_PATH)
     script = (
-        f"printf %s {shlex.quote(UINPUT_UDEV_RULE)} "
-        f"| sudo tee {UINPUT_UDEV_RULE_PATH} > /dev/null "
-        f"&& sudo modprobe uinput "
-        f"&& sudo udevadm control --reload-rules "
-        f"&& sudo udevadm trigger /dev/uinput"
+        f"mkdir -p {shlex.quote(rules_dir)} "
+        f"&& printf %s {shlex.quote(UINPUT_UDEV_RULE)} > {UINPUT_UDEV_RULE_PATH} "
+        f"&& modprobe uinput "
+        f"&& udevadm control --reload-rules "
+        f"&& udevadm trigger /dev/uinput"
     )
-    return ["sh", "-c", script]
+    return ["sudo", "sh", "-c", script]
 
 
 def uinput_manual_instructions() -> str:

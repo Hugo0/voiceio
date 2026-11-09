@@ -31,13 +31,13 @@ def test_rule_ships_as_package_data():
     assert (ROOT / "voiceio" / "data" / "__init__.py").exists()
 
 
-def test_install_cmd_is_single_sudo_script():
+def test_install_cmd_is_single_root_script():
     cmd = evdev_mod.uaccess_install_cmd()
-    assert cmd[:2] == ["sh", "-c"] and len(cmd) == 3
-    script = cmd[2]
-    assert f"sudo tee {evdev_mod.UACCESS_RULE_PATH}" in script
-    assert "sudo udevadm control --reload-rules" in script
-    assert "sudo udevadm trigger" in script
+    assert cmd[:3] == ["sudo", "sh", "-c"] and len(cmd) == 4
+    script = cmd[3]
+    assert f"> {evdev_mod.UACCESS_RULE_PATH}" in script
+    assert "udevadm control --reload-rules" in script
+    assert "udevadm trigger" in script
     assert "uaccess" in script
     assert "usermod" not in script
 
@@ -60,6 +60,7 @@ def _deny_all_inputs(monkeypatch, tmp_path):
 
 def test_probe_offers_uaccess_rule(monkeypatch, tmp_path):
     monkeypatch.setattr("voiceio.platform.is_nixos", lambda: False)
+    monkeypatch.setattr(evdev_mod, "_pynput_covers_hotkey", lambda: False)
     _deny_all_inputs(monkeypatch, tmp_path)
     result = evdev_mod.EvdevHotkey().probe()
     assert not result.ok

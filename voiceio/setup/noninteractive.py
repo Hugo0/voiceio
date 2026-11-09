@@ -85,6 +85,10 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
         if install_deps or answers.get("install_system_deps"):
             argv = plat.privileged_argv(cmd.split())
             if argv is None:
+                if not plat.has_privilege_tool():
+                    return _fail("preflight", "no sudo, doas or pkexec: run this as root "
+                                 f"(e.g. with su), then re-run setup: "
+                                 f"{plat.as_root_command(cmd.split())}", 4)
                 return _fail("preflight", "no terminal for sudo to ask a password and no "
                              f"pkexec: run it yourself, then re-run setup: {cmd}", 4)
             _progress("preflight", status="installing", cmd=repr(" ".join(argv)))

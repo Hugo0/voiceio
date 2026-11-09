@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 
 
@@ -44,13 +45,12 @@ def _confirm_privileged(description: str, command_str: str) -> bool:
 
 def _run_privileged(description: str, argv: list[str], timeout: float,
                     cmd_str: str | None = None) -> bool | None:
-    """Ask first, then run a root command: sudo with a terminal, else pkexec
-    (see platform.privileged_argv), else print it for the user to run.
+    """Ask first, then run a root command with sudo, doas or pkexec (see
+    platform.privileged_argv), else print it for the user to run as root.
 
     Returns True when it ran, False when it failed or could not run, None
     when the user declined. Raises nothing.
     """
-    import shlex
     import subprocess
 
     from voiceio import platform as plat
@@ -59,8 +59,7 @@ def _run_privileged(description: str, argv: list[str], timeout: float,
         return None
     run_argv = plat.privileged_argv(argv)
     if run_argv is None:
-        print("  No terminal for sudo to ask your password, and no pkexec. Run it yourself:")
-        print(f"    {cmd_str}")
+        print(plat.privilege_unavailable_message(argv))
         return False
     try:
         subprocess.run(run_argv, check=True, timeout=timeout)
@@ -155,7 +154,7 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
 
     for b in report.hotkey_backends + report.typer_backends:
         if not b.ok and b.fix_cmd:
-            cmd_str = " ".join(b.fix_cmd)
+            cmd_str = shlex.join(b.fix_cmd)
             if _is_privileged_cmd(b.fix_cmd):
                 ran = _run_privileged(f"Fix {b.name}", b.fix_cmd, 120, cmd_str=cmd_str)
                 if ran is None:

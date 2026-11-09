@@ -268,14 +268,27 @@ def _has_tty() -> bool:
     return True
 
 
-def _sudo_without_password() -> bool:
-    """Cached credentials or NOPASSWD: sudo works with no terminal."""
+def _runs_without_password(tool: str) -> bool:
+    """`sudo -n true` / `doas -n true`: cached credentials or a no-password
+    rule, so the tool works with no terminal to ask."""
     import subprocess
     try:
-        return subprocess.run(["sudo", "-n", "true"], capture_output=True,
+        return subprocess.run([tool, "-n", "true"], capture_output=True,
                               timeout=5).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
+
+
+def _sudo_without_password() -> bool:
+    return _runs_without_password("sudo")
+
+
+def _doas_without_password() -> bool:
+    return _runs_without_password("doas")
+
+
+def _is_root() -> bool:
+    return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
 # Flags that make a package manager prompt; dropped instead (emerge has no
@@ -296,13 +309,15 @@ def _assume_yes(argv: list[str]) -> list[str]:
 def privileged_argv(argv: list[str]) -> list[str] | None:
     """How to run a command that needs root from here, or None if it can't be.
 
-    A command needs root when it starts with sudo or is a shell script that
-    calls sudo (the udev-rule fixes). With a terminal it runs unchanged and
-    sudo asks for the password. Without one (setup driven by an agent, a
-    launcher, a GUI) sudo cannot ask: passwordless or cached sudo still works;
-    else pkexec, whose polkit agent shows the desktop's password dialog (a
-    script under pkexec runs as root, where its inner sudo needs no password);
-    else None, and the caller prints the command for the user to run.
+    A command needs root when it starts with sudo, or is a shell script that
+    calls sudo. Commands are written with sudo; this picks the tool that
+    exists. Already root: run it without sudo. With a terminal: sudo if
+    installed, else doas (Gentoo, Alpine), else pkexec, each asking for the
+    password. Without one (setup driven by an agent, a launcher, a GUI)
+    nothing can ask on a terminal: `sudo -n` or `doas -n` when they need no
+    password; else pkexec, whose polkit agent shows the desktop's password
+    dialog. Else None, and the caller prints the command for the user to run
+    as root (see privilege_unavailable_message).
     Ask the user before calling this: it never asks.
     """
     if not argv:
@@ -310,15 +325,51 @@ def privileged_argv(argv: list[str]) -> list[str] | None:
     direct = argv[0] == "sudo"
     if not direct and not any("sudo " in a for a in argv[1:]):
         return argv
+    # A script with inner sudo runs whole under the tool; as root its sudo
+    # needs no password.
+    rest = argv[1:] if direct else argv
+    if _is_root() and direct:
+        return rest
+    has_sudo, has_doas = bool(shutil.which("sudo")), bool(shutil.which("doas"))
+    has_pkexec = bool(shutil.which("pkexec"))
     if _has_tty():
-        return argv
-    rest = _assume_yes(argv[1:]) if direct else argv
-    if _sudo_without_password():
+        if has_sudo:
+            return argv
+        if has_doas:
+            return ["doas", *rest]
+        return ["pkexec", *rest] if has_pkexec else None
+    rest = _assume_yes(rest) if direct else argv
+    if has_sudo and _sudo_without_password():
         return ["sudo", "-n", *rest] if direct else argv
-    if shutil.which("pkexec") and (os.environ.get("WAYLAND_DISPLAY")
-                                   or os.environ.get("DISPLAY")):
+    if has_doas and _doas_without_password():
+        return ["doas", "-n", *rest]
+    if has_pkexec and (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
         return ["pkexec", *rest]
     return None
+
+
+def has_privilege_tool() -> bool:
+    return any(shutil.which(t) for t in ("sudo", "doas", "pkexec"))
+
+
+def as_root_command(argv: list[str]) -> str:
+    """The command to type in a root shell: the argv without its sudo."""
+    import re
+    import shlex
+    if argv and argv[0] == "sudo":
+        argv = argv[1:]
+    return shlex.join(re.sub(r"\bsudo (-n )?", "", a) for a in argv)
+
+
+def privilege_unavailable_message(argv: list[str]) -> str:
+    """Why privileged_argv gave up, and what to run instead (indented lines)."""
+    import shlex
+    if not has_privilege_tool():
+        return ("  No sudo, doas or pkexec found. Run this as root "
+                "(e.g. in a shell from `su -`):\n"
+                f"    {as_root_command(argv)}")
+    return ("  No terminal to ask for your password, and no pkexec. Run it yourself:\n"
+            f"    {shlex.join(argv)}")
 
 
 # Package name overrides per package manager (when they differ from apt names)

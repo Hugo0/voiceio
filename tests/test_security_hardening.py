@@ -188,7 +188,7 @@ def test_uinput_install_cmd_uses_sudo_not_chmod_0666():
     from voiceio.typers import ydotool
     cmd = ydotool.uinput_udev_install_cmd()
     joined = " ".join(cmd)
-    assert "sudo tee" in joined
+    assert cmd[0] == "sudo" and "> /etc/udev/rules.d/" in joined
     assert "udevadm control --reload-rules" in joined
     assert "chmod 0666" not in joined
 
@@ -201,7 +201,7 @@ def test_ydotool_probe_offers_udev_not_chmod(monkeypatch):
     result = ydotool.YdotoolTyper().probe()
     assert not result.ok
     assert "chmod 0666" not in " ".join(result.fix_cmd)
-    assert "sudo tee" in " ".join(result.fix_cmd)
+    assert result.fix_cmd[0] == "sudo" and "udevadm" in " ".join(result.fix_cmd)
 
 
 # ── doctor --fix consent prompt for privileged actions ───────────────────

@@ -1,7 +1,6 @@
 """System probes for setup: binaries, audio/GPU/evdev checks, system-package preflight."""
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -79,9 +78,12 @@ def _check_system() -> dict:
     elif _is_mac:
         checks["display"] = "darwin"
     else:
-        checks["display"] = os.environ.get("XDG_SESSION_TYPE", "unknown")
+        # XDG_SESSION_TYPE, else WAYLAND_DISPLAY/DISPLAY (startx sessions
+        # often have XDG_SESSION_TYPE=tty).
+        from voiceio.platform import _detect_display_server
+        checks["display"] = _detect_display_server()
 
-    # pynput (Windows/macOS primary backend)
+    # pynput: the Windows/macOS backend, and the first hotkey backend on X11
     checks["pynput"] = False
     if _is_win or _is_mac:
         try:
@@ -89,6 +91,9 @@ def _check_system() -> dict:
             checks["pynput"] = True
         except ImportError:
             pass
+    elif checks["display"] == "x11":
+        from voiceio.hotkeys.pynput_backend import PynputHotkey
+        checks["pynput"] = PynputHotkey().probe().ok
 
     # Linux-only typer binaries
     checks["xdotool"] = _check_binary("xdotool") if checks["is_linux"] else False
@@ -132,6 +137,10 @@ def _check_system() -> dict:
     if checks["is_linux"]:
         from voiceio.hotkeys.evdev import EvdevHotkey
         checks["evdev_access"] = EvdevHotkey().probe().ok
+    # On X11 pynput covers the hotkey; the udev rule (root) is not needed.
+    from voiceio.hotkeys.evdev import evdev_optional
+    checks["evdev_optional"] = checks["is_linux"] and evdev_optional(
+        checks["display"], checks["pynput"])
 
     return checks
 
@@ -165,8 +174,8 @@ def _preflight_deps(interactive: bool = True, install_deps: bool = False) -> Non
 
     argv = plat.privileged_argv(cmd.split())
     if argv is None:
-        print(f"  {YELLOW}⚠{RESET}  No terminal for sudo to ask your password, and no pkexec.")
-        print(f"  {DIM}Run the command above yourself, then re-run setup.{RESET}")
+        print(f"  {YELLOW}⚠{RESET}{plat.privilege_unavailable_message(cmd.split())}")
+        print(f"  {DIM}Then re-run setup.{RESET}")
         return
     print(f"\n  {CYAN}Running:{RESET} {' '.join(argv)}\n")
     try:

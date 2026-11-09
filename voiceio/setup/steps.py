@@ -184,11 +184,14 @@ def _print_capability_checks(checks: dict) -> None:
                  optional=True)
 
     if checks["is_linux"]:
+        from voiceio.hotkeys.evdev import NOT_NEEDED_ON_X11
         from voiceio.hotkeys.evdev import access_hint as evdev_access_hint
-        _print_check("Keyboard access (evdev)", checks["evdev_access"],
-                     "evdev hotkeys available" if checks["evdev_access"]
-                     else evdev_access_hint(),
-                     optional=checks["evdev_access"])
+        if checks["evdev_access"]:
+            _print_check("Keyboard access (evdev)", True, "evdev hotkeys available")
+        elif checks.get("evdev_optional"):
+            _print_check("Keyboard access (evdev)", False, NOT_NEEDED_ON_X11, optional=True)
+        else:
+            _print_check("Keyboard access (evdev)", False, evdev_access_hint())
 
 
 def _print_tray_check() -> bool:

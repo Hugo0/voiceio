@@ -96,7 +96,7 @@ NixOS module, Home Manager module).
 
 **Decoders** — every speech runtime implements the `core.decoders.base.Decoder` protocol and declares its `BiasMode` (hotwords, prompt, unbounded). `catalog.py` lists the models an adapter can run, with their licenses. voiceio never ships weights.
 
-**Chain & probe** — Every backend implements `probe() → ProbeResult`. `chain.select()` picks the first working one. Runtime failures trigger automatic re-probe and fallback. A probe's `fix_cmd` is what `voiceio doctor --fix` runs; privileged ones are a single `sh -c` shown in a consent prompt (see `typers/ydotool.py`, `hotkeys/evdev.py`).
+**Chain & probe** — Every backend implements `probe() → ProbeResult`. `chain.select()` picks the first working one. Runtime failures trigger automatic re-probe and fallback. A probe's `fix_cmd` is what `voiceio doctor --fix` runs; privileged ones are a single `sudo sh -c` (no sudo inside the script) shown in a consent prompt; `platform.privileged_argv()` runs it with sudo, doas or pkexec (see `typers/ydotool.py`, `hotkeys/evdev.py`).
 
 **Adding a backend** — Create `voiceio/typers/my_backend.py`, implement `TyperBackend` (or `StreamingTyper` for preedit; a backend that synthesizes key events subclasses `KeystrokeTyper` and implements `_type`/`_delete`, so it waits for held modifiers first), register in `__init__.py`, add to `chain.py`, add probe test.
 
@@ -224,7 +224,7 @@ streaming MBS for Nemotron (true streaming + unlimited hotwords, PR #3895).
 
 - **IBus** is the only reliable streaming text injection on Wayland. Keystroke simulation drops characters on rapid corrections.
 - **Wayland caps a single message at 4096 bytes.** GNOME Shell relays preedit and commit strings to the focused app as one `zwp_text_input_v3` event, so an oversized string makes the compositor tear down that app's connection — it dies mid-dictation. Everything handed to IBus goes through `voiceio/ibus/textlimit.py`; never call `commit_text`/`update_preedit_text` with unbounded text.
-- **evdev** needs read access to `/dev/input/event*`: the shipped udev `uaccess` rule (`voiceio/data/60-voiceio-uaccess.rules`, must sort before `73-seat-late.rules`) or, as a fallback, the `input` group. Multiple keyboard devices each get their own reader thread.
+- **evdev** needs read access to `/dev/input/event*`: the shipped udev `uaccess` rule (`voiceio/data/60-voiceio-uaccess.rules`, must sort before `73-seat-late.rules`) or, as a fallback, the `input` group. On X11 pynput handles the hotkey first, so setup/doctor show evdev as optional there and don't offer the rule. Multiple keyboard devices each get their own reader thread.
 - **Sound** uses persistent `sounddevice.OutputStream`. WAV files padded with ~100ms silence.
 - **Tray on non-Ubuntu** needs AppIndicator3 packages + GNOME Shell extension.
 - **PyPI** package is `python-voiceio`, CLI is `voiceio`. Use `config.PYPI_NAME`.

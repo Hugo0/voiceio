@@ -19,6 +19,7 @@ class BackendStatus:
     reason: str = ""
     fix_hint: str = ""
     fix_cmd: list[str] = field(default_factory=list)
+    optional: bool = False   # failing, but another backend covers it
 
 
 @dataclass
@@ -71,6 +72,8 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
             name=name, ok=probe.ok, reason=probe.reason,
             fix_hint=probe.fix_hint, fix_cmd=probe.fix_cmd,
         ))
+
+    _mark_evdev_optional(report)
 
     # Probe typer backends
     for name, backend, probe in typer_chain.resolve(p):
@@ -126,6 +129,26 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
         report.warnings.append(kde)
 
     return report
+
+
+def _mark_evdev_optional(report: HealthReport) -> None:
+    """On X11 a working pynput covers the hotkey: show evdev as optional and
+    drop its root-only udev fix, so `doctor --fix` doesn't run it."""
+    from voiceio.hotkeys.evdev import NOT_NEEDED_ON_X11, evdev_optional
+    pynput_ok = any(b.name == "pynput" and b.ok for b in report.hotkey_backends)
+    try:
+        from voiceio.config import load
+        backend = load().hotkey.backend
+    except Exception:
+        backend = "auto"
+    if not evdev_optional(report.platform.display_server, pynput_ok, backend):
+        return
+    for b in report.hotkey_backends:
+        if b.name == "evdev" and not b.ok:
+            b.optional = True
+            b.reason = NOT_NEEDED_ON_X11
+            b.fix_hint = ""
+            b.fix_cmd = []
 
 
 def _kde_input_method_warning(p: plat.Platform, kwinrc: Path | None = None) -> str:
@@ -423,6 +446,9 @@ def _check_line(label: str, ok: bool, detail: str = "",
 def _backend_line(b: BackendStatus, active: bool = False) -> list[str]:
     lines = []
     tag = f"  {CYAN}◀ active{RESET}" if active else ""
+    if b.optional and not b.ok:
+        lines.append(f"  {DIM}○{RESET} {b.name}  {DIM}{b.reason}{RESET}")
+        return lines
     detail = ""
     if not b.ok:
         detail = b.reason

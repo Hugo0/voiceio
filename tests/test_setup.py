@@ -352,11 +352,20 @@ def test_setup_offers_nightly_learning_once(monkeypatch):
 
 # ── root commands with no terminal (agent, launcher, GUI) ────────────
 
-def _no_terminal(monkeypatch, *, sudo_cached=False, pkexec=True, display=True):
+def _tools(monkeypatch, *names):
+    """Only these privilege tools are on PATH; not running as root."""
+    monkeypatch.setattr(plat, "_is_root", lambda: False)
+    monkeypatch.setattr(plat.shutil, "which",
+                        lambda name: f"/usr/bin/{name}" if name in names else None)
+
+
+def _no_terminal(monkeypatch, *, sudo_cached=False, pkexec=True, display=True,
+                 sudo=True, doas=False, doas_cached=False):
     monkeypatch.setattr(plat, "_has_tty", lambda: False)
     monkeypatch.setattr(plat, "_sudo_without_password", lambda: sudo_cached)
-    monkeypatch.setattr(plat.shutil, "which",
-                        lambda name: "/usr/bin/pkexec" if pkexec and name == "pkexec" else None)
+    monkeypatch.setattr(plat, "_doas_without_password", lambda: doas_cached)
+    _tools(monkeypatch, *[n for n, on in (("sudo", sudo), ("doas", doas),
+                                          ("pkexec", pkexec)) if on])
     monkeypatch.delenv("DISPLAY", raising=False)
     if display:
         monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
@@ -366,6 +375,7 @@ def _no_terminal(monkeypatch, *, sudo_cached=False, pkexec=True, display=True):
 
 def test_privileged_argv_unchanged_with_a_terminal(monkeypatch):
     monkeypatch.setattr(plat, "_has_tty", lambda: True)
+    _tools(monkeypatch, "sudo", "doas", "pkexec")
     argv = ["sudo", "apt", "install", "ibus"]
     assert plat.privileged_argv(argv) == argv
 
@@ -395,12 +405,74 @@ def test_privileged_argv_drops_emerge_ask_without_a_terminal(monkeypatch):
         "pkexec", "emerge", "media-libs/portaudio"]
     monkeypatch.setattr(plat, "_has_tty", lambda: True)
     assert plat.privileged_argv(["sudo", "emerge", "--ask", "x"]) == ["sudo", "emerge", "--ask", "x"]
+    _tools(monkeypatch, "doas")
+    assert plat.privileged_argv(["sudo", "emerge", "--ask", "x"]) == ["doas", "emerge", "--ask", "x"]
 
 
 def test_privileged_argv_prefers_cached_sudo(monkeypatch):
     _no_terminal(monkeypatch, sudo_cached=True)
     assert plat.privileged_argv(["sudo", "apt", "install", "x"]) == [
         "sudo", "-n", "apt", "install", "-y", "x"]
+
+
+def test_privileged_argv_uses_doas_with_a_terminal_when_no_sudo(monkeypatch):
+    monkeypatch.setattr(plat, "_has_tty", lambda: True)
+    _tools(monkeypatch, "doas", "pkexec")
+    assert plat.privileged_argv(["sudo", "apt", "install", "x"]) == ["doas", "apt", "install", "x"]
+    _tools(monkeypatch, "sudo", "doas")
+    assert plat.privileged_argv(["sudo", "apt", "install", "x"]) == ["sudo", "apt", "install", "x"]
+
+
+def test_privileged_argv_runs_the_udev_fix_under_doas(monkeypatch):
+    from voiceio.hotkeys.evdev import uaccess_install_cmd
+    monkeypatch.setattr(plat, "_has_tty", lambda: True)
+    _tools(monkeypatch, "doas")
+    cmd = uaccess_install_cmd()
+    argv = plat.privileged_argv(cmd)
+    assert argv == ["doas", *cmd[1:]]
+    assert "sudo" not in " ".join(argv)   # the script itself never calls sudo
+
+
+def test_privileged_argv_without_terminal_order_is_sudo_doas_pkexec(monkeypatch):
+    argv = ["sudo", "apt", "install", "x"]
+    _no_terminal(monkeypatch, sudo_cached=True, doas=True, doas_cached=True)
+    assert plat.privileged_argv(argv) == ["sudo", "-n", "apt", "install", "-y", "x"]
+    _no_terminal(monkeypatch, sudo_cached=False, doas=True, doas_cached=True)
+    assert plat.privileged_argv(argv) == ["doas", "-n", "apt", "install", "-y", "x"]
+    _no_terminal(monkeypatch, sudo=False, doas=True, doas_cached=True)
+    assert plat.privileged_argv(argv) == ["doas", "-n", "apt", "install", "-y", "x"]
+    _no_terminal(monkeypatch, doas=True, doas_cached=False)
+    assert plat.privileged_argv(argv) == ["pkexec", "apt", "install", "-y", "x"]
+
+
+def test_privileged_argv_as_root_drops_sudo(monkeypatch):
+    _tools(monkeypatch)
+    monkeypatch.setattr(plat, "_is_root", lambda: True)
+    assert plat.privileged_argv(["sudo", "udevadm", "trigger"]) == ["udevadm", "trigger"]
+
+
+def test_privileged_argv_none_without_any_tool(monkeypatch, capsys):
+    from voiceio.cli import doctor
+    from voiceio.hotkeys.evdev import uaccess_install_cmd
+    monkeypatch.setattr(plat, "_has_tty", lambda: True)
+    _tools(monkeypatch)
+    cmd = uaccess_install_cmd()
+    assert plat.privileged_argv(cmd) is None
+    msg = plat.privilege_unavailable_message(cmd)
+    assert "as root" in msg and "su" in msg
+    assert "sudo" not in msg.split("\n", 1)[1]   # the command to paste in a root shell
+    assert "mkdir -p /etc/udev/rules.d" in msg
+    # doctor --fix prints that instead of running anything
+    ran = []
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: ran.append(a))
+    monkeypatch.setattr(doctor, "_confirm_privileged", lambda d, c: True)
+    assert doctor._run_privileged("Fix evdev", cmd, 5) is False
+    assert ran == [] and "as root" in capsys.readouterr().out
+
+
+def test_as_root_command_strips_sudo():
+    assert plat.as_root_command(["sudo", "emerge", "--ask", "x"]) == "emerge --ask x"
+    assert plat.as_root_command(["sh", "-c", "a | sudo tee f && sudo -n b"]) == "sh -c 'a | tee f && b'"
 
 
 @pytest.mark.parametrize("pkexec,display", [(False, True), (True, False)])
