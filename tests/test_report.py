@@ -375,3 +375,8 @@ def test_network_guard_blocks_real_hosts():
             s.connect(("93.184.216.34", 443))
     finally:
         s.close()
+
+
+def test_report_says_which_device_whisper_decodes_on():
+    assert "device: cuda" in report.build_report(_health(whisper_device="cuda"), cfg=Config())
+    assert "device:" not in report.build_report(_health(), cfg=Config())

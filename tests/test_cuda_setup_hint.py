@@ -171,3 +171,32 @@ def test_doctor_prints_device_problem(monkeypatch):
     assert health._gpu_libs_warning() == _DEVICE_MSG
     monkeypatch.setattr(plat, "cuda_device_problem", lambda: "")
     assert health._gpu_libs_warning() == ""
+
+
+def test_doctor_says_which_device_whisper_decodes_on(monkeypatch):
+    from voiceio import health
+    from voiceio.config import Config
+    from voiceio.platform import Platform
+    cfg = Config()
+    cfg.model.name, cfg.model.device = "small", "auto"
+    monkeypatch.setattr("voiceio.config.load", lambda: cfg)
+    monkeypatch.setattr(plat, "missing_cuda_libs", lambda: [])
+    assert health._whisper_gpu() == ("cuda", "")
+    text = health.format_report(health.HealthReport(
+        platform=Platform(os="linux", display_server="x11", desktop="kde"),
+        whisper_device="cuda"))
+    assert "Whisper decodes on" in text and "cuda" in text
+
+    monkeypatch.setattr(plat, "missing_cuda_libs", lambda: None)
+    monkeypatch.setattr(plat, "cuda_device_problem", lambda: "")
+    assert health._whisper_gpu() == ("cpu (no CUDA device)", "")
+    monkeypatch.setattr(plat, "cuda_device_problem", lambda: "NVIDIA GPU found, but")
+    assert health._whisper_gpu() == ("cpu (see warnings)", "NVIDIA GPU found, but")
+    monkeypatch.setattr(plat, "missing_cuda_libs", lambda: ["libcudnn.so.9"])
+    device, warning = health._whisper_gpu()
+    assert device == "cpu (see warnings)" and "libcudnn.so.9" in warning
+
+    cfg.model.device = "cpu"
+    assert health._whisper_gpu() == ("cpu (model.device = cpu)", "")
+    cfg.model.name = "parakeet-tdt-0.6b-v3"
+    assert health._whisper_gpu() == ("", "")

@@ -193,6 +193,8 @@ def build_report(
            if health.ibus_checks is not None and not health.ibus_checks.voiceio_running else ""),
         f"model: {_model_label(cfg.model.name)}",
     ]
+    if health.whisper_device:
+        lines.append(f"device: {health.whisper_device}")
     if unavailable:
         lines.append("fallbacks unavailable: " + ", ".join(unavailable))
     lines.append("failed: " + "; ".join(failed) if failed else "failed: none")

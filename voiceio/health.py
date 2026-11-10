@@ -51,6 +51,8 @@ class HealthReport:
     tray_fix_hint: str = ""
     features: FeatureGroups = field(default_factory=FeatureGroups)
     warnings: list[str] = field(default_factory=list)
+    # Where Whisper decodes: "cuda", or "cpu (why)". "" for other backends.
+    whisper_device: str = ""
 
     @property
     def all_ok(self) -> bool:
@@ -123,7 +125,8 @@ def check_health(p: plat.Platform | None = None) -> HealthReport:
                 "Grant it in System Settings → Privacy & Security → Accessibility."
             )
 
-    if gpu := _gpu_libs_warning():
+    report.whisper_device, gpu = _whisper_gpu()
+    if gpu:
         report.warnings.append(gpu)
     if kde := _kde_input_method_warning(report.platform):
         report.warnings.append(kde)
@@ -174,22 +177,33 @@ def _gpu_libs_warning() -> str:
     """Why Whisper can't use the GPU it sees, when that's a missing CUDA
     library (a torch for another CUDA major, pulled in by the train extra,
     is the usual way). The daemon then decodes on CPU instead."""
+    return _whisper_gpu()[1]
+
+
+def _whisper_gpu() -> tuple[str, str]:
+    """(device Whisper decodes on, warning). The device is "cuda" or
+    "cpu (why)", and "" for a non-Whisper model; a CPU fallback with a
+    warning points at it rather than repeating it."""
     try:
         from voiceio.config import load
         cfg = load().model
         from voiceio.core.decoders.catalog import is_whisper
-        if cfg.device not in ("auto", "cuda") or not is_whisper(cfg.name):
-            return ""
+        if not is_whisper(cfg.name):
+            return "", ""
+        if cfg.device not in ("auto", "cuda"):
+            return f"cpu (model.device = {cfg.device})", ""
     except Exception:  # noqa: BLE001
-        return ""
+        return "", ""
     missing = plat.missing_cuda_libs()
     if missing is None:
-        return plat.cuda_device_problem()
+        problem = plat.cuda_device_problem()
+        return ("cpu (see warnings)" if problem else "cpu (no CUDA device)"), problem
     if not missing:
-        return ""
-    return (f"A GPU is present but {', '.join(missing)} can't be loaded, so Whisper "
-            f"decodes on CPU. {plat.cuda_libs_hint(missing)}. Or set "
-            "model.device = \"cpu\" in config.toml to stay on CPU.")
+        return "cuda", ""
+    return "cpu (see warnings)", (
+        f"A GPU is present but {', '.join(missing)} can't be loaded, so Whisper "
+        f"decodes on CPU. {plat.cuda_libs_hint(missing)}. Or set "
+        "model.device = \"cpu\" in config.toml to stay on CPU.")
 
 
 def _check_features() -> FeatureGroups:
@@ -524,6 +538,10 @@ def format_report(report: HealthReport) -> str:
         lines[-1] += f"  {DIM}{report.tray_reason}{RESET}"
     if report.tray_fix_hint:
         lines.append(f"    {DIM}→ {report.tray_fix_hint}{RESET}")
+    if report.whisper_device:
+        fallback = "warnings" in report.whisper_device  # a GPU it can't use
+        lines.append(_check_line("Whisper decodes on", not fallback,
+                                 report.whisper_device, warn=fallback))
 
     # IBus pipeline
     if report.ibus_checks is not None:
