@@ -87,6 +87,12 @@ class TestTyperChain:
             assert typer_chain.select(linux_x11).name == "xdotool"
             backends["ibus"].probe.assert_not_called()
 
+    def test_x11_gnome_keeps_ibus_without_im_env(self, linux_x11):
+        import dataclasses
+        # gnome-shell integrates IBus; the IM env may not reach the service
+        gnome = dataclasses.replace(linux_x11, desktop="gnome")
+        assert typer_chain._get_chain(gnome)[0] == "ibus"
+
     def test_x11_explicit_ibus_override_honoured(self, linux_x11):
         backend = _mock_typer_backend("ibus", ok=True)
         with patch("voiceio.typers.create_typer_backend", return_value=backend):

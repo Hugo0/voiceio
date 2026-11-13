@@ -550,6 +550,7 @@ def test_probe_ibus_not_needed_on_x11_without_ibus_im(monkeypatch):
     for var in ("XMODIFIERS", "GTK_IM_MODULE", "QT_IM_MODULE"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(plat, "_detect_display_server", lambda: "x11")
+    monkeypatch.setattr(plat, "_detect_desktop", lambda: "kde")
     with patch("shutil.which", return_value=None):
         assert plat._probe_ibus() is True
         monkeypatch.setenv("XMODIFIERS", "@im=ibus")

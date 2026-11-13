@@ -27,14 +27,15 @@ _CHAINS: dict[tuple[str, str], list[str]] = {
 }
 
 
-def ibus_in_use(display_server: str, input_method: str) -> bool:
+def ibus_in_use(display_server: str, desktop: str, input_method: str) -> bool:
     """Whether apps in this session hand their text input to IBus.
 
     On X11 apps only reach an input method through XMODIFIERS/GTK_IM_MODULE/
     QT_IM_MODULE (KDE on X11 often sets none), so IBus commits would reach
-    nothing. Wayland compositors wire IBus in themselves.
+    nothing. Wayland compositors wire IBus in themselves, and so does GNOME on
+    X11, whose IM env may never reach the systemd user service.
     """
-    return display_server != "x11" or input_method == "ibus"
+    return display_server != "x11" or desktop == "gnome" or input_method == "ibus"
 
 
 def _get_chain(platform: Platform) -> list[str]:
@@ -46,7 +47,8 @@ def _get_chain(platform: Platform) -> list[str]:
         # Only reachable through a running fcitx5; elsewhere it only adds a
         # failed probe and a red line in `voiceio doctor`.
         chain = [name for name in chain if name != "fcitx-bridge"]
-    if not ibus_in_use(platform.display_server, getattr(platform, "input_method", "")):
+    if not ibus_in_use(platform.display_server, platform.desktop,
+                       getattr(platform, "input_method", "")):
         chain = [name for name in chain if name != "ibus"]
     return chain
 
