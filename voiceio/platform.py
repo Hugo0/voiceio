@@ -644,6 +644,9 @@ def audio_problem() -> str:
 
 
 def _probe_ibus() -> bool:
+    from voiceio.typers.chain import ibus_in_use
+    if not ibus_in_use(_detect_display_server(), _detect_input_method()):
+        return True  # not needed: xdotool types on an X11 session without IBus
     if shutil.which("ibus") is None:
         return False
     try:

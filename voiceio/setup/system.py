@@ -107,6 +107,10 @@ def _check_system() -> dict:
     if checks["ibus"]:
         from voiceio.ibus.install import has_ibus_gi
         checks["ibus_gi"] = has_ibus_gi()
+    # On X11 IBus only types where the session's IM env routes apps to it
+    from voiceio.platform import _detect_input_method
+    from voiceio.typers.chain import ibus_in_use
+    checks["ibus_in_use"] = ibus_in_use(checks["display"], _detect_input_method())
 
     # Audio
     from voiceio.platform import audio_problem

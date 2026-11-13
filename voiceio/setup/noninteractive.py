@@ -120,7 +120,7 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
             system_error = system_error or ("no text injection backend (pip install pynput)", 6)
     else:
         has_typer = (
-            (checks["ibus"] and checks["ibus_gi"])
+            (checks["ibus"] and checks["ibus_gi"] and checks.get("ibus_in_use", True))
             or checks["xdotool"] or checks["ydotool"] or checks["wtype"]
         )
         if not has_typer:
@@ -187,7 +187,8 @@ def run_setup_noninteractive(answers: dict | None = None, *, install_deps: bool 
     _progress("config", status="written", path=str(CONFIG_PATH))
 
     # ── IBus engine component (best-effort) ─────────────────────────────
-    if checks["is_linux"] and checks["ibus"] and checks["ibus_gi"]:
+    if (checks["is_linux"] and checks["ibus"] and checks["ibus_gi"]
+            and checks.get("ibus_in_use", True)):
         try:
             from voiceio.ibus import install
             if install.ensure():

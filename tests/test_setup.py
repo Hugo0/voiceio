@@ -1,7 +1,7 @@
 """Tests for setup: config merge, preflight, and non-interactive setup."""
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import os
 import sys
@@ -544,3 +544,37 @@ def test_wizard_names_the_missing_extra_not_a_missing_mic(capsys):
         steps._require_mic_and_typer(state)
     out = capsys.readouterr().out
     assert "sounddevice is not installed" in out and "No microphone" not in out
+
+
+def test_probe_ibus_not_needed_on_x11_without_ibus_im(monkeypatch):
+    for var in ("XMODIFIERS", "GTK_IM_MODULE", "QT_IM_MODULE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(plat, "_detect_display_server", lambda: "x11")
+    with patch("shutil.which", return_value=None):
+        assert plat._probe_ibus() is True
+        monkeypatch.setenv("XMODIFIERS", "@im=ibus")
+        assert plat._probe_ibus() is False
+
+
+def test_setup_recommends_xdotool_on_x11_without_ibus_im(monkeypatch, capsys):
+    from voiceio.setup import steps
+    checks = dict(_LINUX_CHECKS, display="x11", ibus=True, ibus_gi=True, ibus_in_use=False)
+    ensure = MagicMock()
+    monkeypatch.setattr("voiceio.ibus.install.ensure", ensure)
+    steps._print_capability_checks(checks)
+    steps._select_output_backend(steps.SetupState(checks=checks))
+    out = capsys.readouterr().out
+    assert "not this X11 session's input method" in out
+    assert "xdotool  " in out and "recommended" in out
+    assert "Text injection: xdotool" in out
+    ensure.assert_not_called()
+
+
+def test_noninteractive_skips_ibus_install_when_unused(cfg_paths, monkeypatch, capsys):
+    _patch_noninteractive(monkeypatch)
+    checks = dict(_LINUX_CHECKS, display="x11", ibus=True, ibus_gi=True, ibus_in_use=False)
+    monkeypatch.setattr(noninteractive, "_check_system", lambda: dict(checks))
+    ensure = MagicMock(return_value=True)
+    monkeypatch.setattr("voiceio.ibus.install.ensure", ensure)
+    assert noninteractive.run_setup_noninteractive({}) == 0
+    ensure.assert_not_called()

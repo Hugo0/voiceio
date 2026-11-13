@@ -160,7 +160,11 @@ def _print_capability_checks(checks: dict) -> None:
                      "hotkeys + text injection" if checks["pynput"] else "pip install pynput")
     else:
         from voiceio.platform import pkg_install
-        if checks["ibus"] and checks["ibus_gi"]:
+        ibus_unused = not checks.get("ibus_in_use", True)
+        if ibus_unused:
+            _print_check("IBus", False, "not this X11 session's input method "
+                         "(XMODIFIERS/QT_IM_MODULE/GTK_IM_MODULE), using xdotool", optional=True)
+        elif checks["ibus"] and checks["ibus_gi"]:
             _print_check("IBus", True, "recommended, atomic text insertion")
         elif checks["ibus"]:
             _print_check("IBus", False, f"install bindings: {pkg_install('gir1.2-ibus-1.0')}")
@@ -174,6 +178,9 @@ def _print_capability_checks(checks: dict) -> None:
             _print_check("wtype", checks["wtype"],
                          "fallback" if checks["wtype"] else f"optional: {pkg_install('wtype')}",
                          optional=True)
+        elif ibus_unused:
+            _print_check("xdotool", checks["xdotool"],
+                         "recommended" if checks["xdotool"] else f"install: {pkg_install('xdotool')}")
         else:
             _print_check("xdotool", checks["xdotool"],
                          "fallback" if checks["xdotool"] else f"optional: {pkg_install('xdotool')}",
@@ -263,12 +270,14 @@ def _require_mic_and_typer(state: SetupState) -> None:
             print(f"  {DIM}Install pynput: pip install pynput{RESET}")
             sys.exit(1)
     else:
-        has_typer = checks["ibus"] and checks["ibus_gi"]
+        has_typer = checks["ibus"] and checks["ibus_gi"] and checks.get("ibus_in_use", True)
         has_typer = has_typer or checks["xdotool"] or checks["ydotool"] or checks["wtype"]
         if not has_typer:
             from voiceio.platform import pkg_install
             print(f"\n  {RED}No text injection backend available.{RESET}")
-            print(f"  {DIM}Install one: {pkg_install('ibus', 'gir1.2-ibus-1.0')}{RESET}")
+            hint = (pkg_install("xdotool") if not checks.get("ibus_in_use", True)
+                    else pkg_install("ibus", "gir1.2-ibus-1.0"))
+            print(f"  {DIM}Install one: {hint}{RESET}")
             sys.exit(1)
 
 
@@ -354,7 +363,11 @@ def _select_output_backend(state: SetupState) -> None:
         print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: {label}{RESET}")
         return
 
-    if checks["ibus"] and checks["ibus_gi"]:
+    if not checks.get("ibus_in_use", True):
+        label = "xdotool" if checks["xdotool"] else "clipboard"
+        print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: {label} "
+              f"(IBus isn't this X11 session's input method){RESET}")
+    elif checks["ibus"] and checks["ibus_gi"]:
         print(f"\n  {GREEN}✓{RESET} {DIM}Text injection: IBus (best quality, auto-selected){RESET}")
         from voiceio.ibus import install
         if install.ensure():

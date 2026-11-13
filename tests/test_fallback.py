@@ -71,10 +71,30 @@ class TestHotkeyChain:
 
 
 class TestTyperChain:
-    def test_x11_prefers_ibus(self, linux_x11):
-        chain = typer_chain._get_chain(linux_x11)
+    def test_x11_prefers_ibus_when_session_uses_it(self, linux_x11):
+        import dataclasses
+        chain = typer_chain._get_chain(dataclasses.replace(linux_x11, input_method="ibus"))
         assert chain[0] == "ibus"
         assert chain[1] == "xdotool"
+
+    def test_x11_without_ibus_im_skips_ibus(self, linux_x11):
+        # KDE on X11 sets no IM env: IBus commits would reach no app
+        assert typer_chain._get_chain(linux_x11) == ["xdotool", "clipboard"]
+
+    def test_x11_without_ibus_im_selects_xdotool(self, linux_x11):
+        backends = {n: _mock_typer_backend(n, ok=True) for n in ("ibus", "xdotool", "clipboard")}
+        with patch("voiceio.typers.create_typer_backend", side_effect=lambda n, p: backends[n]):
+            assert typer_chain.select(linux_x11).name == "xdotool"
+            backends["ibus"].probe.assert_not_called()
+
+    def test_x11_explicit_ibus_override_honoured(self, linux_x11):
+        backend = _mock_typer_backend("ibus", ok=True)
+        with patch("voiceio.typers.create_typer_backend", return_value=backend):
+            assert typer_chain.select(linux_x11, override="ibus").name == "ibus"
+
+    def test_wayland_keeps_ibus_without_im_env(self, linux_wayland_gnome):
+        assert linux_wayland_gnome.input_method == ""
+        assert typer_chain._get_chain(linux_wayland_gnome)[0] == "ibus"
 
     def test_wayland_gnome_prefers_ibus(self, linux_wayland_gnome):
         chain = typer_chain._get_chain(linux_wayland_gnome)
