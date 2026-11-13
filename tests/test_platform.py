@@ -161,6 +161,49 @@ def test_find_system_python_falls_back_to_running_interpreter(fake_pythons, monk
     assert plat.find_system_python("import sys") == sys.executable
 
 
+@pytest.fixture
+def probed(monkeypatch):
+    """Mock the probe: every path is executable; ``passing`` decides the rc."""
+    import subprocess
+
+    passing: set[str] = set()
+    calls: list[str] = []
+
+    def run(cmd, **_):
+        calls.append(cmd[0])
+        return subprocess.CompletedProcess(cmd, 0 if cmd[0] in passing else 1, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(plat.os.path, "isfile", lambda _: True)
+    monkeypatch.setattr(plat.os, "access", lambda *_: True)
+    monkeypatch.setattr(plat, "_system_python_hits", {})
+    monkeypatch.setattr(plat.shutil, "which", lambda _: None)
+    monkeypatch.setattr(plat.sys, "executable", "/nix/store/x/bin/python3")
+    monkeypatch.delenv("VOICEIO_SYSTEM_PYTHON", raising=False)
+    return passing, calls
+
+
+def test_find_system_python_env_override_beats_running_interpreter(probed, monkeypatch):
+    passing, _ = probed
+    monkeypatch.setenv("VOICEIO_SYSTEM_PYTHON", "/opt/py/bin/python3")
+    passing.update({"/opt/py/bin/python3", plat.sys.executable, "/usr/bin/python3"})
+    assert plat.find_system_python("probe") == "/opt/py/bin/python3"
+
+
+def test_find_system_python_prefers_running_interpreter(probed):
+    passing, calls = probed
+    passing.update({plat.sys.executable, "/usr/bin/python3"})
+    assert plat.find_system_python("probe") == plat.sys.executable
+    assert calls == [plat.sys.executable]
+
+
+def test_find_system_python_falls_back_to_system_path(probed):
+    passing, calls = probed
+    passing.add("/usr/bin/python3")
+    assert plat.find_system_python("probe") == "/usr/bin/python3"
+    assert calls == [plat.sys.executable, "/usr/bin/python3"]
+
+
 def test_find_system_python_does_not_cache_misses(fake_pythons, monkeypatch):
     bad, good = fake_pythons
     monkeypatch.setattr(plat, "_SYSTEM_PYTHON_PATHS", (bad,))

@@ -180,10 +180,10 @@ def find_system_python(probe: str) -> str | None:
 
     GObject bindings ship as distro packages, so the venv/pipx interpreter
     running voiceio usually can't import them. ``$VOICEIO_SYSTEM_PYTHON``
-    wins; then well-known system paths, ``python3`` on PATH, and finally the
-    running interpreter (Nix/Guix wrappers often bundle PyGObject). Hits are
-    cached; misses are not, so installing bindings takes effect without a
-    restart.
+    wins; then the running interpreter (Nix/Guix wrappers and venvs with
+    PyGObject have voiceio's deps too), then well-known system paths and
+    ``python3`` on PATH. Hits are cached; misses are not, so installing
+    bindings takes effect without a restart.
     """
     import subprocess
 
@@ -192,9 +192,9 @@ def find_system_python(probe: str) -> str | None:
 
     candidates = [
         os.environ.get("VOICEIO_SYSTEM_PYTHON", ""),
+        sys.executable,
         *_SYSTEM_PYTHON_PATHS,
         shutil.which("python3") or "",
-        sys.executable,
     ]
     seen: set[str] = set()
     for py in candidates:
