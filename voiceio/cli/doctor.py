@@ -80,6 +80,9 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     report = check_health()
     print(format_report(report))
     print(format_usage(usage_findings()))
+    from voiceio.replies import nudge
+    if line := nudge():
+        print(f"\n{line}")
     if args.live:
         from voiceio.setup import run_test
         run_test()

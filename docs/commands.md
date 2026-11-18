@@ -9,7 +9,8 @@
 | `voiceio cancel` | Abandon the dictation in progress: nothing is typed, saved to history or kept as audio. Bind it to a key, or set `[hotkey] cancel_key`
 | `voiceio setup` | Guided setup (`--defaults` / `--answers '{json}'` for scripts) |
 | `voiceio doctor [--fix]` | Check every backend; `--fix` repairs what it can, asking before anything that needs sudo |
-| `voiceio doctor --report [--comment "..."] [--yes]` | Post a short anonymous install report (versions, desktop, chosen backends, failed checks; no names, paths or transcripts) to the [public feedback board](https://voiceio.dev/#feedback). Shows the exact text and asks first; `--yes` skips the question (agents: ask the user before using it). Without a terminal or `--yes` it only prints the report |
+| `voiceio doctor --report [--comment "..."] [--yes]` | Post a short anonymous install report (versions, desktop, chosen backends, failed checks; no names, paths or transcripts) to the [public feedback board](https://voiceio.dev/#feedback). Shows the exact text and asks first; `--yes` skips the question (agents: ask the user before using it). Without a terminal or `--yes` it only prints the report. After posting it prints a link to your report, where the maintainer answers |
+| `voiceio replies` | Read the answers to the reports this computer posted (last 60 days), newest first; `[new]` marks replies since you last looked. Fetches only those threads. `voiceio doctor` says when the maintainer has answered |
 | `voiceio service install\|uninstall\|start\|stop\|restart\|status\|logs` | systemd user unit: start on login, restart on crash; `logs -f` follows |
 | `voiceio models list\|bench\|use` | See, compare and pick speech models ([Choosing a model](models.md)) |
 | `voiceio vocab` | Manage the vocabulary that steers the decoder |

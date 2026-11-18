@@ -30,7 +30,7 @@ voiceio/
 │                    #   augment, metrics, evaluate (offline + streaming), train (LoRA →
 │                    #   CTranslate2, resumable), clean, quiet (runs work only while you're away)
 ├── cli/             # CLI: __init__ (entry point, run/toggle/setup), doctor, servicecmd,
-│                    #   uninstall, models, vocab, corrections, learn, history, configcmd
+│                    #   uninstall, models, vocab, corrections, learn, history, configcmd, replies
 ├── server/          # Headless HTTP/WebSocket server (python -m voiceio.server)
 ├── app.py           # Desktop daemon state machine (IDLE/RECORDING/FINALIZING/ERROR)
 ├── watchdog.py      # Health thread: worker recovery, audio stream, tray, resume detection
@@ -65,6 +65,8 @@ voiceio/
 ├── service.py       # systemd user units + CLI symlink management
 ├── feedback.py      # Sound cues (persistent output stream) + notifications
 ├── hints.py         # Contextual CLI hints (silenceable, frequency-limited)
+├── report.py        # `doctor --report`: the scrubbed public install report and its post
+├── replies.py       # Answers to your posted reports (`voiceio replies`, doctor's nudge)
 ├── demo.py          # Guided tour (voiceio demo)
 ├── clipboard_read.py # Clipboard / primary-selection read/write
 ├── focus.py         # Focused window's app id + title (Hyprland, sway, niri, X11)

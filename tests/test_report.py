@@ -231,7 +231,8 @@ def test_share_asks_and_posts_on_yes(monkeypatch, capsys, posted):
     monkeypatch.setattr("builtins.input", lambda prompt: "y")
     assert report.share("the report") is True
     out = capsys.readouterr().out
-    assert "PUBLICLY" in out and "the report" in out and report.BOARD_URL in out
+    assert "PUBLICLY" in out and "the report" in out
+    assert "https://swarmmemo.com/e/r1" in out and "voiceio replies" in out
     assert posted == ["the report"]
 
 
@@ -303,7 +304,7 @@ def test_doctor_report_yes_posts_scrubbed_comment(monkeypatch, capsys, doctor_en
     _assert_private(posted[0])
     _assert_private(out)
     assert "comment: worked, <user> here" in posted[0]
-    assert report.BOARD_URL in out
+    assert "https://swarmmemo.com/e/r1" in out
 
 
 def test_doctor_report_without_tty_or_yes_does_not_post(monkeypatch, capsys, doctor_env, posted):

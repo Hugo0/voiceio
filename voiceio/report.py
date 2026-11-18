@@ -299,7 +299,11 @@ def share(text: str, *, yes: bool = False) -> bool:
             return False
     ok, detail = post(text)
     if ok:
-        print(f"Posted, thanks. See it at {BOARD_URL}")
+        from voiceio import replies
+        replies.remember(detail)
+        print(f"Posted, thanks. Your report: {replies.post_url(detail)}\n"
+              "The maintainer usually answers there within a day. Run 'voiceio replies' "
+              "to read answers here;\n'voiceio doctor' tells you when one arrives.")
         return True
     print(f"Could not confirm the post ({scrub(detail)}). Check {BOARD_URL} "
           f"and paste it there if it's missing.")

@@ -167,6 +167,13 @@ def _no_real_spool(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _no_shared_reports(monkeypatch, tmp_path):
+    """Each test starts with no posted reports, so doctor never looks for replies."""
+    from voiceio import replies
+    monkeypatch.setattr(replies, "_path", lambda: tmp_path / "reports.json")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_keyboards(monkeypatch):
     """The modifier guard reads the developer's real keyboards: holding Ctrl
     while tests run would slow every typer test by its timeout."""

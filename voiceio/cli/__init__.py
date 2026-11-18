@@ -14,7 +14,8 @@ def main() -> None:
     """voiceio COMMAND [options] — see `voiceio --help`."""
     from voiceio import __version__
     from voiceio.cli import (
-        configcmd, corrections, doctor, history, learn, models, servicecmd, uninstall, vocab,
+        configcmd, corrections, doctor, history, learn, models, replies, servicecmd, uninstall,
+        vocab,
     )
 
     parser = argparse.ArgumentParser(
@@ -66,6 +67,7 @@ def main() -> None:
     p_setup.set_defaults(func=_cmd_setup)
 
     doctor.register(sub)
+    replies.register(sub)
     servicecmd.register(sub)
     models.register(sub)
     vocab.register(sub)
