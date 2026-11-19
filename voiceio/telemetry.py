@@ -19,6 +19,9 @@ from voiceio import config
 
 log = logging.getLogger(__name__)
 
+# Flip to True once workers/ping is deployed and GET https://voiceio.dev/ping/stats
+# answers. While False nothing is asked, nothing is sent, and doctor shows no line.
+ENDPOINT_LIVE = False
 PING_URL = "https://voiceio.dev/ping"
 INTERVAL_SECS = 7 * 86400
 CHECK_EVERY_SECS = 86400
@@ -74,7 +77,10 @@ def setting() -> bool | None:
 
 
 def status_line(model_name: str | None = None) -> str:
-    """Doctor's line: whether the count is on, and the exact payload if it is."""
+    """Doctor's line: whether the count is on, and the exact payload if it
+    is; '' while the endpoint isn't live."""
+    if not ENDPOINT_LIVE:
+        return ""
     try:
         value = setting()
         state = "on" if value is True else "off" if value is False else "not asked"
@@ -107,7 +113,7 @@ def maybe_send(model_name: str, *, now: float | None = None) -> bool:
     """Send the count if it is on and 7 days have passed. True when sent.
     Never raises; logs at debug level only."""
     try:
-        if setting() is not True or not due(now):
+        if not ENDPOINT_LIVE or setting() is not True or not due(now):
             return False
         from voiceio import report
         body = json.dumps(payload(model_name)).encode("utf-8")
@@ -122,8 +128,10 @@ def maybe_send(model_name: str, *, now: float | None = None) -> bool:
         return False
 
 
-def start(model_name: str, shutdown: threading.Event) -> threading.Thread:
+def start(model_name: str, shutdown: threading.Event) -> threading.Thread | None:
     """The daemon's background check: shortly after start, then once a day."""
+    if not ENDPOINT_LIVE:
+        return None
     def loop() -> None:
         if shutdown.wait(START_DELAY_SECS):
             return
@@ -142,7 +150,7 @@ def offer() -> None:
     answered (`voiceio config set telemetry.ping true|false` changes it)."""
     from voiceio.report import _ask, _interactive
     try:
-        if not _interactive() or setting() is not None:
+        if not ENDPOINT_LIVE or not _interactive() or setting() is not None:
             return
         yes = _ask("\n  " + QUESTION).strip().lower() in ("y", "yes")
         config.set_value("telemetry", "ping", yes)

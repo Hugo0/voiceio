@@ -11,8 +11,15 @@ import pytest
 from voiceio import config, report, telemetry
 from voiceio.platform import Platform
 
+SHIPPED_LIVE = telemetry.ENDPOINT_LIVE   # before any fixture patches it
 DAY = 86400.0
 T0 = 1_800_000_000.0
+
+
+@pytest.fixture(autouse=True)
+def _live(monkeypatch):
+    """These tests run as if workers/ping were deployed, unless they say otherwise."""
+    monkeypatch.setattr(telemetry, "ENDPOINT_LIVE", True)
 
 
 @pytest.fixture(autouse=True)
@@ -195,3 +202,22 @@ def test_config_set_turns_it_off(capsys):
     assert telemetry.setting() is False
     configcmd.cmd_set(argparse.Namespace(key="telemetry.ping", value="true"))
     assert telemetry.setting() is True
+
+
+def test_shipped_with_the_endpoint_off():
+    """Flip ENDPOINT_LIVE only once workers/ping is deployed."""
+    assert SHIPPED_LIVE is False
+
+
+def test_before_the_endpoint_is_live_nothing_is_asked_or_sent(monkeypatch):
+    monkeypatch.setattr(telemetry, "ENDPOINT_LIVE", False)
+    monkeypatch.setattr(report, "_interactive", lambda: True)
+    monkeypatch.setattr(report, "_ask", lambda prompt: pytest.fail("asked"))
+    monkeypatch.setattr(report, "_urlopen", lambda *a, **k: pytest.fail("sent"))
+    telemetry.offer()
+    assert telemetry.setting() is None
+    _turn(True)   # even when set by hand
+    assert not telemetry.maybe_send("small", now=T0)
+    assert telemetry.start("small", threading.Event()) is None
+    assert telemetry.status_line("small") == ""
+    assert not (config.LOG_DIR / "ping.json").exists()

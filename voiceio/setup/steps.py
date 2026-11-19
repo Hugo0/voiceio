@@ -707,7 +707,7 @@ def _print_ready_panel(hotkey: str, autostart: bool) -> None:
     )
     from voiceio import telemetry
     sent = ("No telemetry except the anonymous weekly count you allowed."
-            if telemetry.setting() is True else "Zero telemetry.")
+            if telemetry.ENDPOINT_LIVE and telemetry.setting() is True else "Zero telemetry.")
     path_note = ""
     if not _is_managed_install() and not shutil.which("voiceio"):
         path_note = f"  {YELLOW}ℹ{RESET}  Restart your terminal so 'voiceio' is on PATH.\n\n"

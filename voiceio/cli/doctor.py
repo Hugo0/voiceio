@@ -81,7 +81,8 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     print(format_report(report))
     print(format_usage(usage_findings()))
     from voiceio import telemetry
-    print(telemetry.status_line())
+    if line := telemetry.status_line():
+        print(line)
     from voiceio.replies import nudge
     if line := nudge():
         print(f"\n{line}")
