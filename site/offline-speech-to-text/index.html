@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Offline speech to text on Linux, no cloud | voiceio</title>
-<meta name="description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry. Setup steps and model choices.">
+<meta name="description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry unless you opt in to one anonymous weekly count. Setup steps and model choices.">
 <meta name="color-scheme" content="light">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#f5f6f8">
@@ -13,19 +13,19 @@
 <meta property="og:site_name" content="voiceio">
 <meta property="og:url" content="https://voiceio.dev/offline-speech-to-text/">
 <meta property="og:title" content="Offline speech to text on Linux, no cloud | voiceio">
-<meta property="og:description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry. Setup steps and model choices.">
+<meta property="og:description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry unless you opt in to one anonymous weekly count. Setup steps and model choices.">
 <meta property="og:image" content="https://voiceio.dev/og/offline-speech-to-text.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Offline speech to text on Linux, no cloud | voiceio">
-<meta name="twitter:description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry. Setup steps and model choices.">
+<meta name="twitter:description" content="Dictate offline on Linux: voiceio runs Whisper on your own CPU, types into any app, uploads nothing and has no telemetry unless you opt in to one anonymous weekly count. Setup steps and model choices.">
 <meta name="twitter:image" content="https://voiceio.dev/og/offline-speech-to-text.png">
 <script type="application/ld+json">
 {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "voiceio", "item": "https://voiceio.dev/"}, {"@type": "ListItem", "position": 2, "name": "Offline speech to text", "item": "https://voiceio.dev/offline-speech-to-text/"}]}
 </script>
 <script type="application/ld+json">
-{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Can speech to text work without internet?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Models such as Whisper run on an ordinary CPU. voiceio downloads the model once, from its own source, and then decodes everything on your computer."}}, {"@type": "Question", "name": "Is offline dictation as accurate as cloud dictation?", "acceptedAnswer": {"@type": "Answer", "text": "It depends on the model and your speech. Larger local models (medium, large-v3-turbo) are more accurate but slower without a GPU. voiceio's answer for names and jargon is to fine-tune the local model on your own voice; voiceio learn eval measures the result on your clips."}}, {"@type": "Question", "name": "What does voiceio send over the network?", "acceptedAnswer": {"@type": "Answer", "text": "Nothing by default: no account, no telemetry, and audio never leaves the machine. Two optional, off-by-default features send text (never audio) to an LLM endpoint you configure."}}, {"@type": "Question", "name": "Do I need a GPU?", "acceptedAnswer": {"@type": "Answer", "text": "No. The default small model runs at about 5x realtime on a laptop CPU, per the README, and fine-tuning runs on CPU too. A GPU makes large-v3-turbo practical."}}]}
+{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Can speech to text work without internet?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Models such as Whisper run on an ordinary CPU. voiceio downloads the model once, from its own source, and then decodes everything on your computer."}}, {"@type": "Question", "name": "Is offline dictation as accurate as cloud dictation?", "acceptedAnswer": {"@type": "Answer", "text": "It depends on the model and your speech. Larger local models (medium, large-v3-turbo) are more accurate but slower without a GPU. voiceio's answer for names and jargon is to fine-tune the local model on your own voice; voiceio learn eval measures the result on your clips."}}, {"@type": "Question", "name": "What does voiceio send over the network?", "acceptedAnswer": {"@type": "Answer", "text": "Nothing by default: no account, no telemetry unless you opt in to one anonymous weekly count, and audio never leaves the machine. Two optional, off-by-default features send text (never audio) to an LLM endpoint you configure."}}, {"@type": "Question", "name": "Do I need a GPU?", "acceptedAnswer": {"@type": "Answer", "text": "No. The default small model runs at about 5x realtime on a laptop CPU, per the README, and fine-tuning runs on CPU too. A GPU makes large-v3-turbo practical."}}]}
 </script>
 <script type="application/ld+json">
 {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "voiceio", "description": "Local, open-source voice dictation for Linux that fine-tunes itself on your voice.", "url": "https://voiceio.dev/", "applicationCategory": "UtilitiesApplication", "operatingSystem": "Linux", "license": "https://opensource.org/licenses/MIT", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "downloadUrl": "https://pypi.org/project/python-voiceio/", "sameAs": ["https://github.com/Hugo0/voiceio", "https://pypi.org/project/python-voiceio/"]}
@@ -55,8 +55,8 @@
 <header class="head">
   <span class="label">// guide · offline</span>
   <h1>Offline speech to text</h1>
-  <p class="lede">Offline speech to text means the speech model runs on your own computer, so audio never goes to a server and dictation works without a connection. On Linux, voiceio does this with Whisper: after a one-time model download it decodes your speech locally, types the text into the focused app, and has no account and no telemetry.</p>
-  <div class="meta"><span class="chip on">no upload</span><span class="chip on">no account</span><span class="chip on">no telemetry</span><span class="chip">CPU is enough</span></div>
+  <p class="lede">Offline speech to text means the speech model runs on your own computer, so audio never goes to a server and dictation works without a connection. On Linux, voiceio does this with Whisper: after a one-time model download it decodes your speech locally, types the text into the focused app, and has no account and no telemetry unless you opt in to one anonymous weekly count.</p>
+  <div class="meta"><span class="chip on">no upload</span><span class="chip on">no account</span><span class="chip on">no telemetry unless you opt in</span><span class="chip">CPU is enough</span></div>
 </header>
 
 <div class="prose">
@@ -129,7 +129,7 @@
 </details>
 <details>
   <summary>What does voiceio send over the network?</summary>
-  <p>Nothing by default: no account, no telemetry, and audio never leaves the machine. Two optional, off-by-default features send text (never audio) to an LLM endpoint you configure.</p>
+  <p>Nothing by default: no account, no telemetry unless you opt in to one anonymous weekly count, and audio never leaves the machine. Two optional, off-by-default features send text (never audio) to an LLM endpoint you configure.</p>
 </details>
 <details>
   <summary>Do I need a GPU?</summary>
