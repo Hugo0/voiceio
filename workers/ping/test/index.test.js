@@ -38,7 +38,7 @@ const GOOD = { v: "1.18.7", distro: "ubuntu 26.04", desktop: "gnome", session: "
 const NOW = new Date("2026-11-19T12:00:00Z");
 
 function post(body, headers = {}) {
-  return new Request("https://voiceio.dev/ping", {
+  return new Request("https://ping.voiceio.dev/ping", {
     method: "POST", body: typeof body === "string" ? body : JSON.stringify(body),
     headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9", ...headers },
   });
@@ -81,7 +81,7 @@ test("bad and oversized bodies are rejected", async () => {
   assert.equal((await handle(post({ ...GOOD, extra: "x" }), { DB: db }, NOW)).status, 400);
   const big = JSON.stringify({ ...GOOD, v: "1" + " ".repeat(MAX_BODY) });
   assert.equal((await handle(post(big), { DB: db }, NOW)).status, 413);
-  const streamed = new Request("https://voiceio.dev/ping", {
+  const streamed = new Request("https://ping.voiceio.dev/ping", {
     method: "POST", duplex: "half",
     body: new ReadableStream({
       start(c) { c.enqueue(new TextEncoder().encode(big)); c.close(); },
@@ -97,7 +97,7 @@ test("stats: totals and breakdowns for the last 12 weeks", async () => {
   await handle(post({ ...GOOD, desktop: "kde", session: "x11" }), { DB: db }, NOW);
   await handle(post(GOOD), { DB: db }, new Date("2026-11-10T00:00:00Z"));
   await handle(post(GOOD), { DB: db }, new Date("2025-01-10T00:00:00Z"));   // too old
-  const res = await handle(new Request("https://voiceio.dev/ping/stats"), { DB: db }, NOW);
+  const res = await handle(new Request("https://ping.voiceio.dev/ping/stats"), { DB: db }, NOW);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("access-control-allow-origin"), "*");
   const { weeks } = await res.json();

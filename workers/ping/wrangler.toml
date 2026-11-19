@@ -4,10 +4,9 @@ name = "voiceio-ping"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
-# voiceio.dev itself is the voiceio-site Custom Domain (../../wrangler.jsonc).
-# A route on the same zone runs in front of it, so only /ping* reaches this
-# Worker and every other path still goes to the site.
-routes = [{ pattern = "voiceio.dev/ping*", zone_name = "voiceio.dev" }]
+# Its own hostname, so it never shares one with the voiceio-site Custom Domain
+# (../../wrangler.jsonc). Paths stay /ping and /ping/stats.
+routes = [{ pattern = "ping.voiceio.dev", custom_domain = true }]
 
 [[d1_databases]]
 binding = "DB"

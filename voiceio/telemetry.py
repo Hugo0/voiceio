@@ -1,4 +1,5 @@
-"""The opt-in weekly install ping: one anonymous count to voiceio.dev.
+"""The opt-in weekly install ping: one anonymous count to voiceio.dev's own
+server, ping.voiceio.dev (workers/ping).
 
 Off unless `[telemetry] ping = true`. Asked once, in an interactive
 `voiceio setup` or `voiceio doctor`. When on, the daemon POSTs at most once
@@ -19,10 +20,10 @@ from voiceio import config
 
 log = logging.getLogger(__name__)
 
-# Flip to True once workers/ping is deployed and GET https://voiceio.dev/ping/stats
-# answers. While False nothing is asked, nothing is sent, and doctor shows no line.
+# Flip to True once workers/ping is deployed on its Custom Domain ping.voiceio.dev
+# and GET https://ping.voiceio.dev/ping/stats answers. While False nothing is asked, nothing is sent, and doctor shows no line.
 ENDPOINT_LIVE = False
-PING_URL = "https://voiceio.dev/ping"
+PING_URL = "https://ping.voiceio.dev/ping"
 INTERVAL_SECS = 7 * 86400
 CHECK_EVERY_SECS = 86400
 # After daemon start: out of the way of the model load and the first dictation.
