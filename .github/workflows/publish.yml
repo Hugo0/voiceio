@@ -120,12 +120,15 @@ jobs:
           gh release edit "$GITHUB_REF_NAME" --notes "$(printf '%s\n\n.deb SHA-256:\n\n```\n%s\n```\n' "$body" "$sums")"
 
   aur:
-    # Points the AUR package at the release just published to PyPI. Pushes
-    # only when the AUR_SSH_PRIVATE_KEY secret is set (see packaging/README.md);
-    # otherwise the updated PKGBUILD and .SRCINFO are attached to the release.
+    # Points the AUR package at the release just published to PyPI and
+    # attaches the updated PKGBUILD and .SRCINFO to the release. Pushes to the
+    # AUR only when the AUR_SSH_PRIVATE_KEY secret is set AND the AUR_PUBLISH
+    # repository variable is "true" (see packaging/README.md).
     needs: publish
-    # Best effort: a failed AUR push must not mark the release failed (the
-    # package test only runs after a successful release).
+    # A failed AUR push must not mark the release failed: package-test.yml
+    # runs only after a successful "Publish to PyPI" run, so a red job here
+    # would skip the .deb and AUR package tests. The failure is reported as
+    # an ::error:: annotation on the run instead (last step).
     continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
@@ -144,7 +147,8 @@ jobs:
           cp .SRCINFO SRCINFO
           gh release upload "$GITHUB_REF_NAME" PKGBUILD SRCINFO --clobber
       - name: Push to the AUR
-        if: env.AUR_SSH_PRIVATE_KEY != ''
+        id: push
+        if: env.AUR_SSH_PRIVATE_KEY != '' && vars.AUR_PUBLISH == 'true'
         run: |
           install -dm700 ~/.ssh
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur && chmod 600 ~/.ssh/aur
@@ -152,3 +156,11 @@ jobs:
           git config --global user.name "voiceio release CI"
           git config --global user.email "noreply@voiceio.dev"
           GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes" packaging/aur/publish.sh
+      - name: AUR push is off
+        if: env.AUR_SSH_PRIVATE_KEY == '' || vars.AUR_PUBLISH != 'true'
+        run: |
+          echo "::notice title=AUR push is off::PKGBUILD and SRCINFO are attached to the release but not pushed to the AUR. To turn it on: create the AUR account, add the public key of AUR_SSH_PRIVATE_KEY to it, then run: gh variable set AUR_PUBLISH --body true -R Hugo0/voiceio (packaging/README.md)"
+      - name: Report a failed AUR push
+        if: failure() && steps.push.outcome == 'failure'
+        run: |
+          echo "::error title=AUR push failed::The release is out, but the AUR still has the previous version. See the 'Push to the AUR' step. To switch the push off: gh variable delete AUR_PUBLISH -R Hugo0/voiceio (packaging/README.md)"

@@ -46,8 +46,11 @@ sudo apt install ./deb/voiceio_*_amd64.deb
 `build-bundle.sh` (shipped next to it in the AUR repo; `aur/build-bundle.sh` is
 a symlink here). On every tag the `aur` job runs `aur/update.sh X.Y.Z` (new
 `pkgver`, `pkgrel=1`, `sha256sums`, `.SRCINFO`), attaches `PKGBUILD` and
-`SRCINFO` to the release, and pushes to the AUR if the `AUR_SSH_PRIVATE_KEY`
-secret is set.
+`SRCINFO` to the release, and pushes to the AUR only if the
+`AUR_SSH_PRIVATE_KEY` secret is set and the `AUR_PUBLISH` repository variable
+is `true`. While the push is off the run shows a notice saying so; a failed
+push shows an error annotation on the run (the job is `continue-on-error`, so
+the release stays green and the package test still runs).
 
 ### One-time setup (Hugo)
 
@@ -80,15 +83,18 @@ secret is set.
    Check https://aur.archlinux.org/packages/voiceio, then on an Arch
    machine: `yay -S voiceio && voiceio --version`.
 
-4. Let CI do the rest: add the private key as a repository secret,
+4. Let CI do the rest: add the private key as a repository secret and turn
+   the push on,
 
    ```bash
    gh secret set AUR_SSH_PRIVATE_KEY < ~/.ssh/aur
+   gh variable set AUR_PUBLISH --body true -R Hugo0/voiceio
    ```
 
-   From then on every tag updates the AUR. Without the secret, the release
-   still gets the updated `PKGBUILD` and `SRCINFO` attached; run step 3's
-   last two commands to push them.
+   From then on every tag updates the AUR. Without both, the release still
+   gets the updated `PKGBUILD` and `SRCINFO` attached; run step 3's last two
+   commands to push them. To switch the push off again (say the key is
+   revoked): `gh variable delete AUR_PUBLISH -R Hugo0/voiceio`.
 
 A packaging-only fix (same version): `packaging/aur/update.sh X.Y.Z 2` then
 `publish.sh`.
