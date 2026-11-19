@@ -106,6 +106,10 @@ def test_example_config_matches_defaults():
         defaults = getattr(cfg, sec.name)
         assert sec.name in example, f"[{sec.name}] missing from example"
         for f in dataclasses.fields(defaults):
+            if (sec.name, f.name) == ("telemetry", "ping"):
+                # Unset (never asked) has no TOML spelling: documented commented out.
+                assert defaults.ping is None and "ping" not in example["telemetry"]
+                continue
             assert f.name in example[sec.name], f"{sec.name}.{f.name} missing"
             if (sec.name, f.name) == ("model", "name"):
                 # "auto" resolves to the default decoder on construction

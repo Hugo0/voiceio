@@ -573,6 +573,8 @@ def _step_finalize(state: SetupState) -> None:
     state.retain_audio = _ask_yn("Keep recordings so voiceio can learn your voice?",
                                  default=state.cur.data.retain_audio if state.cur else True)
     _write_config(**state.config_kwargs())
+    from voiceio import telemetry
+    telemetry.offer()
     if state.retain_audio:
         _offer_nightly_learning(state)
     _setup_desktop_shortcut(state)
@@ -703,6 +705,9 @@ def _print_ready_panel(hotkey: str, autostart: bool) -> None:
         if autostart
         else f"  Start voiceio:\n    {CYAN}voiceio run{RESET}"
     )
+    from voiceio import telemetry
+    sent = ("No telemetry except the anonymous weekly count you allowed."
+            if telemetry.setting() is True else "Zero telemetry.")
     path_note = ""
     if not _is_managed_install() and not shutil.which("voiceio"):
         path_note = f"  {YELLOW}ℹ{RESET}  Restart your terminal so 'voiceio' is on PATH.\n\n"
@@ -721,7 +726,7 @@ def _print_ready_panel(hotkey: str, autostart: bool) -> None:
   {DIM}Other commands:{RESET}     {CYAN}voiceio doctor{RESET} · {CYAN}test{RESET} · {CYAN}correct{RESET} · {CYAN}history{RESET}
 
   {DIM}Your data lives in {CONFIG_DIR} and {LOG_DIR} —
-  plain local files you own. Zero telemetry.{RESET}
+  plain local files you own. {sent}{RESET}
   {DIM}Config: {CONFIG_PATH}   Logs: {LOG_PATH}{RESET}
 {GREEN}{'━' * 54}{RESET}
 """)

@@ -1056,6 +1056,8 @@ class VoiceIO:
         )
         threading.Thread(target=self._recover_orphans, daemon=True,
                          name="spool-recover").start()
+        from voiceio import telemetry
+        telemetry.start(self.cfg.model.name, self._shutdown)
 
         # Ctrl-C and `systemctl stop voiceio` must run the SAME cleanup path
         # (restore input source, engine shutdown) — the finally block below.

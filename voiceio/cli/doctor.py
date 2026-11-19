@@ -80,6 +80,8 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
     report = check_health()
     print(format_report(report))
     print(format_usage(usage_findings()))
+    from voiceio import telemetry
+    print(telemetry.status_line())
     from voiceio.replies import nudge
     if line := nudge():
         print(f"\n{line}")
@@ -129,6 +131,7 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
         healthy = report.all_ok and not perm_issues and not missing_deps and not stale_paths
         if args.report or _offer_report(args, healthy and not report.warnings):
             _share_report(args, report, missing_deps, [p for p, _, _ in perm_issues])
+        telemetry.offer()
         sys.exit(0 if healthy else 1)
 
     # Auto-fix mode
@@ -254,6 +257,7 @@ def _cmd_doctor(args: argparse.Namespace) -> None:
                and not stale_paths)
     if args.report or _offer_report(args, healthy):
         _share_report(args, report, missing_deps, [p for p, _, _ in perm_issues])
+    telemetry.offer()
     sys.exit(0 if report.all_ok and not stale_paths else 1)
 
 

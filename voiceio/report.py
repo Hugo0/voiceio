@@ -242,8 +242,13 @@ def post(text: str, *, timeout: float = TIMEOUT_SECS) -> tuple[bool, str]:
     return False, str(body.get("error") or "unexpected response")[:200]
 
 
-def _urlopen(url: str, *, timeout: float):
-    req = urllib.request.Request(url, headers={"User-Agent": "voiceio-report"})
+def _urlopen(url: str, *, timeout: float, json_body: bytes | None = None):
+    """GET `url`, or POST `json_body` as JSON. Every request voiceio makes to
+    voiceio.dev goes through here, so the tests' network block covers it."""
+    headers = {"User-Agent": "voiceio-report"}
+    if json_body is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=json_body, headers=headers)
     return urllib.request.urlopen(req, timeout=timeout)
 
 

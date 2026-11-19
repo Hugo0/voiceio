@@ -1,0 +1,19 @@
+# The opt-in weekly install count (voiceio/telemetry.py): POST /ping adds one
+# to a per-week counter, GET /ping/stats publishes the totals. See README.md.
+name = "voiceio-ping"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+# voiceio.dev itself is the voiceio-site Custom Domain (../../wrangler.jsonc).
+# A route on the same zone runs in front of it, so only /ping* reaches this
+# Worker and every other path still goes to the site.
+routes = [{ pattern = "voiceio.dev/ping*", zone_name = "voiceio.dev" }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "voiceio-ping"
+database_id = "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create"
+
+# No Workers Logs: nothing about a request is kept outside the counter.
+[observability]
+enabled = false

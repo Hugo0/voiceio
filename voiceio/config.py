@@ -331,6 +331,14 @@ class LearnConfig:
 
 
 @dataclass
+class TelemetryConfig:
+    # One anonymous count a week to voiceio.dev (voiceio/telemetry.py):
+    # version, distro, desktop, session type and decoder family, nothing
+    # else. None means never asked, and sends nothing, like false.
+    ping: bool | None = None
+
+
+@dataclass
 class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -348,6 +356,7 @@ class Config:
     data: DataConfig = field(default_factory=DataConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
     learn: LearnConfig = field(default_factory=LearnConfig)
+    telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
 
 
 _REMOVED_KEYS = {
@@ -429,6 +438,7 @@ def load(path: Path | None = None) -> Config:
         data=_build(DataConfig, raw.get("data", {})),
         history=_build(HistoryConfig, raw.get("history", {})),
         learn=_build(LearnConfig, raw.get("learn", {})),
+        telemetry=_build(TelemetryConfig, raw.get("telemetry", {})),
     )
 
 

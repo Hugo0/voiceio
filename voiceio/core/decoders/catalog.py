@@ -116,6 +116,18 @@ def runtime_of(name: str) -> str:
     return m.runtime if m is not None else "faster-whisper"
 
 
+def family(name: str) -> str:
+    """'parakeet', 'whisper', 'whisper.cpp' or 'sherpa-onnx': the kind of
+    model, never the name itself (a fine-tune's name is a path under $HOME)."""
+    runtime = runtime_of(name)
+    if runtime == "faster-whisper":
+        return "whisper"
+    if runtime == "whisper.cpp":
+        return "whisper.cpp"
+    m = info(name)
+    return "parakeet" if m is not None and m.name.startswith("parakeet") else "sherpa-onnx"
+
+
 def is_whisper(name: str) -> bool:
     """Whether `voiceio learn` fine-tunes can stand in for this model: they
     are Whisper, so they only matter while dictation decodes with Whisper."""

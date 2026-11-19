@@ -146,3 +146,7 @@ base = "small"                # model to fine-tune: Whisper size (e.g. "medium.e
 teacher = ""                  # model that labels new clips; empty = large-v3-turbo
 epochs = 4                    # training epochs per run
 min_new = 50                  # new labeled clips needed before retraining
+
+[telemetry]
+# ping = false                # one anonymous count a week to voiceio.dev (version, distro, desktop,
+                              # session, decoder family); unset = never asked, sends nothing
