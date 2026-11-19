@@ -511,3 +511,61 @@ def test_schedule_on_states_the_configured_threshold(monkeypatch, capsys):
     monkeypatch.setattr(service, "learn_schedule_summary", lambda: "daily at 03:30")
     cli.cmd_schedule(argparse.Namespace(state="on", at=None, every=None, auto_promote=False))
     assert "retrains once 20+ clips are new" in capsys.readouterr().out
+
+
+def test_maintain_records_the_run(monkeypatch):
+    """`learn report` reads what the last run did from its own record."""
+    import argparse
+
+    from voiceio.cli import learn as cli
+    from voiceio.learn import lastrun
+
+    def label(a):
+        _clip("new.wav", 3, "x")
+        store.add_label("new.wav", [Segment(0, 3, "a new one")], "teacher:fake")
+    monkeypatch.setenv("INVOCATION_ID", "abc")
+    monkeypatch.setattr(cli, "cmd_label", label)
+    monkeypatch.setattr(cli, "_announce_learning", lambda min_new: None)
+    monkeypatch.setattr(train, "missing_train_deps", lambda: ["torch"])
+    cli.cmd_maintain(argparse.Namespace(min_new=5, base="small", epochs=1))
+    rec = lastrun.read()
+    assert rec["outcome"] == "labelled" and rec["labelled"] == 1 and rec["scheduled"] is True
+    assert rec["ended"] >= rec["started"]
+
+    monkeypatch.setattr(cli, "cmd_label", lambda a: None)
+    cli.cmd_maintain(argparse.Namespace(min_new=5, base="small", epochs=1))
+    assert lastrun.read()["outcome"] == "skipped"
+
+    def boom(a):
+        raise RuntimeError("teacher crashed")
+    monkeypatch.setattr(cli, "cmd_label", boom)
+    with pytest.raises(RuntimeError):
+        cli.cmd_maintain(argparse.Namespace(min_new=5, base="small", epochs=1))
+    assert lastrun.read()["outcome"] == "failed"
+
+    with pytest.raises(SystemExit):   # a bad setting fails the run too
+        cli.cmd_maintain(argparse.Namespace(min_new=0, base="small", epochs=1))
+    assert lastrun.read()["outcome"] == "failed"
+
+
+def test_maintain_records_a_retrain(monkeypatch):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    from voiceio.learn import lastrun
+    _maintain_calls(monkeypatch)
+    cli.cmd_maintain(argparse.Namespace(min_new=1, base="small", epochs=1))
+    assert lastrun.read()["outcome"] == "retrained"
+
+
+def test_when_idle_worker_leaves_the_record_to_its_parent(monkeypatch):
+    import argparse
+
+    from voiceio.cli import learn as cli
+    from voiceio.learn import lastrun, quiet
+    monkeypatch.setenv(quiet.WORKER_ENV, "1")
+    monkeypatch.setattr(cli, "cmd_label", lambda a: None)
+    monkeypatch.setattr(cli, "_announce_learning", lambda min_new: None)
+    monkeypatch.setattr(train, "missing_train_deps", lambda: ["torch"])
+    cli.cmd_maintain(argparse.Namespace(min_new=5, base="small", epochs=1, when_idle=True))
+    assert lastrun.read() is None

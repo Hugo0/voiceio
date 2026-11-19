@@ -543,9 +543,18 @@ def cmd_maintain(args: argparse.Namespace) -> None:
     that is stopped the moment you're back and started again (it resumes)
     once you're away (voiceio.learn.quiet)."""
     _yield_cpu()
+    from voiceio.learn import lastrun, quiet
+    if os.environ.get(quiet.WORKER_ENV) == "1":   # a --when-idle worker: the parent records
+        _maintain(args, _maintain_settings(args))
+        return
+    with lastrun.recording():   # what `learn report` says about the last run
+        _maintain_recorded(args)
+
+
+def _maintain_recorded(args: argparse.Namespace) -> None:
     from voiceio.learn import quiet
     learn_cfg = _maintain_settings(args)
-    if getattr(args, "when_idle", False) and os.environ.get(quiet.WORKER_ENV) != "1":
+    if getattr(args, "when_idle", False):
         from voiceio.config import private_dir
         private_dir(store.learn_dir())
         code = quiet.run_while_away(
@@ -594,6 +603,8 @@ def _maintain(args: argparse.Namespace, learn_cfg) -> None:
     current = evaluate.latest(_cfg().model.name, ds.name, beam=beam) or _scores(_run_eval(None, ds))
     run = _finished_run(ds, learn_cfg.base) or _train(ds, base=learn_cfg.base,
                                                       epochs=learn_cfg.epochs)
+    from voiceio.learn import lastrun
+    lastrun.mark_retrained()
     model = str(run / "ct2")
     candidate = evaluate.latest(model, ds.name, beam=beam) or _scores(_run_eval(model, ds))
     with quiet.hold():   # from here on: seconds of work that must not be torn

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -101,7 +102,6 @@ LEARN_EVERY = {"day": "*-*-*", "week": "Sun *-*-*"}
 
 def learn_calendar(at: str, every: str) -> str:
     """systemd OnCalendar for `[learn] at` / `every`; ValueError when invalid."""
-    import re
     if every not in LEARN_EVERY:
         raise ValueError(f"every must be one of {', '.join(LEARN_EVERY)}, not {every!r}")
     m = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", at.strip())
@@ -221,23 +221,57 @@ def stop_learning() -> bool:
     return _systemctl("stop", LEARN_SERVICE_NAME)
 
 
+def _show(unit: str, prop: str, *flags: str) -> str | None:
+    """`systemctl --user show` of one property; None when systemctl failed."""
+    try:
+        proc = subprocess.run(
+            ["systemctl", "--user", "show", *flags, "-p", prop, "--value", unit],
+            capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+_SHOWN_TIME = re.compile(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(?:\s+(\S+))?")
+
+
+def parse_shown_time(text: str) -> float | None:
+    """A timestamp as `systemctl show` prints it, as a Unix time: "@1763260212"
+    (--timestamp=unix), or "Sun 2026-11-15 03:41:30 WET" (the default, which
+    is local time unless it says UTC). None for "", "n/a" or anything else."""
+    text = text.strip()
+    if text.startswith("@"):
+        try:
+            return float(text[1:]) or None
+        except ValueError:
+            return None
+    m = _SHOWN_TIME.search(text)
+    if not m:
+        return None
+    import datetime as dt
+    when = dt.datetime.strptime(m[1], "%Y-%m-%d %H:%M:%S")
+    if m[2] in ("UTC", "GMT"):
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return when.timestamp()
+
+
 def learn_last_run() -> tuple[float | None, str]:
     """(when the learning timer last fired, as a Unix time, or None; the
-    learning service's last result, e.g. "success", or "")."""
-    def show(unit: str, prop: str) -> str:
-        try:
-            return subprocess.run(
-                ["systemctl", "--user", "show", "--timestamp=unix", "-p", prop, "--value", unit],
-                capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT).stdout.strip()
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return ""
-    stamp = show(LEARN_TIMER_NAME, "LastTriggerUSec")
-    try:
-        when = float(stamp[1:]) if stamp.startswith("@") else None
-    except ValueError:
-        when = None
-    result = show(LEARN_SERVICE_NAME, "Result")
-    return when or None, result if result.replace("-", "").isalpha() else ""
+    learning service's last result, e.g. "success", or "" — always "" when
+    the timer never fired: a unit that never ran reports Result=success).
+
+    systemd before 259 ignores --timestamp=unix for LastTriggerUSec (it only
+    applied it to *Timestamp properties) and prints the local-time form;
+    before 250 it rejects the flag outright. Both forms are parsed, and the
+    flag is dropped when systemctl refuses it."""
+    stamp = _show(LEARN_TIMER_NAME, "LastTriggerUSec", "--timestamp=unix")
+    if not stamp:
+        stamp = _show(LEARN_TIMER_NAME, "LastTriggerUSec") or ""
+    when = parse_shown_time(stamp)
+    if when is None:
+        return None, ""
+    result = _show(LEARN_SERVICE_NAME, "Result") or ""
+    return when, result if result.replace("-", "").isalpha() else ""
 
 
 def learn_schedule_summary() -> str:

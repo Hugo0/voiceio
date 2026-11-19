@@ -135,22 +135,35 @@ def _log_counts(now: dt.datetime, out: dict, unavailable: dict,
 
 def _learning(cutoff: float, out: dict, unavailable: dict) -> None:
     from voiceio import service
-    from voiceio.learn import store
+    from voiceio.learn import lastrun, store
     labels = store.load_labels()
     out["clips_labelled_7d"] = sum(1 for lab in labels.values() if lab.ts >= cutoff)
     out["learn_scheduled"] = out["learn_ran_7d"] = out["learn_last_run"] = None
     out["learn_last_result"] = None
-    if not service.has_systemd():
-        for key in ("learn_scheduled", "learn_ran_7d", "learn_last_run", "learn_last_result"):
-            unavailable[key] = "no systemd"
-        return
-    out["learn_scheduled"] = service.learn_timer_enabled()
-    when, result = service.learn_last_run()
-    out["learn_ran_7d"] = when is not None and when >= cutoff
-    if when is not None:
-        out["learn_last_run"] = dt.date.fromtimestamp(when).isoformat()
+    systemd = service.has_systemd()
+    if systemd:
+        out["learn_scheduled"] = service.learn_timer_enabled()
     else:
-        unavailable["learn_last_run"] = "the learning timer has never fired"
+        unavailable["learn_scheduled"] = "no systemd"
+    # The run's own record first: systemd can't tell a unit that never ran
+    # (Result=success) from one that did, and its timestamps vary by version.
+    rec = lastrun.read()
+    if rec is not None:
+        when, result = float(rec["started"]), rec["outcome"]
+        if result == "running" and not (systemd and service.learning_now()):
+            result = "unfinished"   # killed before it could record an outcome
+    elif systemd:
+        when, result = service.learn_last_run()
+    else:
+        for key in ("learn_ran_7d", "learn_last_run", "learn_last_result"):
+            unavailable[key] = "no systemd and no recorded learning run"
+        return
+    out["learn_ran_7d"] = when is not None and when >= cutoff
+    if when is None:
+        unavailable["learn_last_run"] = unavailable["learn_last_result"] = \
+            "no recorded learning run (the learning timer has never fired)"
+        return
+    out["learn_last_run"] = dt.date.fromtimestamp(when).isoformat()
     if result:
         out["learn_last_result"] = result
     else:

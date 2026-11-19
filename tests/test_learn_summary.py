@@ -157,17 +157,112 @@ def test_cli_prints_json_and_text(seeded, capsys, monkeypatch):
     assert "decoder errors" in text and "zorblax" not in text
 
 
-def test_learn_last_run_parses_systemctl(monkeypatch):
+def _systemctl(trigger: str, result: str = "success", *, unix_flag: bool = True):
+    """A fake `systemctl show`: LastTriggerUSec prints `trigger`; without
+    `unix_flag` the --timestamp=unix flag is refused (systemd < 250)."""
     import subprocess
+    calls = []
 
     def fake(argv, **kw):
+        calls.append(argv)
+        if "--timestamp=unix" in argv and not unix_flag:
+            return subprocess.CompletedProcess(argv, 1, stdout="",
+                                               stderr="Unknown timestamp format: unix")
         prop = argv[argv.index("-p") + 1]
-        out = {"LastTriggerUSec": "@1763260212\n", "Result": "success\n"}[prop]
-        return subprocess.CompletedProcess(argv, 0, stdout=out)
+        out = {"LastTriggerUSec": trigger, "Result": result}[prop]
+        return subprocess.CompletedProcess(argv, 0, stdout=out + "\n")
+    return fake, calls
 
+
+def test_learn_last_run_parses_systemctl(monkeypatch):
+    fake, _ = _systemctl("@1763260212")
     monkeypatch.setattr(service.subprocess, "run", fake)
     assert service.learn_last_run() == (1763260212.0, "success")
 
-    monkeypatch.setattr(service.subprocess, "run",
-                        lambda argv, **kw: subprocess.CompletedProcess(argv, 0, stdout="n/a\n"))
+
+def test_learn_last_run_reads_the_local_time_form(monkeypatch):
+    """systemd < 259 ignores --timestamp=unix for LastTriggerUSec and prints
+    the local-time form: the report said "never fired" for a timer that ran."""
+    when = NOW - 4 * DAY
+    shown = dt.datetime.fromtimestamp(when).strftime("%a %Y-%m-%d %H:%M:%S WET")
+    fake, _ = _systemctl(shown)
+    monkeypatch.setattr(service.subprocess, "run", fake)
+    assert service.learn_last_run() == (when, "success")
+
+    utc = dt.datetime.fromtimestamp(when, dt.timezone.utc).strftime("%a %Y-%m-%d %H:%M:%S UTC")
+    fake, _ = _systemctl(utc)
+    monkeypatch.setattr(service.subprocess, "run", fake)
+    assert service.learn_last_run() == (when, "success")
+
+
+def test_learn_last_run_without_the_unix_flag(monkeypatch):
+    """systemd < 250 refuses --timestamp=unix: ask again without it."""
+    when = NOW - 4 * DAY
+    shown = dt.datetime.fromtimestamp(when).strftime("%a %Y-%m-%d %H:%M:%S CET")
+    fake, calls = _systemctl(shown, unix_flag=False)
+    monkeypatch.setattr(service.subprocess, "run", fake)
+    assert service.learn_last_run() == (when, "success")
+    assert not any("--timestamp=unix" in argv for argv in calls[1:])
+
+
+@pytest.mark.parametrize("trigger", ["n/a", "", "@0", "0"])
+def test_never_fired_has_no_result(monkeypatch, trigger):
+    """A unit that never ran still says Result=success: that is not a result."""
+    fake, _ = _systemctl(trigger)
+    monkeypatch.setattr(service.subprocess, "run", fake)
     assert service.learn_last_run() == (None, "")
+
+
+def _learning_report(monkeypatch, last_run, tmp_path) -> dict:
+    monkeypatch.setattr(service, "has_systemd", lambda: True)
+    monkeypatch.setattr(service, "learn_timer_enabled", lambda: True)
+    monkeypatch.setattr(service, "learning_now", lambda: False)
+    monkeypatch.setattr(service, "learn_last_run", last_run)
+    return summary.build(NOW, config.Config(), log_paths=[tmp_path / "missing.log"])
+
+
+def test_report_never_ran_has_a_null_result(monkeypatch, tmp_path):
+    out = _learning_report(monkeypatch, lambda: (None, ""), tmp_path)
+    assert out["learn_scheduled"] is True and out["learn_ran_7d"] is False
+    assert out["learn_last_run"] is None and out["learn_last_result"] is None
+    assert out["unavailable"]["learn_last_result"]
+    assert "never fired" in out["unavailable"]["learn_last_run"]
+
+
+def test_report_ran_four_days_ago(monkeypatch, tmp_path):
+    when = NOW - 4 * DAY
+    out = _learning_report(monkeypatch, lambda: (when, "success"), tmp_path)
+    assert out["learn_ran_7d"] is True
+    assert out["learn_last_run"] == dt.date.fromtimestamp(when).isoformat()
+    assert out["learn_last_result"] == "success"
+    assert "learn_last_run" not in out["unavailable"]
+
+
+def test_report_prefers_the_runs_own_record(monkeypatch, tmp_path):
+    from voiceio.learn import lastrun
+    when = NOW - 4 * DAY
+    lastrun.path().parent.mkdir(parents=True, exist_ok=True)
+    lastrun.path().write_text(json.dumps({"started": when, "ended": when + 5224,
+                                          "outcome": "labelled", "labelled": 724,
+                                          "scheduled": True}))
+    out = _learning_report(monkeypatch, lambda: pytest.fail("systemd not asked"), tmp_path)
+    assert out["learn_ran_7d"] is True
+    assert out["learn_last_run"] == dt.date.fromtimestamp(when).isoformat()
+    assert out["learn_last_result"] == "labelled"
+
+    # Killed before it could record an outcome (and not running now).
+    lastrun.path().write_text(json.dumps({"started": NOW - 9 * DAY, "ended": None,
+                                          "outcome": "running", "scheduled": True}))
+    out = _learning_report(monkeypatch, lambda: pytest.fail("systemd not asked"), tmp_path)
+    assert out["learn_ran_7d"] is False and out["learn_last_result"] == "unfinished"
+
+
+def test_report_record_without_systemd(monkeypatch, tmp_path):
+    from voiceio.learn import lastrun
+    lastrun.path().parent.mkdir(parents=True, exist_ok=True)
+    lastrun.path().write_text(json.dumps({"started": NOW - DAY, "ended": NOW - DAY + 60,
+                                          "outcome": "skipped", "labelled": 0}))
+    monkeypatch.setattr(service, "has_systemd", lambda: False)
+    out = summary.build(NOW, config.Config(), log_paths=[tmp_path / "missing.log"])
+    assert out["learn_scheduled"] is None and out["unavailable"]["learn_scheduled"]
+    assert out["learn_ran_7d"] is True and out["learn_last_result"] == "skipped"
