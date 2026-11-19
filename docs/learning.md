@@ -25,6 +25,7 @@ voiceio learn schedule on   # …or let it run `maintain` on a schedule, and not
                             #   --at 02:00 --every day: when (default weekly, Sundays at 03:30)
                             #   --auto-promote: switch to a winner by itself; `learn rollback` undoes it
 voiceio learn stop          # stop a run in progress (it goes again next time)
+voiceio learn report        # numbers only, last 7 days: dictations, WER of the active model, errors, runs (--json)
 ```
 
 Scheduled runs never compete with you: they work only while you're away from the computer. A run starts once there has been no keyboard or mouse input for `[learn] away_minutes` (10), or the screen is locked, on mains power, with the 1-minute load per CPU at most `[learn] max_load` (0.25). While it works it checks every two seconds, and the moment you touch the keyboard or mouse (or unplug the charger) it stops, within about two seconds. It carries on where it was the next time you're away. Labels are saved per clip, training checkpoints about once a minute and keeps the encoder outputs it computed on disk, and finished evals are reused, so an interruption costs at most a minute of work. Each wait lasts at most `wait_hours` (3); after that the next scheduled run takes over, so a laptop that was off at 03:30 catches up during the day only while you're away, or else the next night. When a run starts you get a notification with **Stop for now** and **Weekly instead**.
@@ -36,6 +37,8 @@ What a scheduled run trains comes from `[learn]` too: `base` (default `small`; a
 To keep a second machine (say, the server your phone dictates through) on the same model, set `[learn] on_promote = "scripts/push_model.sh HOST"`: after every switch it copies the model there and flips a `current` link the server points at.
 
 Labeling, training and offline eval also run in an idle-priority cgroup. The scheduled unit adds `CPUSchedulingPolicy=idle`, idle disk priority, `MemoryHigh=25%` (past it the kernel reclaims from training, not from your desktop) and `OOMScoreAdjust=500`. Labeling and training use half the logical CPUs (`[learn] threads`, 0 = half). Everything stays on your machine unless you choose `train --remote`. An interrupted `voiceio learn train` resumes too: run it again with the same `--base` on the same dataset.
+
+`voiceio learn report` prints a summary of the last 7 days that is safe to send to someone helping you: dictations and audio minutes, the active model's WER from its latest stored eval (it runs none), clipboard fallbacks and decoder errors from the service log, whether a scheduled run fired, and clips labelled. Only counts, rates, dates and model names: never a transcript, a word, your vocabulary or corrections, a file path or audio. `--json` prints it as JSON; a value it can't work out is `null`, with the reason under `unavailable`.
 
 `voiceio learn status` shows where you are, each model's scores, and suggests `promote` only when a fine-tune wins on everything. `promote` itself refuses a model that hasn't, and reports how many clips got better or worse with a confidence interval — a few dozen test clips can move an average by luck.
 

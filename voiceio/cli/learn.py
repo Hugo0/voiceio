@@ -19,6 +19,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     lsub.add_parser("status", help="What has been captured, labeled and trained").set_defaults(
         func=cmd_status)
 
+    rp = lsub.add_parser("report", help="Numbers-only summary of the last 7 days (no words, no paths)")
+    rp.add_argument("--json", action="store_true", help="Print it as JSON")
+    rp.set_defaults(func=cmd_report)
+
     c = lsub.add_parser("clean", help="Remove test-fixture rows from your data files")
     c.add_argument("--apply", action="store_true", help="rewrite the files (backups first)")
     c.set_defaults(func=cmd_clean)
@@ -219,6 +223,12 @@ def cmd_status(args: argparse.Namespace) -> None:
         nxt = ("label" if teacher + human < len(clips) else
                "review" if human == 0 else "build" if not ds else "eval / train")
     print(f"\nnext: voiceio learn {nxt}")
+
+
+def cmd_report(args: argparse.Namespace) -> None:
+    from voiceio.learn import summary
+    data = summary.build()
+    print(summary.to_json(data) if args.json else summary.format_text(data))
 
 
 def _print_scores(ds: Path, active: str, runs: list[str]) -> str | None:

@@ -163,6 +163,13 @@ def latest(model: str, dataset: str, mode: str = "offline", beam: int = 5) -> di
     """The newest saved run of `model` (a `[model] name`) on `dataset` scored
     by the current metrics, or None. `beam` is Whisper's beam width; a
     sherpa-onnx model has one decode setting."""
+    found = latest_run(model, dataset, mode, beam)
+    return found[1] if found else None
+
+
+def latest_run(model: str, dataset: str, mode: str = "offline",
+               beam: int = 5) -> tuple[Path, dict] | None:
+    """`latest()` with the file it came from (its name holds the run's time)."""
     from voiceio.core.decoders.catalog import runtime_of
     runs = learn_dir() / "runs"
     if runtime_of(model) == "sherpa-onnx":
@@ -177,7 +184,7 @@ def latest(model: str, dataset: str, mode: str = "offline", beam: int = 5) -> di
         if (data.get("decoder", "").removesuffix("+draft") == want
                 and data.get("dataset") == dataset and data.get("mode", "offline") == mode
                 and data.get("metrics", 1) == metrics.METRICS_VERSION):
-            return data
+            return path, data
     return None
 
 

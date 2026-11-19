@@ -221,6 +221,25 @@ def stop_learning() -> bool:
     return _systemctl("stop", LEARN_SERVICE_NAME)
 
 
+def learn_last_run() -> tuple[float | None, str]:
+    """(when the learning timer last fired, as a Unix time, or None; the
+    learning service's last result, e.g. "success", or "")."""
+    def show(unit: str, prop: str) -> str:
+        try:
+            return subprocess.run(
+                ["systemctl", "--user", "show", "--timestamp=unix", "-p", prop, "--value", unit],
+                capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT).stdout.strip()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return ""
+    stamp = show(LEARN_TIMER_NAME, "LastTriggerUSec")
+    try:
+        when = float(stamp[1:]) if stamp.startswith("@") else None
+    except ValueError:
+        when = None
+    result = show(LEARN_SERVICE_NAME, "Result")
+    return when or None, result if result.replace("-", "").isalpha() else ""
+
+
 def learn_schedule_summary() -> str:
     """'off', or e.g. 'daily at 03:30 (auto-promote)'."""
     if not learn_timer_enabled():
