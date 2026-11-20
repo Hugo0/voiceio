@@ -23,7 +23,7 @@ _SHA256 = "82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427"
 _SIZE_MB = 129
 _STEMS = ("duration_predictor", "text_encoder", "vector_estimator", "vocoder")
 _FILES = ("tts.json", "unicode_indexer.bin", "voice.bin")
-_HINT = "pip install 'python-voiceio[sherpa]' (then: voiceio models sherpa)"
+_HINT = "pip install 'python-voiceio[sherpa]'"
 
 
 def _complete(path: Path) -> bool:

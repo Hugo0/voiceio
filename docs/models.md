@@ -4,7 +4,7 @@
 voiceio models list                         # known models, your fine-tunes, the active one and the default
 voiceio models bench                        # score candidates on your held-out clips (after `voiceio learn build`)
 voiceio models use parakeet-tdt-0.6b-v2     # switch (downloads it); `use auto` goes back to the default
-voiceio models sherpa                       # install sherpa-onnx with the Parakeet fixes (see below)
+voiceio models sherpa                       # install/upgrade sherpa-onnx to 2.0.2+ (= pip install -U 'sherpa-onnx>=2.0.2')
 ```
 
 | Model | Runtime | License | Notes |
@@ -23,17 +23,20 @@ Pick on your own audio, not leaderboards: for dictation full of names, how well 
 
 Parakeet's vocabulary biasing (hotwords, with no size limit) needs
 `modified_beam_search`, which drops speech on NeMo TDT models in sherpa-onnx
-releases up to 1.13.8. voiceio checks the installed sherpa-onnx: with the
-fix (`length_reward`), `[model] name` left unset or `"auto"` means Parakeet;
-without it, the default stays `small`, and an explicitly chosen Parakeet
-decodes greedily with no biasing (`voiceio doctor` says so). When an upstream
-release ships the fix, the default flips by itself.
+releases before 2.0.2. sherpa-onnx 2.0.2 (November 2026) ships the fix
+(`length_reward`, k2-fsa/sherpa-onnx#4084) and pre-tokenized hotwords (#4088:
+sherpa's own hotword tokenization splits most proper nouns differently from
+the model, so they would never match). `pip install 'python-voiceio[sherpa]'`
+requires 2.0.2+, so with it `[model] name` left unset or `"auto"` means
+Parakeet. With an older sherpa-onnx the default stays `small`, and an
+explicitly chosen Parakeet decodes greedily with no biasing (`voiceio doctor`
+says so); `pip install -U 'sherpa-onnx>=2.0.2'` (or `voiceio models sherpa`)
+fixes it.
 
-Until then, `voiceio models sherpa` installs a build with the fix and with
-pre-tokenized hotwords (sherpa's own hotword tokenization splits most proper
-nouns differently from the model, so they would never match). It is built
-from `Hugo0/sherpa-onnx@voiceio-patched` for Linux x86_64, Python 3.10–3.13,
-and verified against its SHA256SUMS before installing.
+Before 2.0.2, voiceio shipped its own build with both fixes, from
+`Hugo0/sherpa-onnx@voiceio-patched` (Linux x86_64, Python 3.10–3.13, verified
+against its SHA256SUMS); `voiceio models sherpa --patched` still installs it,
+and voiceio still recognises it.
 
 Only proper nouns (terms with a capital letter) become Parakeet hotwords:
 biasing toward lowercase jargon made the model insert those words where they

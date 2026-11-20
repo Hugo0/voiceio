@@ -142,11 +142,13 @@ def print_progress(label: str) -> Callable[[int, int], None]:
     return show
 
 
-# ── the patched sherpa-onnx ──────────────────────────────────────────────
-# Until k2-fsa/sherpa-onnx releases the NeMo TDT beam-search fix (#4084) and
-# pre-tokenized hotwords, Parakeet's biasing needs a build with both:
-# Hugo0/sherpa-onnx branch `voiceio-patched`, built by the voiceio repo's
-# "sherpa-wheels" workflow into this release, with a SHA256SUMS file.
+# ── sherpa-onnx ──────────────────────────────────────────────────────────
+# Parakeet's biasing needs the NeMo TDT beam-search fix (k2-fsa/sherpa-onnx
+# #4084) and pre-tokenized hotwords (#4088), both released upstream in 2.0.2.
+SHERPA_REQUIREMENT = "sherpa-onnx>=2.0.2"
+# Before that release: Hugo0/sherpa-onnx branch `voiceio-patched`, built by the
+# voiceio repo's "sherpa-wheels" workflow into this release, with a SHA256SUMS
+# file (`voiceio models sherpa --patched`).
 SHERPA_WHEELS = "https://github.com/Hugo0/voiceio/releases/download/sherpa-onnx-voiceio"
 
 
@@ -176,8 +178,6 @@ def patched_sherpa_wheel(sums: str, version: tuple[int, int] | None = None,
 def install_patched_sherpa(base_url: str = SHERPA_WHEELS) -> str:
     """Download, verify and install the patched sherpa-onnx wheel into this
     Python. Returns the wheel's name; raises OSError with what went wrong."""
-    import shutil as _shutil
-    import subprocess
     import sys
     import tempfile
     try:
@@ -202,16 +202,30 @@ def install_patched_sherpa(base_url: str = SHERPA_WHEELS) -> str:
             raise OSError(f"{wheel}: checksum mismatch — not installing")
         path.write_bytes(data)
         # Same version number as upstream's release: force the swap.
-        import importlib.util
-        if importlib.util.find_spec("pip") is not None:
-            cmd = [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-deps",
-                   str(path)]
-        elif uv := _shutil.which("uv"):
-            cmd = [uv, "pip", "install", "--python", sys.executable, "--reinstall",
-                   "--no-deps", str(path)]
-        else:
-            raise OSError(f"neither pip nor uv is available to install {wheel}")
-        rc = subprocess.run(cmd).returncode
-        if rc != 0:
-            raise OSError(f"installing {wheel} failed (exit {rc}): {' '.join(cmd)}")
+        _pip_install([str(path)], reinstall=True)
     return wheel
+
+
+def install_sherpa() -> None:
+    """Install or upgrade sherpa-onnx from PyPI to a release with the
+    Parakeet fixes. Raises OSError with what went wrong."""
+    _pip_install(["--upgrade", SHERPA_REQUIREMENT])
+
+
+def _pip_install(args: list[str], *, reinstall: bool = False) -> None:
+    """pip (or uv) install into this Python; OSError on failure."""
+    import importlib.util
+    import shutil as _shutil
+    import subprocess
+    import sys
+    if importlib.util.find_spec("pip") is not None:
+        cmd = [sys.executable, "-m", "pip", "install"] + \
+            (["--force-reinstall", "--no-deps"] if reinstall else []) + args
+    elif uv := _shutil.which("uv"):
+        cmd = [uv, "pip", "install", "--python", sys.executable] + \
+            (["--reinstall", "--no-deps"] if reinstall else []) + args
+    else:
+        raise OSError(f"neither pip nor uv is available to install {args[-1]}")
+    rc = subprocess.run(cmd).returncode
+    if rc != 0:
+        raise OSError(f"installing {args[-1]} failed (exit {rc}): {' '.join(cmd)}")

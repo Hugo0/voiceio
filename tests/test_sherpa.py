@@ -18,7 +18,13 @@ from voiceio.core.decoders import BiasMode, build_decoder, catalog, fetch, sherp
 from voiceio.core.decoders.base import Bias, DecodeError
 from voiceio.core.decoders.sherpa import SherpaFeatures, SherpaTransducer, Tokenizer
 
+# conftest replaces `sherpa.features` in every test; keep the real one.
+REAL_FEATURES = sherpa.features
+
+# Upstream sherpa-onnx >= 2.0.2: both fixes, length_reward only per stream.
 FIXED = SherpaFeatures(installed=True, length_reward=True, pretokenized_hotwords=True)
+# voiceio's old patched build: from_transducer(length_reward=…) as well.
+PATCHED = SherpaFeatures(True, True, True, length_reward_kwarg=True)
 TOKENS = "\n".join(f"{p} {i}" for i, p in enumerate(
     ["<unk>", "▁K", "al", "▁Kal", "sh", "hi", "shi", "▁", "K", "a", "l", "s", "h", "i",
      "▁H", "▁Hy", "per", "p", "e", "r", "y", "H", "▁k", "k", "er"])) + "\n"
@@ -110,7 +116,8 @@ def test_one_recognizer_and_per_stream_pretokenized_proper_nouns(fake, tmp_path)
     assert dec.name == "sherpa:parakeet-tdt-0.6b-v2"
     kw = fake.created[0]
     assert kw["decoding_method"] == "modified_beam_search"
-    assert (kw["length_reward"], kw["max_active_paths"], kw["hotwords_score"]) == (0.5, 4, 2.0)
+    assert (kw["max_active_paths"], kw["hotwords_score"]) == (4, 2.0)
+    assert "length_reward" not in kw, "upstream from_transducer has no such kwarg"
     assert "hotwords_file" not in kw and kw["modeling_unit"] == "bpe"
     assert (tmp_path / "bpe.vocab").exists()
 
@@ -123,6 +130,90 @@ def test_one_recognizer_and_per_stream_pretokenized_proper_nouns(fake, tmp_path)
     dec.decode(_audio(2), bias=Bias())
     assert [s["hotwords"] for s in fake.streams[1:]] == ["▁Hy per", None]
     assert len(fake.created) == 1, "a new hotword set must never reload the model"
+
+
+def test_patched_build_also_gets_length_reward_at_load(fake, monkeypatch, tmp_path):
+    monkeypatch.setattr(sherpa, "features", lambda: PATCHED)
+    dec = SherpaTransducer(_model_dir(tmp_path))
+    assert fake.created[0]["length_reward"] == 0.5
+    dec.decode(_audio(1), bias=Bias(hotwords="Kalshi"))
+    assert fake.streams[-1]["length_reward"] == "0.5"
+    assert fake.streams[-1]["hotwords"] == "▁Kal shi"
+
+
+def _sherpa_module(version, *, config_attr=False, pretokenized_flag=False):
+    """A sherpa_onnx module shaped like a given release (set_option on the
+    stream in every one, as 2.0.1 already has it)."""
+    class OfflineRecognizerConfig:
+        pass
+    if config_attr:
+        OfflineRecognizerConfig.length_reward = 0.0
+
+    class OfflineRecognizer:
+        @staticmethod
+        def from_transducer(encoder, decoder, joiner, tokens, num_threads=1,
+                            decoding_method="greedy_search", max_active_paths=4):
+            raise AssertionError("not called")
+
+    mod = types.SimpleNamespace(OfflineRecognizer=OfflineRecognizer,
+                                OfflineRecognizerConfig=OfflineRecognizerConfig,
+                                OfflineStream=type("OfflineStream", (), {"set_option": None}))
+    if version is not None:
+        mod.__version__ = version
+    if pretokenized_flag:
+        mod.HOTWORDS_PRETOKENIZED = True
+    return mod
+
+
+@pytest.mark.parametrize("module, expected", [
+    (_sherpa_module("2.0.2"), SherpaFeatures(True, True, True, False)),
+    (_sherpa_module("2.0.10"), SherpaFeatures(True, True, True, False)),
+    (_sherpa_module("2.1.0.dev20261201+cuda"), SherpaFeatures(True, True, True, False)),
+    (_sherpa_module("3.0"), SherpaFeatures(True, True, True, False)),
+    (_sherpa_module("2.0.1"), SherpaFeatures(True, False, False, False)),
+    (_sherpa_module("1.13.8"), SherpaFeatures(True, False, False, False)),
+    (_sherpa_module("2.0.1+cuda12"), SherpaFeatures(True, False, False, False)),
+    (_sherpa_module(None), SherpaFeatures(True, False, False, False)),
+    (_sherpa_module("weird"), SherpaFeatures(True, False, False, False)),
+    # voiceio's patched wheels (built off 1.13.x/2.0.x).
+    (_sherpa_module("1.13.4", config_attr=True, pretokenized_flag=True),
+     SherpaFeatures(True, True, True, True)),
+    (_sherpa_module("2.0.1", config_attr=True), SherpaFeatures(True, True, False, True)),
+], ids=["2.0.2", "2.0.10", "2.1-dev", "3.0", "2.0.1", "1.13.8", "2.0.1-local", "no-version",
+        "junk-version", "patched", "patched-no-pretok"])
+def test_features_detects_upstream_by_version_and_patched_builds_by_signal(
+        monkeypatch, module, expected):
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", module)
+    REAL_FEATURES.cache_clear()
+    try:
+        assert REAL_FEATURES() == expected
+    finally:
+        REAL_FEATURES.cache_clear()
+
+
+def test_features_patched_kwarg_found_by_signature(monkeypatch):
+    mod = _sherpa_module("2.0.1")
+
+    class OfflineRecognizer:
+        @staticmethod
+        def from_transducer(encoder, length_reward=0.0):
+            pass
+    mod.OfflineRecognizer = OfflineRecognizer
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", mod)
+    REAL_FEATURES.cache_clear()
+    try:
+        assert REAL_FEATURES() == SherpaFeatures(True, True, False, True)
+    finally:
+        REAL_FEATURES.cache_clear()
+
+
+def test_features_without_sherpa(monkeypatch):
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", None)   # import raises ImportError
+    REAL_FEATURES.cache_clear()
+    try:
+        assert REAL_FEATURES() == SherpaFeatures()
+    finally:
+        REAL_FEATURES.cache_clear()
 
 
 def test_sherpa_tokenization_fallback_passes_terms(fake, monkeypatch, tmp_path):

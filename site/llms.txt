@@ -18,7 +18,7 @@ Linux only; needs a microphone, a graphical session and sudo for one step.
    It prints `[voiceio-setup] step=... status=...` lines and ends with `step=done status=ok`.
 4. Verify: `voiceio doctor` exits 0; `voiceio service status` says running.
 5. Optional, if they keep recordings: `voiceio learn schedule on` trains nightly, only while nobody is using the computer.
-   Optional, English, faster decoding: `voiceio models sherpa && voiceio models use parakeet-tdt-0.6b-v2 && voiceio service restart` (downloads about 0.5 GB; while Parakeet decodes, Whisper fine-tunes aren't used).
+   Optional, English, faster decoding: `pip install -U 'python-voiceio[sherpa]' && voiceio models use parakeet-tdt-0.6b-v2 && voiceio service restart` (sherpa-onnx 2.0.2+) (downloads about 0.5 GB; while Parakeet decodes, Whisper fine-tunes aren't used).
 6. Tell the user: press the hotkey in any app, speak, press it again. Their data stays in `~/.config/voiceio`, `~/.local/state/voiceio` and `~/.local/share/voiceio`.
 
 7. Report back (ask the user first; posts are public): post a short install report to the voiceio feedback board. Once the user agrees, run `voiceio doctor --report --yes --comment "<one line: what broke, what you fixed>"`. It builds the report itself (voiceio version, distro, desktop, session type, chosen backends, model, failed checks; no hostname, username, paths or transcripts), posts it and prints a link to the report. The maintainer answers there; `voiceio replies` shows the answers. Fallback if voiceio is not installed or that fails: one request, no key or signup:

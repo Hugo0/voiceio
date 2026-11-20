@@ -3,16 +3,18 @@
 sherpa-onnx's hotwords are an Aho-Corasick graph with no token cap — the way
 past Whisper's ~35-term ceiling. They need `modified_beam_search`, which lost
 speech on NeMo TDT models until the `length_reward` fix (k2-fsa/sherpa-onnx
-#4084); `features()` detects it, and without it this decodes greedily with no
-biasing rather than lose words.
+#4084, released in 2.0.2); `features()` detects it, and without it this
+decodes greedily with no biasing rather than lose words.
 
 One recognizer per model load: the encoder alone is ~650 MB, so hotwords are
 never baked into the recognizer — each decode passes them to its own stream.
 sherpa-onnx re-tokenizes hotwords with bpe.vocab, which disagrees with how the
 model actually splits most proper nouns (`Hetzner` -> `▁H et zn er`, the
-model writes `▁Het zn er`), so the graph never matches them. A build with the
-pre-tokenized hotwords patch (`HOTWORDS_PRETOKENIZED`) takes the model's own
-BPE pieces instead; otherwise sherpa's tokenization is the fallback.
+model writes `▁Het zn er`), so the graph never matches them. sherpa-onnx 2.0.2+
+(#4088; earlier, voiceio's patched build with `HOTWORDS_PRETOKENIZED`) takes
+the model's own BPE pieces instead — a phrase that starts with "▁" and whose
+every space-separated piece is in tokens.txt; otherwise sherpa's tokenization
+is the fallback.
 
 Only proper nouns become hotwords: lowercase mined jargon caused false
 insertions of those words on real dictation (measured, see CLAUDE.md).
@@ -59,14 +61,32 @@ LENGTH_REWARD = 0.5
 HOTWORDS_SCORE = 2.0
 
 
+# The first upstream release with both fixes: the NeMo TDT modified_beam_search
+# fix (k2-fsa/sherpa-onnx#4084, `length_reward` read per stream) and hotwords
+# given as tokens.txt pieces (#4088, detected per phrase by its leading "▁").
+UPSTREAM_FIXED = (2, 0, 2)
+
+
 @dataclass(frozen=True)
 class SherpaFeatures:
     installed: bool = False
     # The NeMo TDT modified_beam_search fix (k2-fsa/sherpa-onnx#4084). Without
     # it, beam search — and so hotwords — drops speech on Parakeet.
     length_reward: bool = False
-    # Hotwords may be given as tokens from tokens.txt (voiceio's patched build).
+    # Hotwords may be given as tokens from tokens.txt (#4088; upstream since
+    # 2.0.2, voiceio's patched build before that).
     pretokenized_hotwords: bool = False
+    # `from_transducer(length_reward=…)` is accepted (voiceio's old patched
+    # build only; upstream takes it per stream and would raise TypeError).
+    length_reward_kwarg: bool = False
+
+
+def _version(text: str) -> tuple[int, ...]:
+    """Leading numeric release of a version string ("2.0.2.dev1+cuda" ->
+    (2, 0, 2)); () when it has none."""
+    import re
+    m = re.match(r"\s*v?(\d+(?:\.\d+)*)", str(text or ""))
+    return tuple(int(x) for x in m.group(1).split(".")) if m else ()
 
 
 @functools.cache
@@ -76,17 +96,21 @@ def features() -> SherpaFeatures:
         import sherpa_onnx
     except Exception:  # noqa: BLE001 — absent or a broken native lib: not installed
         return SherpaFeatures()
+    # 2.0.1 already has OfflineStream.set_option, so its presence
+    # proves nothing: upstream is judged by version, patched builds by the
+    # signals they export.
+    upstream = _version(getattr(sherpa_onnx, "__version__", "")) >= UPSTREAM_FIXED
     config = getattr(sherpa_onnx, "OfflineRecognizerConfig", None)
-    length_reward = config is not None and hasattr(config, "length_reward")
-    if not length_reward:
+    kwarg = config is not None and hasattr(config, "length_reward")
+    if not kwarg:
         import inspect
         try:
             params = inspect.signature(sherpa_onnx.OfflineRecognizer.from_transducer).parameters
-            length_reward = "length_reward" in params
+            kwarg = "length_reward" in params
         except (AttributeError, TypeError, ValueError):
             pass
-    return SherpaFeatures(True, length_reward,
-                          bool(getattr(sherpa_onnx, "HOTWORDS_PRETOKENIZED", False)))
+    pretokenized = upstream or bool(getattr(sherpa_onnx, "HOTWORDS_PRETOKENIZED", False))
+    return SherpaFeatures(True, upstream or kwarg, pretokenized, kwarg)
 
 
 def default_threads() -> int:
@@ -214,7 +238,7 @@ class SherpaTransducer:
             method = MBS if feats.length_reward else GREEDY
         elif method == MBS and not feats.length_reward:
             log.warning("This sherpa-onnx lacks the NeMo TDT beam-search fix: modified_beam_search "
-                        "may drop speech. Install the patched build: voiceio models sherpa")
+                        "may drop speech. Upgrade it: pip install -U 'sherpa-onnx>=2.0.2'")
         self._method = method
         mbs = method == MBS
         self.name = f"sherpa:{label or self._dir.name}" + ("" if mbs else f"@{method}")
@@ -234,7 +258,7 @@ class SherpaTransducer:
             kwargs.update(max_active_paths=max_active_paths, hotwords_score=hotwords_score,
                           modeling_unit="bpe",
                           bpe_vocab=_bpe_vocab_file(self._dir, self._tokenizer))
-            if feats.length_reward:
+            if feats.length_reward_kwarg:
                 kwargs.update(length_reward=length_reward)
         # Upstream reads length_reward per stream (k2-fsa/sherpa-onnx#4084 after
         # review); builds without that read ignore the option.

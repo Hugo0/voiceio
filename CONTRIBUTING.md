@@ -151,8 +151,9 @@ uv run pytest tests/ -x -q
 
 Short version: **the default is Parakeet-TDT-0.6b-v2 (sherpa-onnx) when the
 installed sherpa-onnx has the NeMo TDT beam-search fix, else whisper-small.**
-`catalog.default_model()` feature-detects it, so the default flips by itself
-once an upstream release ships the fix. An explicit `[model] name` (including
+`catalog.default_model()` feature-detects it (`sherpa.features()`: upstream
+sherpa-onnx >= 2.0.2 by version, voiceio's old patched build by its exported
+signals); the `sherpa` extra requires 2.0.2. An explicit `[model] name` (including
 a `voiceio learn` fine-tune) always wins.
 
 Our errors are almost entirely proper nouns and jargon (`HyperNEAT` →
@@ -173,9 +174,14 @@ lost or truncated on 1.13.4; PR #3657 never landed). **We fixed it ourselves**:
 lets hotwords be given as the model's own BPE pieces: sherpa re-encodes
 hotwords with a max-score DP over `bpe.vocab`, which splits 253/349 of our
 terms differently from the model (`Hetzner` → `▁H et zn er`, the model writes
-`▁Het zn er`), so they never match. Both live on `Hugo0/sherpa-onnx` branch
-`voiceio-patched`; `voiceio models sherpa` installs wheels built from it by
-`.github/workflows/sherpa-wheels.yml` until upstream releases them.
+`▁Het zn er`), so they never match
+([#4088](https://github.com/k2-fsa/sherpa-onnx/pull/4088): a hotword that
+starts with `▁` and whose every space-separated piece is in tokens.txt is used
+as is). **Both are released in sherpa-onnx 2.0.2**, where `length_reward` is a
+per-stream option (`stream.set_option("length_reward", "0.5")`), not a
+`from_transducer` argument. Before that they lived on `Hugo0/sherpa-onnx`
+branch `voiceio-patched` (wheels from `.github/workflows/sherpa-wheels.yml`,
+still installable with `voiceio models sherpa --patched`).
 
 **Measured on this project's own held-out audio (84 clips, dataset v0007,
 2026-10-23, Ryzen 9 7940HS, CPU int8)** — reproduce before trusting:
@@ -190,7 +196,7 @@ terms differently from the model (`Hetzner` → `▁H et zn er`, the model write
 The rows above are the spike's (`parakeet-work/`, same 84 clips, the same
 recognizer settings this backend uses). Stop-to-text latency through the real
 streaming path has **not** been measured in-tree yet; to reproduce both, with
-the patched sherpa-onnx importable:
+sherpa-onnx 2.0.2+ importable:
 
     voiceio learn eval --model parakeet-tdt-0.6b-v2
     voiceio learn eval --model <fine-tune>/ct2 --beam 2

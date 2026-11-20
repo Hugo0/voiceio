@@ -86,7 +86,7 @@ Everything lives in `~/.config/voiceio/config.toml`; [config.example.toml](confi
 
 ## Roadmap
 
-- **Parakeet by default for everyone**: it needs our sherpa-onnx fix ([#4084](https://github.com/k2-fsa/sherpa-onnx/pull/4084)) in an upstream release; until then `voiceio models sherpa && voiceio models use parakeet-tdt-0.6b-v2` installs a patched build ([why](CONTRIBUTING.md#model-choice-parakeet-where-it-can-be-biased-whisper-otherwise)).
+- **Parakeet by default for everyone**: our sherpa-onnx fixes ([#4084](https://github.com/k2-fsa/sherpa-onnx/pull/4084), [#4088](https://github.com/k2-fsa/sherpa-onnx/pull/4088)) are released in sherpa-onnx 2.0.2, so `pip install 'python-voiceio[sherpa]'` makes Parakeet the default ([why](CONTRIBUTING.md#model-choice-parakeet-where-it-can-be-biased-whisper-otherwise)).
 - **GPU on AMD and Intel**: let setup run a Vulkan whisper.cpp server for you.
 - **Typing without IBus on GNOME and KDE**: a libei backend.
 - **Distro packages**: AUR (packaged, not yet published) and .rpm.

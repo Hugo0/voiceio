@@ -16,7 +16,7 @@ cancel_key = ""               # e.g. "escape": abandon the dictation (evdev/pynp
 
 [model]
 name = "auto"                 # auto = parakeet-tdt-0.6b-v2 where the installed sherpa-onnx
-                              # can bias it (`voiceio models sherpa`), else small. Or a
+                              # can bias it (sherpa-onnx 2.0.2+: the `sherpa` extra), else small. Or a
                               # Whisper size (small, medium, large-v3-turbo…), a path to a
                               # CTranslate2 model (`voiceio learn` fine-tunes), or
                               # sherpa:<dir> / whispercpp:<url> — see `voiceio models`

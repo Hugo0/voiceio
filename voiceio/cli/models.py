@@ -23,9 +23,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     d = msub.add_parser("download", help="Fetch a sherpa-onnx model (e.g. parakeet-tdt-0.6b-v2)")
     d.add_argument("name")
     d.set_defaults(func=cmd_download)
-    s = msub.add_parser("sherpa", help="Install sherpa-onnx with the Parakeet fixes "
-                                       "(until upstream releases them)")
+    s = msub.add_parser("sherpa", help="Install or upgrade sherpa-onnx to a release with the "
+                                       "Parakeet fixes (2.0.2+)")
     s.add_argument("--check", action="store_true", help="only say what is installed")
+    s.add_argument("--patched", action="store_true",
+                   help="install voiceio's old patched build instead of the PyPI release")
     s.set_defaults(func=cmd_sherpa)
 
 
@@ -49,15 +51,16 @@ def _fine_tunes() -> list[str]:
 
 def _sherpa_note() -> str:
     """Why Parakeet is or isn't usable with the installed sherpa-onnx."""
+    from voiceio.core.decoders.fetch import SHERPA_REQUIREMENT
     from voiceio.core.decoders.sherpa import features
     f = features()
+    fix = f"pip install -U '{SHERPA_REQUIREMENT}' (or: voiceio models sherpa)"
     if not f.installed:
-        return "needs sherpa-onnx: voiceio models sherpa"
+        return f"needs sherpa-onnx: {fix}"
     if not f.length_reward:
-        return ("this sherpa-onnx lacks the NeMo TDT beam-search fix (no hotwords): "
-                "voiceio models sherpa")
+        return f"this sherpa-onnx lacks the NeMo TDT beam-search fix (no hotwords): {fix}"
     if not f.pretokenized_hotwords:
-        return "hotwords via sherpa's own tokenization (fewer names caught): voiceio models sherpa"
+        return f"hotwords via sherpa's own tokenization (fewer names caught): {fix}"
     return ""
 
 
@@ -133,7 +136,8 @@ def cmd_use(args: argparse.Namespace) -> None:
         if runtime_of(name) == "sherpa-onnx":
             from voiceio.core.decoders.sherpa import features
             if not features().installed:
-                raise SystemExit("needs sherpa-onnx first: voiceio models sherpa")
+                raise SystemExit("needs sherpa-onnx first: "
+                                 "pip install 'python-voiceio[sherpa]'")
             if note := _sherpa_note():
                 print(f"note: {note}")
             if m is not None and m.url:
@@ -167,20 +171,25 @@ def cmd_download(args: argparse.Namespace) -> None:
 
 
 def cmd_sherpa(args: argparse.Namespace) -> None:
-    """Parakeet's hotwords need two sherpa-onnx fixes upstream hasn't
-    released yet; install voiceio's build of them into this Python."""
+    """Install or upgrade sherpa-onnx in this Python to a release with
+    Parakeet's fixes (upstream 2.0.2+; `--patched`: voiceio's old build)."""
     from voiceio.core.decoders import fetch
     note = _sherpa_note()
     if args.check or not note:
         print(note or "sherpa-onnx has the Parakeet fixes (beam-search fix, pre-tokenized "
                       "hotwords)")
         return
-    print(f"installing the patched sherpa-onnx from {fetch.SHERPA_WHEELS}…", flush=True)
     try:
-        wheel = fetch.install_patched_sherpa()
+        if args.patched:
+            print(f"installing the patched sherpa-onnx from {fetch.SHERPA_WHEELS}…", flush=True)
+            what = fetch.install_patched_sherpa()
+        else:
+            print(f"installing {fetch.SHERPA_REQUIREMENT} from PyPI…", flush=True)
+            fetch.install_sherpa()
+            what = fetch.SHERPA_REQUIREMENT
     except OSError as e:
         raise SystemExit(str(e)) from e
     from voiceio import config
     from voiceio.core.decoders.catalog import PARAKEET, PARAKEET_V3
     name = PARAKEET if config.load().model.language == "en" else PARAKEET_V3
-    print(f"installed {wheel}\nnext: voiceio models use {name}")
+    print(f"installed {what}\nnext: voiceio models use {name} (or `use auto`)")

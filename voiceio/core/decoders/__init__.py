@@ -63,8 +63,7 @@ def _sherpa(model_cfg) -> Decoder:
     from voiceio.core.decoders import fetch
     from voiceio.core.decoders.sherpa import SherpaTransducer, default_threads, features
     if not features().installed:   # before a 500 MB download it couldn't use
-        raise DecodeError("sherpa-onnx not installed: pip install 'python-voiceio[sherpa]' "
-                          "(or the build with the Parakeet fixes: voiceio models sherpa)")
+        raise DecodeError("sherpa-onnx not installed: pip install 'python-voiceio[sherpa]'")
     name = model_cfg.name
     if name.startswith("sherpa:"):
         model_dir = Path(name.split(":", 1)[1]).expanduser()
