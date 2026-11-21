@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import re
 import threading
 
 import pytest
@@ -12,6 +13,7 @@ from voiceio import config, report, telemetry
 from voiceio.platform import Platform
 
 SHIPPED_LIVE = telemetry.ENDPOINT_LIVE   # before any fixture patches it
+REAL_URLOPEN = report._urlopen          # before conftest's network block replaces it
 DAY = 86400.0
 T0 = 1_800_000_000.0
 
@@ -204,9 +206,114 @@ def test_config_set_turns_it_off(capsys):
     assert telemetry.setting() is True
 
 
-def test_shipped_with_the_endpoint_off():
-    """Flip ENDPOINT_LIVE only once workers/ping is deployed."""
-    assert SHIPPED_LIVE is False
+def test_shipped_with_the_endpoint_live():
+    """workers/ping is deployed at ping.voiceio.dev (2026-11): the count is
+    asked for and, once a user says yes, sent."""
+    assert SHIPPED_LIVE is True
+    assert telemetry.PING_URL == "https://ping.voiceio.dev/ping"
+
+
+def _worker_source() -> str:
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[1] / "workers" / "ping" / "src" / "index.js").read_text()
+
+
+def _worker_rules() -> tuple[list[str], re.Pattern, int]:
+    src = _worker_source()
+    fields = json.loads(re.search(r"export const FIELDS = (\[.*?\]);", src).group(1))
+    value = re.search(r"export const VALUE = /(.*)/;", src).group(1)
+    max_body = int(re.search(r"export const MAX_BODY = (\d+);", src).group(1))
+    return fields, re.compile(value), max_body
+
+
+def _passes_worker(body: bytes) -> bool:
+    fields, value, max_body = _worker_rules()
+    if len(body) > max_body:
+        return False
+    obj = json.loads(body.decode("utf-8"))
+    return (sorted(obj) == sorted(fields)
+            and all(isinstance(obj[k], str) and value.fullmatch(obj[k]) for k in fields))
+
+
+def test_client_fields_match_the_worker():
+    fields, _, _ = _worker_rules()
+    assert list(telemetry.FIELDS) == fields
+
+
+@pytest.mark.parametrize("desktop,session,distro", [
+    ("gnome", "wayland", {"ID": "ubuntu", "VERSION_ID": "26.04"}),
+    ("", "", {}),
+    ("_KDE", "+x11", {"ID": ".hidden", "VERSION_ID": ""}),
+    ("x-" + "Ä" * 100, "wayland", {"ID": "-" * 60 + "arch", "VERSION_ID": "z" * 60}),
+    ("ubuntu:GNOME", "tty", {"ID": "fedora", "VERSION_ID": "41"}),
+])
+def test_what_is_sent_passes_the_workers_validation(monkeypatch, sent, desktop, session, distro):
+    """The exact bytes maybe_send posts satisfy workers/ping's parsePing: the
+    same five keys, each a value matching VALUE, under MAX_BODY."""
+    from voiceio import platform as plat
+    monkeypatch.setattr(plat, "detect", lambda: Platform(
+        os="linux", display_server=session, desktop=desktop))
+    monkeypatch.setattr(telemetry._py_platform, "freedesktop_os_release", lambda: distro)
+    bodies: list[bytes] = []
+    monkeypatch.setattr(report, "_urlopen", lambda url, *, timeout, json_body=None: (
+        bodies.append(json_body),
+        contextlib.nullcontext(type("R", (), {"read": lambda self: b""})()))[1])
+    _turn(True)
+    for name in ("small", "parakeet-tdt-0.6b-v2", "whispercpp:http://h:1", "sherpa:/x"):
+        (config.LOG_DIR / "ping.json").unlink(missing_ok=True)
+        assert telemetry.maybe_send(name, now=T0)
+    assert len(bodies) == 4
+    for body in bodies:
+        assert _passes_worker(body), body
+
+
+def test_posted_as_json(monkeypatch):
+    """The request itself: a POST to PING_URL with a JSON content type."""
+    seen = []
+
+    class Resp:
+        def read(self):
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(report, "_urlopen", REAL_URLOPEN)
+    monkeypatch.setattr(report.urllib.request, "urlopen",
+                        lambda req, timeout: seen.append((req, timeout)) or Resp())
+    _turn(True)
+    assert telemetry.maybe_send("small", now=T0)
+    (req, timeout), = seen
+    assert req.full_url == telemetry.PING_URL
+    assert req.get_method() == "POST"
+    assert req.get_header("Content-type") == "application/json"
+    assert timeout == telemetry.TIMEOUT_SECS
+    assert _passes_worker(req.data)
+
+
+def test_a_rejected_ping_is_silent_and_not_recorded(monkeypatch):
+    import urllib.error
+
+    def reject(*a, **k):
+        raise urllib.error.HTTPError(telemetry.PING_URL, 400, "Bad Request", {}, None)
+
+    monkeypatch.setattr(report, "_urlopen", reject)
+    _turn(True)
+    assert not telemetry.maybe_send("small", now=T0)
+    assert not (config.LOG_DIR / "ping.json").exists()
+
+
+def test_setup_ready_panel_names_the_count_only_when_on(monkeypatch, capsys):
+    from voiceio.setup import steps
+    monkeypatch.setattr(steps.shutil, "which", lambda _: "/usr/bin/voiceio")
+    steps._print_ready_panel("ctrl+alt+v", autostart=True)
+    assert "Zero telemetry." in capsys.readouterr().out
+    _turn(True)
+    steps._print_ready_panel("ctrl+alt+v", autostart=True)
+    assert "anonymous weekly count you allowed" in capsys.readouterr().out
 
 
 def test_before_the_endpoint_is_live_nothing_is_asked_or_sent(monkeypatch):

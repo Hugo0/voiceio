@@ -181,6 +181,7 @@ press it again to commit.
 ## 7. Where the user's data lives (say this out loud)
 
 Everything stays local: config in `~/.config/voiceio/`, history + retained audio
-+ logs in `~/.local/state/voiceio/`. Plain files the user owns. Zero telemetry.
++ logs in `~/.local/state/voiceio/`. Plain files the user owns. No telemetry unless the user said yes to the
+anonymous weekly count (`voiceio doctor` shows it; see `docs/data.md`).
 Two optional, off-by-default features send *text* (never audio) to a cloud LLM
 the user configures themselves.

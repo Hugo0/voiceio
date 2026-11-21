@@ -20,9 +20,10 @@ from voiceio import config
 
 log = logging.getLogger(__name__)
 
-# Flip to True once workers/ping is deployed on its Custom Domain ping.voiceio.dev
-# and GET https://ping.voiceio.dev/ping/stats answers. While False nothing is asked, nothing is sent, and doctor shows no line.
-ENDPOINT_LIVE = False
+# workers/ping is deployed on its Custom Domain ping.voiceio.dev. Set this back
+# to False to stop asking and sending (a kill switch): then nothing is asked,
+# nothing is sent, and doctor shows no line.
+ENDPOINT_LIVE = True
 PING_URL = "https://ping.voiceio.dev/ping"
 INTERVAL_SECS = 7 * 86400
 CHECK_EVERY_SECS = 86400
@@ -42,9 +43,10 @@ def _state_path():
 
 
 def _clean(value: str) -> str:
-    """Lowercase, only [a-z0-9._+ -], at most MAX_FIELD characters: what the
-    server accepts, and nothing that could carry more than a label."""
-    text = " ".join(_UNSAFE.sub("-", str(value).lower()).split()).strip(" -")
+    """Lowercase, only [a-z0-9._+ -], starting with a letter or digit, at most
+    MAX_FIELD characters: what the server accepts (workers/ping VALUE), and
+    nothing that could carry more than a label."""
+    text = " ".join(_UNSAFE.sub("-", str(value).lower()).split()).strip(" -").lstrip("._+ -")
     return text[:MAX_FIELD].strip() or "unknown"
 
 
@@ -79,7 +81,7 @@ def setting() -> bool | None:
 
 def status_line(model_name: str | None = None) -> str:
     """Doctor's line: whether the count is on, and the exact payload if it
-    is; '' while the endpoint isn't live."""
+    is; '' when ENDPOINT_LIVE is switched off."""
     if not ENDPOINT_LIVE:
         return ""
     try:

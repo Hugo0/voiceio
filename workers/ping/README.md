@@ -30,23 +30,26 @@ The totals are public at `/ping/stats`, so anyone can check the numbers.
 
 Needs `wrangler` logged in to the Cloudflare account that holds the
 **voiceio.dev zone**: the Worker gets its own Custom Domain, `ping.voiceio.dev`,
-which `wrangler deploy` creates (DNS record and certificate) only when the zone
+which `wrangler deploy --config wrangler.toml` creates (DNS record and certificate) only when the zone
 is on the same account. It shares no hostname with the site, which stays on
 the `voiceio-site` Worker (`wrangler.jsonc` at the repo root).
 
-From this directory:
+From this directory, and **always with `--config wrangler.toml`**: wrangler 4
+looks for a config upward and finds the repo-root `wrangler.jsonc` (the site
+Worker) first, so a plain `wrangler deploy` here redeploys the site, not this
+Worker.
 
 ```bash
 # 1. Create the database; copy the database_id it prints.
-wrangler d1 create voiceio-ping
+wrangler d1 create voiceio-ping --config wrangler.toml
 
 # 2. Put that id in wrangler.toml (database_id = "...").
 
 # 3. Create the table.
-wrangler d1 execute voiceio-ping --remote --file=schema.sql
+wrangler d1 execute voiceio-ping --remote --file=schema.sql --config wrangler.toml
 
 # 4. Deploy.
-wrangler deploy
+wrangler deploy --config wrangler.toml
 
 # 5. Check it: 204, then the count shows in the stats.
 curl -si -X POST https://ping.voiceio.dev/ping -H 'content-type: application/json' \
@@ -55,7 +58,7 @@ curl -s https://ping.voiceio.dev/ping/stats
 ```
 
 Step 5 adds one test row; remove it with
-`wrangler d1 execute voiceio-ping --remote --command "DELETE FROM counts WHERE v = '0.0.0'"`.
+`wrangler d1 execute voiceio-ping --remote --config wrangler.toml --command "DELETE FROM counts WHERE v = '0.0.0'"`.
 
 ## Test
 
