@@ -11,7 +11,7 @@ routes = [{ pattern = "ping.voiceio.dev", custom_domain = true }]
 [[d1_databases]]
 binding = "DB"
 database_name = "voiceio-ping"
-database_id = "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create"
+database_id = "cf41ea1b-5c3b-4b3d-ad51-a5c704f8bf5a"
 
 # No Workers Logs: nothing about a request is kept outside the counter.
 [observability]
