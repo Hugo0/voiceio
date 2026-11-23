@@ -116,6 +116,24 @@ def _download_model(model_name: str) -> bool:
             return False
 
 
+# The mic test's timing. Silence ends the test only once something has been
+# heard: an audio path with seconds of latency (remote desktop, IP-KVM,
+# Bluetooth) delivers nothing but silence at first, and stopping then said
+# "no speech" before the user's voice had even arrived.
+_STOP_SILENCE_SECS = 1.5    # after speech: this much quiet ends the test
+_WAIT_FOR_SPEECH_SECS = 12  # before speech: give up after this long
+_MAX_SPEECH_SECS = 10       # after speech starts: record at most this long
+
+
+def _test_should_stop(elapsed: float, heard_at: float | None, silent_secs: float) -> bool:
+    """Whether the mic test is done, `elapsed` seconds in. `heard_at` is when
+    speech was first heard (None: not yet); `silent_secs` is the quiet since."""
+    if heard_at is None:
+        return elapsed >= _WAIT_FOR_SPEECH_SECS
+    return (silent_secs >= _STOP_SILENCE_SECS
+            or elapsed - heard_at >= _MAX_SPEECH_SECS)
+
+
 def _streaming_test(model=None, language: str | None = None) -> str:
     """Record audio and stream transcription results in real-time. Returns transcribed text."""
     import numpy as np
@@ -127,7 +145,6 @@ def _streaming_test(model=None, language: str | None = None) -> str:
     chunk_secs = 0.5
     chunk_size = int(sample_rate * chunk_secs)
     silence_threshold = 0.01
-    max_duration = 10
 
     if model is None:
         with Spinner("Loading model...") as sp:
@@ -142,27 +159,31 @@ def _streaming_test(model=None, language: str | None = None) -> str:
     lang = language if language != "auto" else None
     lang_str = lang or "en"
 
-    print(f"\n  {YELLOW}Speak now!{RESET} (up to {max_duration}s, stops on 1.5s silence)")
+    print(f"\n  {YELLOW}Speak now!{RESET} (stops {_STOP_SILENCE_SECS:g}s after you finish, "
+          f"waits up to {_WAIT_FOR_SPEECH_SECS}s for your voice)")
     print(f"  {DIM}{'─' * 40}{RESET}")
     sys.stdout.write(f"  {BOLD}")
     sys.stdout.flush()
 
     audio_chunks: list[np.ndarray] = []
-    silent_time = 0.0
+    silent_time = 0.0       # seconds of audio below the threshold, in a row
+    heard_sound = False     # a chunk above the threshold arrived
+    heard_at: float | None = None
     last_text = ""
     last_text_len = 0  # characters printed on screen
     recording = True
 
     def callback(indata, frames, time_info, status):
-        nonlocal silent_time, recording
+        nonlocal silent_time, heard_sound
         if not recording:
             return
         audio_chunks.append(indata.copy())
         rms = np.sqrt(np.mean(indata ** 2))
         if rms < silence_threshold:
-            silent_time += chunk_secs
+            silent_time += frames / sample_rate
         else:
             silent_time = 0.0
+            heard_sound = True
 
     stream = sd.InputStream(
         samplerate=sample_rate, channels=1, dtype="float32",
@@ -170,18 +191,16 @@ def _streaming_test(model=None, language: str | None = None) -> str:
     )
     stream.start()
     start_time = time.time()
+    elapsed = 0.0
 
     try:
         while recording:
             time.sleep(0.8)
             elapsed = time.time() - start_time
 
-            if elapsed > max_duration:
-                recording = False
-                break
-
-            # Stop on sustained silence (but only after we've heard something)
-            if silent_time >= 1.5 and len(audio_chunks) > 3:
+            if heard_at is None and heard_sound:
+                heard_at = elapsed
+            if _test_should_stop(elapsed, heard_at, silent_time):
                 recording = False
                 break
 
@@ -199,6 +218,13 @@ def _streaming_test(model=None, language: str | None = None) -> str:
             text = cleanup(text, lang_str)
 
             if text and text != last_text:
+                # New words are speech too, even from a mic too quiet to
+                # cross the threshold: for that mic they are the only sign
+                # of speech, so they also hold off the silence stop.
+                if heard_at is None:
+                    heard_at = time.time() - start_time
+                if not heard_sound:
+                    silent_time = 0.0
                 # Clear previous text and rewrite
                 if last_text_len > 0:
                     sys.stdout.write("\b" * last_text_len + " " * last_text_len + "\b" * last_text_len)
@@ -209,6 +235,7 @@ def _streaming_test(model=None, language: str | None = None) -> str:
     except KeyboardInterrupt:
         pass
     finally:
+        recording = False
         stream.stop()
         stream.close()
 
@@ -231,9 +258,21 @@ def _streaming_test(model=None, language: str | None = None) -> str:
     if last_text:
         print(f"  {GREEN}✓{RESET} Transcribed successfully!")
     else:
-        print(f"  {YELLOW}⚠{RESET}  No speech detected. Check your microphone.")
+        print(f"  {YELLOW}⚠{RESET}  {_no_speech_message(elapsed, bool(audio_chunks), heard_sound)}")
 
     return last_text
+
+
+def _no_speech_message(elapsed: float, got_audio: bool, heard_sound: bool) -> str:
+    if not got_audio:
+        return (f"The microphone delivered no audio in {elapsed:.0f}s. "
+                "Check the input device in your sound settings.")
+    if heard_sound:
+        return ("Heard sound, but no words were recognized. "
+                "Speak closer to the microphone or raise its input level.")
+    return (f"No speech arrived within {elapsed:.0f}s. Check your microphone. "
+            "If your audio goes through a remote desktop, IP-KVM or Bluetooth "
+            "link with a delay, keep talking until your words appear.")
 
 
 def run_test() -> None:
