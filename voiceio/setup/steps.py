@@ -387,7 +387,11 @@ def _select_output_backend(state: SetupState) -> None:
 
 def _step_tts(state: SetupState) -> None:
     _print_step(5, _TOTAL_STEPS, "Text-to-speech")
-    print(f"  {DIM}Select text and press ctrl+alt+s to hear it spoken.{RESET}")
+    if state.backend == "socket":
+        print(f"  {DIM}Select text and run 'voiceio speak' (bind it to a shortcut)"
+              f" to hear it spoken.{RESET}")
+    else:
+        print(f"  {DIM}Select text and press ctrl+alt+s to hear it spoken.{RESET}")
     print(f"  {DIM}Engines: piper (offline), edge-tts (cloud), espeak-ng (system).{RESET}")
     if not _tts_engine_installed():
         print(f"  {DIM}None is installed yet: 'Enabled' stays silent until you install one,"

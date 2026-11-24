@@ -391,6 +391,7 @@ def test_piper_skips_download_when_model_present(tmp_path):
     from voiceio.tts import piper_engine
 
     (tmp_path / "en_US-lessac-medium.onnx").write_bytes(b"onnx")
+    (tmp_path / "en_US-lessac-medium.onnx.json").write_text("{}")
     modules = _fake_piper()
     engine = piper_engine.PiperEngine()
 
@@ -399,6 +400,23 @@ def test_piper_skips_download_when_model_present(tmp_path):
         engine._ensure_voice()
 
     modules["piper.download_voices"].download_voice.assert_not_called()
+
+
+def test_piper_redownloads_a_voice_missing_its_config(tmp_path):
+    """An interrupted download leaves the .onnx without its .onnx.json:
+    loading that raised FileNotFoundError on every start."""
+    from voiceio.tts import piper_engine
+
+    (tmp_path / "en_US-lessac-medium.onnx").write_bytes(b"onnx")
+    modules = _fake_piper()
+    engine = piper_engine.PiperEngine()
+
+    with patch.dict("sys.modules", modules), \
+            patch.object(piper_engine, "_models_dir", return_value=tmp_path):
+        engine._ensure_voice()
+
+    modules["piper.download_voices"].download_voice.assert_called_once_with(
+        "en_US-lessac-medium", tmp_path)
 
 
 def test_piper_never_writes_to_the_cwd(tmp_path):

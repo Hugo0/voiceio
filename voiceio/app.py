@@ -199,8 +199,12 @@ class VoiceIO:
             self._tts_engine = tts_select(cfg.tts)
             if self._tts_engine:
                 self._tts_player = TTSPlayer()
-                # Create a second hotkey backend for TTS
-                self._tts_hotkey = hotkey_chain.select(platform, cfg.hotkey.backend)
+                # A key backend of its own for the TTS key. Never a second
+                # socket listener: it would steal the path from dictation.
+                # On the socket path, `voiceio speak` is the TTS key.
+                tts_hotkey = hotkey_chain.select(platform, cfg.hotkey.backend)
+                if tts_hotkey.name != "socket":
+                    self._tts_hotkey = tts_hotkey
                 log.info("TTS: engine=%s, hotkey=%s", self._tts_engine.name, cfg.tts.hotkey)
             elif cfg.tts.engine == "auto":
                 # The default config: read aloud once an engine is installed.
@@ -1004,6 +1008,8 @@ class VoiceIO:
         control.handle("release", self.on_hotkey_release)
         control.handle("cancel", self.cancel)
         control.handle("paste-last", self.paste_last)
+        if self._tts_engine is not None:
+            control.handle("speak", self.on_tts_hotkey)
         if hasattr(control, "handle_payload"):
             control.handle_payload("say", self.on_say)
         if self._cancel_hotkey is not None:

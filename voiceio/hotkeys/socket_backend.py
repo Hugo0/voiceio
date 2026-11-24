@@ -29,14 +29,17 @@ class SocketHotkey:
     """Listens on a Unix DGRAM socket (or UDP on Windows) for commands.
 
     "toggle" fires on_trigger (it is the hotkey: debounced against evdev
-    seeing the same keypress); handle() adds others ("press", "release"...).
+    seeing the same keypress); handle() adds others ("press", "release",
+    "speak"...). One listener per daemon owns the socket path: every
+    command routes through it.
     A DE shortcut runs a command on key down only, so this backend reports
     no release unless the compositor binds one (`voiceio toggle --release`).
     """
 
     name = "socket"
-    # Commands that may be the same keypress also seen by evdev/pynput.
-    _DEBOUNCED = frozenset({"toggle", "press"})
+    # Debounced commands -> debounce group. "toggle" and "press" may be the
+    # same keypress (also seen by evdev/pynput); "speak" is its own key.
+    _DEBOUNCED = {"toggle": "hotkey", "press": "hotkey", "speak": "speak"}
 
     def __init__(self) -> None:
         self._handlers: dict[str, Callable[[], None]] = {}
@@ -63,7 +66,7 @@ class SocketHotkey:
               on_release: Callable[[], None] | None = None) -> None:
         self._handlers["toggle"] = on_trigger
         self._running = True
-        self._last_trigger: float = 0
+        self._last_trigger: dict[str, float] = {}
 
         if _IS_WINDOWS:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -91,11 +94,12 @@ class SocketHotkey:
                 fn = self._handlers.get(command)
                 if fn is None:
                     continue
-                if command in self._DEBOUNCED:
+                group = self._DEBOUNCED.get(command)
+                if group is not None:
                     now = time.monotonic()
-                    if now - self._last_trigger < DEBOUNCE_SECS:
+                    if now - self._last_trigger.get(group, -DEBOUNCE_SECS) < DEBOUNCE_SECS:
                         continue
-                    self._last_trigger = now
+                    self._last_trigger[group] = now
                 fn()
             except socket.timeout:
                 continue

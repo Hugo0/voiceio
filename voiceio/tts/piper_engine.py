@@ -61,8 +61,11 @@ class PiperEngine:
         models_dir = _models_dir()
         models_dir.mkdir(parents=True, exist_ok=True)
         model_path = models_dir / f"{self._model_name}.onnx"
+        config_path = Path(f"{model_path}.json")
 
-        if not model_path.exists():
+        # Both files: an interrupted download leaves the .onnx without its
+        # .json, and loading that raises FileNotFoundError on every start.
+        if not (model_path.exists() and config_path.exists()):
             log.info("TTS: downloading piper voice '%s'...", self._model_name)
             download_voice(self._model_name, models_dir)
 
@@ -72,7 +75,7 @@ class PiperEngine:
         # ours to write into.
         self._voice = PiperVoice.load(
             model_path,
-            config_path=f"{model_path}.json",
+            config_path=config_path,
             download_dir=models_dir,
         )
         self._sample_rate = self._voice.config.sample_rate

@@ -43,6 +43,9 @@ def main() -> None:
     edge.add_argument("--release", dest="edge", action="store_const", const="release",
                       help="key up: ends a held push-to-talk recording")
     p_toggle.set_defaults(func=lambda a: _send(a.edge or "toggle"))
+    sub.add_parser("speak", help="Read the selected text aloud, or stop reading "
+                   "(bind it to a shortcut; same as the TTS hotkey)"
+                   ).set_defaults(func=lambda a: _send("speak"))
     sub.add_parser("cancel", help="Abandon the current dictation: nothing is typed or kept"
                    ).set_defaults(func=lambda a: _send("cancel"))
 
