@@ -14,6 +14,9 @@ os.environ.setdefault("XDG_CACHE_HOME", str(_REAL_HOME / ".cache"))
 os.environ.setdefault("HF_HOME", str(Path(os.environ["XDG_CACHE_HOME"]) / "huggingface"))
 _SANDBOX = Path(tempfile.mkdtemp(prefix="voiceio-tests-"))
 os.environ["HOME"] = str(_SANDBOX)
+# Run under sudo, the CLI would refuse every user-scoped command.
+for _var in ("SUDO_USER", "DOAS_USER"):
+    os.environ.pop(_var, None)
 # `voiceio learn` re-execs itself into an idle systemd scope; never from tests.
 os.environ["VOICEIO_IDLE_SCOPE"] = "1"
 for _var, _sub in (

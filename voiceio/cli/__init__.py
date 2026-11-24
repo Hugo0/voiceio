@@ -84,6 +84,8 @@ def main() -> None:
     uninstall.register(sub)
 
     args = parser.parse_args()
+    if args.command in _USER_SCOPED:
+        _refuse_sudo(sys.argv[1:])
     if args.command is None:
         # A pre-1.0 systemd unit runs bare `voiceio`; keep it working until
         # `voiceio service install` (or doctor --fix) rewrites it.
@@ -92,6 +94,33 @@ def main() -> None:
         parser.print_help()
         return
     args.func(args)
+
+
+# Commands that write the user's config, data, IBus files or systemd user
+# units, or run the daemon. The rest only talk to the daemon or read.
+_USER_SCOPED = frozenset({
+    "run", "setup", "doctor", "service", "uninstall", "demo", "learn", "models",
+    "vocab", "corrections", "config",
+})
+
+
+def _refuse_sudo(argv: list[str]) -> None:
+    """Exit when run through sudo/doas; warn when logged in as root.
+
+    Privileged steps (doctor --fix, setup) elevate by themselves, so sudo is
+    never needed and would set up root's session instead of the user's.
+    """
+    from voiceio import platform as plat
+    if user := plat.sudo_invoker():
+        import shlex
+        cmd = shlex.join(["voiceio", *argv])
+        raise SystemExit(
+            "Don't run voiceio with sudo: it would configure root's session instead of "
+            f"yours. Run `{cmd}` as {user}; it asks for your password itself when it "
+            "needs to install packages.")
+    if plat._is_root():
+        print("voiceio: running as root, so this uses root's own config and session.",
+              file=sys.stderr)
 
 
 def _cmd_run(args: argparse.Namespace) -> None:

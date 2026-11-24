@@ -86,7 +86,8 @@ jobs:
 
           Debian / Ubuntu (22.04+): download \`voiceio_*.deb\` below (attached a
           few minutes after the release), then
-          \`sudo apt install ./voiceio_*.deb && voiceio setup\`.
+          \`sudo apt install ./voiceio_*.deb && voiceio setup\`. To upgrade, install
+          the newer .deb the same way.
 
           See the README for other distros and NixOS. Coming from 0.9.x? Read
           [UPGRADING.md](https://github.com/Hugo0/voiceio/blob/${VERSION}/UPGRADING.md).

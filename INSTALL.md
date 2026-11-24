@@ -16,7 +16,11 @@ Windows/macOS are best-effort and out of scope here. NixOS: use the flake (see R
 ## 1a. Shortcut: distro package (Debian/Ubuntu, Arch)
 
 A package installs voiceio and its system dependencies in one step; skip
-sections 1 and 2 and go to 3. Upgrade it with the package manager, not pipx.
+sections 1 and 2 and go to 3. Upgrade it by installing the newer .deb the
+same way (there is no apt repository, so `apt upgrade` won't see it), not
+with pipx. Run every `voiceio` command as the user, never with `sudo`:
+voiceio refuses, because it would set up root's session; `doctor --fix`
+asks for the password itself.
 
 ```bash
 # Debian / Ubuntu 22.04+ (amd64): the .deb from the latest GitHub release

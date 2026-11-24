@@ -32,7 +32,7 @@ yay -S voiceio                        # Arch, once it's on the AUR
 voiceio setup                         # as your user, as with pipx
 ```
 
-`voiceio setup` writes the same per-user files as a pipx install (config, the IBus component, the systemd user service); the service runs `/usr/lib/voiceio/bin/voiceio`, a path that stays put across upgrades. After an upgrade, `systemctl --user restart voiceio` picks up the new version. To remove: `voiceio uninstall`, then `sudo apt remove voiceio` or `sudo pacman -R voiceio`. GPU (CUDA) decoding isn't set up by the packages; use pipx for that. How they are built: [packaging/README.md](../packaging/README.md).
+`voiceio setup` writes the same per-user files as a pipx install (config, the IBus component, the systemd user service); the service runs `/usr/lib/voiceio/bin/voiceio`, a path that stays put across upgrades. To upgrade the `.deb`, download the newer one from the [latest release](https://github.com/Hugo0/voiceio/releases/latest) and `sudo apt install ./voiceio_*.deb` again (there is no apt repository, so `apt upgrade` won't find it). After an upgrade, `systemctl --user restart voiceio` picks up the new version. Run `voiceio` commands as your user, never with `sudo`: `voiceio doctor --fix` asks for your password when it needs to. To remove: `voiceio uninstall`, then `sudo apt remove voiceio` or `sudo pacman -R voiceio`. GPU (CUDA) decoding isn't set up by the packages; use pipx for that. How they are built: [packaging/README.md](../packaging/README.md).
 
 ### NixOS
 

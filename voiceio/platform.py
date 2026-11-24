@@ -291,6 +291,20 @@ def _is_root() -> bool:
     return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
+def sudo_invoker() -> str | None:
+    """The user who ran us as root through sudo or doas, else None.
+
+    voiceio's user-scoped commands would then set up root's session (its
+    home, its systemd user manager, no Wayland or DBus) instead of theirs.
+    """
+    if not _is_root():
+        return None
+    for var in ("SUDO_USER", "DOAS_USER"):
+        if (user := os.environ.get(var, "")) and user != "root":
+            return user
+    return None
+
+
 # Flags that make a package manager prompt; dropped instead (emerge has no
 # subcommand to put a yes-flag after, and without --ask it never asks).
 _ASK_FLAGS: dict[str, tuple[str, ...]] = {"emerge": ("--ask", "-a")}
