@@ -61,6 +61,37 @@ def test_persistent_installs_are_not_ephemeral(monkeypatch, tmp_path):
         assert not install_env.running_ephemeral()
 
 
+def test_a_tagged_venv_created_by_uv_is_not_ephemeral(monkeypatch, tmp_path):
+    # uv writes CACHEDIR.TAG into every venv it creates (`uv tool install`,
+    # `uv sync`), so a tag on a venv root is not a cache root (issue #14).
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "cache"))
+    for env in (tmp_path / ".local/share/uv/tools/python-voiceio",
+                tmp_path / "project" / ".venv"):
+        (env / "bin").mkdir(parents=True)
+        (env / "CACHEDIR.TAG").write_text(TAG)
+        (env / "pyvenv.cfg").write_text("home = /usr/bin\nuv = 0.13.9\n")
+        bin_path = env / "bin" / "voiceio"
+        bin_path.write_text("")
+        assert not install_env.in_uv_cache(bin_path)
+        monkeypatch.setattr(sys, "prefix", str(env))
+        assert not install_env.running_ephemeral()
+        assert not service._refuse_ephemeral(str(bin_path))
+
+
+def test_a_venv_inside_another_cache_dir_is_still_ephemeral(monkeypatch, tmp_path):
+    # `uvx --cache-dir DIR`: the env under DIR is tagged and a venv, but DIR
+    # itself is the tagged cache root uv prunes.
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "default"))
+    cache = tmp_path / "custom"
+    env = cache / "archive-v0" / "abc123"
+    (env / "bin").mkdir(parents=True)
+    (cache / "CACHEDIR.TAG").write_text(TAG)
+    (env / "CACHEDIR.TAG").write_text(TAG)
+    (env / "pyvenv.cfg").write_text("home = /usr/bin\nuv = 0.13.9\n")
+    (env / "bin" / "voiceio").write_text("")
+    assert install_env.in_uv_cache(env / "bin" / "voiceio")
+
+
 def test_service_install_refuses_a_uv_cache_binary(monkeypatch, tmp_path, uv_cache, capsys):
     monkeypatch.setattr(sys, "prefix", str(uv_cache))
     monkeypatch.setattr(service, "has_systemd", lambda: True)

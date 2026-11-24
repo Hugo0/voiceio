@@ -21,6 +21,7 @@ PIPX_INSTALL = "pipx install 'python-voiceio[desktop]'"
 # deleted at any time. uv writes it at the root of every cache it uses,
 # including the temporary one of `uvx --no-cache`.
 CACHEDIR_TAG = "CACHEDIR.TAG"
+PYVENV_CFG = "pyvenv.cfg"
 _CACHEDIR_SIGNATURE = "Signature: 8a477f597d28d172789f06886806bc55"
 
 
@@ -40,6 +41,13 @@ def uv_cache_dir() -> Path:
 
 
 def _is_cachedir(d: Path) -> bool:
+    # uv tags venv roots too (every `uv tool install` env, every `uv venv` and
+    # `uv sync` .venv), so a tag alone does not mean "uv prunes this". Only
+    # cache roots get pruned, and a cache root is never itself a venv. A uvx
+    # environment is tagged and has a pyvenv.cfg, but it lives under the
+    # tagged cache root, which the parent scan still finds.
+    if (d / PYVENV_CFG).exists():
+        return False
     try:
         with open(d / CACHEDIR_TAG, encoding="utf-8", errors="replace") as f:
             return f.read(len(_CACHEDIR_SIGNATURE)) == _CACHEDIR_SIGNATURE
@@ -51,8 +59,9 @@ def in_uv_cache(path: str | os.PathLike) -> bool:
     """True when ``path`` lies inside uv's cache (or any tagged cache dir).
 
     Two checks, either suffices: the path is under uv_cache_dir(), or one of
-    its parent directories carries a CACHEDIR.TAG (catches `--cache-dir`,
-    `--no-cache` and a UV_CACHE_DIR that differed when the file was written).
+    its parent directories carries a CACHEDIR.TAG and is not itself a venv
+    (catches `--cache-dir`, `--no-cache` and a UV_CACHE_DIR that differed when
+    the file was written; uv also tags the venvs it creates, see _is_cachedir).
     uv sets no variable that marks an ephemeral run: `$UV` is also set by
     `uv run` in a project and inherited by every child, and pyvenv.cfg's
     `uv = ...` line is also in `uv tool install` and `uv venv` environments.
