@@ -89,7 +89,10 @@ def _load_sounds() -> None:
 def open_cue_stream() -> bool:
     """Open and start the cue stream unless it is open. True when open."""
     global _stream
-    with _stream_lock:
+    from voiceio.audio_devices import stream_in_use
+    # Gate first, then the lock: audio_devices.refresh() takes the lock (to
+    # close this stream) while it holds the gate.
+    with stream_in_use(), _stream_lock:
         if _stream is not None:
             return True
         _load_sounds()
@@ -107,20 +110,22 @@ def open_cue_stream() -> bool:
         return True
 
 
-def close_cue_stream() -> None:
-    """Close the cue stream (idle policy). A cue still playing finishes first:
-    the lock waits for its write, and stop() drains the buffer."""
+def close_cue_stream() -> bool:
+    """Close the cue stream (idle policy, PortAudio re-init). A cue still
+    playing finishes first: the lock waits for its write, and stop() drains
+    the buffer. True when a stream was open."""
     global _stream
     with _stream_lock:
         stream, _stream = _stream, None
         if stream is None:
-            return
+            return False
         try:
             stream.stop()
             stream.close()
         except Exception:
             log.debug("Closing the cue stream failed", exc_info=True)
     log.debug("Cue stream closed")
+    return True
 
 
 def cue_stream_open() -> bool:

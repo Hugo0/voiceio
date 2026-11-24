@@ -113,6 +113,11 @@ def _no_real_audio(monkeypatch, tmp_path):
     without audio devices (CI); tests that need a stream fake it. Mains power,
     so the idle audio policy is deterministic on a laptop on battery."""
     monkeypatch.setattr("voiceio.power.POWER_SUPPLY", tmp_path / "no-power-supply")
+    # A stream reopen re-initialises PortAudio: never the real one in tests,
+    # and no test inherits another's re-init backoff.
+    from voiceio import audio_devices
+    monkeypatch.setattr(audio_devices, "_reinitialize", lambda: None)
+    monkeypatch.setattr(audio_devices, "_last_refresh", float("-inf"))
     try:
         import sounddevice as sd
     except Exception:  # not installed, or PortAudioError: no sound server

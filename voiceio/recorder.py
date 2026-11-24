@@ -160,15 +160,31 @@ class AudioRecorder:
             return
         # A heartbeat left over from before a close would read as a stale stream.
         self._last_callback_time = 0.0
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=1,
-            dtype="float32",
-            device=self.device,
-            callback=self._callback,
-        )
-        self._stream.start()
+        from voiceio.audio_devices import stream_in_use
+        with stream_in_use():
+            # device=None is PortAudio's default input, a name is matched
+            # against its device list: both resolved here, at every open.
+            stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=1,
+                dtype="float32",
+                device=self.device,
+                callback=self._callback,
+            )
+            self._stream = stream
+            stream.start()
+            log.info("Mic open: %s", self._describe_device(stream))
         log.debug("Audio stream opened (prebuffer=%.1fs)", self.prebuffer_secs)
+
+    def _describe_device(self, stream: object) -> str:
+        """Which device an open stream captures from, for the log."""
+        configured = "default" if self.device is None else repr(self.device)
+        index = getattr(stream, "device", None)
+        try:
+            name = sd.query_devices(index)["name"]
+        except Exception:
+            name = "?"
+        return f"{name!r} (index {index}, audio.device = {configured})"
 
     # Maximum seconds between callbacks before we consider the stream dead.
     # PortAudio typically fires every ~50-100ms; 5s covers long system sleeps.
@@ -236,9 +252,16 @@ class AudioRecorder:
         return float(np.max(np.abs(buf))) > 1e-4
 
     def reopen_stream(self) -> None:
-        """Close and reopen the audio stream (recovery from audio errors)."""
+        """Close and reopen the audio stream (recovery from audio errors).
+        PortAudio is re-initialised in between (rate-limited), so the reopen
+        lands on the current default input, or the configured name's current
+        index, rather than the device list from daemon start."""
         log.info("Reopening audio stream")
-        self.close_stream()
+        self._reopen()
+
+    def _reopen(self) -> None:
+        from voiceio.audio_devices import refresh
+        refresh(close=self.close_stream)
         self._last_callback_time = 0.0
         self.open_stream()
 
@@ -344,9 +367,7 @@ class AudioRecorder:
         """Reopen a stream that died mid-recording; the recording goes on in
         the new stream. Raises if the device can't be opened."""
         try:
-            self.close_stream()
-            self._last_callback_time = 0.0
-            self.open_stream()
+            self._reopen()
         finally:
             self._silent_signal_secs = 0.0
             self._reviving = False

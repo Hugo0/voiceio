@@ -32,23 +32,26 @@ class TTSPlayer:
         audio = audio.astype(np.int16).reshape(-1, 1)
 
         try:
+            from voiceio.audio_devices import stream_in_use
             from voiceio.feedback import open_output_stream
 
-            stream = open_output_stream(samplerate=sample_rate)
-            if stream is None:
-                log.warning("TTS: no audio output device")
-                return
+            # Open to close: a PortAudio re-init meanwhile would free the stream.
+            with stream_in_use():
+                stream = open_output_stream(samplerate=sample_rate)
+                if stream is None:
+                    log.warning("TTS: no audio output device")
+                    return
 
-            stream.start()
-            try:
-                offset = 0
-                while offset < len(audio) and not self._cancel.is_set():
-                    end = min(offset + _CHUNK_SIZE, len(audio))
-                    stream.write(audio[offset:end])
-                    offset = end
-            finally:
-                stream.stop()
-                stream.close()
+                stream.start()
+                try:
+                    offset = 0
+                    while offset < len(audio) and not self._cancel.is_set():
+                        end = min(offset + _CHUNK_SIZE, len(audio))
+                        stream.write(audio[offset:end])
+                        offset = end
+                finally:
+                    stream.stop()
+                    stream.close()
         except Exception:
             log.debug("TTS playback error", exc_info=True)
         finally:
