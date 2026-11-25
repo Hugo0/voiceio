@@ -8,7 +8,7 @@ import pytest
 from voiceio.core.decoders import catalog, fetch, sherpa
 from voiceio.core.decoders.sherpa import SherpaFeatures
 from voiceio.setup import noninteractive, speech, steps
-from tests.test_setup import _patch_noninteractive, cfg_paths  # noqa: F401 — fixture
+from test_setup import _patch_noninteractive, cfg_paths  # noqa: F401 — fixture
 
 # conftest replaces `sherpa.features` in every test; keep the real one.
 REAL_FEATURES = sherpa.features
