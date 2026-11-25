@@ -203,29 +203,74 @@ def install_patched_sherpa(base_url: str = SHERPA_WHEELS) -> str:
         path.write_bytes(data)
         # Same version number as upstream's release: force the swap.
         _pip_install([str(path)], reinstall=True)
+    _refresh_sherpa()
     return wheel
 
 
-def install_sherpa() -> None:
+def install_sherpa(*, quiet: bool = False) -> None:
     """Install or upgrade sherpa-onnx from PyPI to a release with the
-    Parakeet fixes. Raises OSError with what went wrong."""
-    _pip_install(["--upgrade", SHERPA_REQUIREMENT])
+    Parakeet fixes. Raises OSError with what went wrong. `quiet`: keep pip's
+    output off the terminal (the setup wizard shows a spinner instead)."""
+    _pip_install(["--upgrade", SHERPA_REQUIREMENT], quiet=quiet)
+    _refresh_sherpa()
 
 
-def _pip_install(args: list[str], *, reinstall: bool = False) -> None:
-    """pip (or uv) install into this Python; OSError on failure."""
+def _refresh_sherpa() -> None:
+    """Let this process see a sherpa-onnx installed after it started: the
+    import system's directory caches and the cached feature detection."""
+    import importlib
+
+    from voiceio.core.decoders.sherpa import features
+    importlib.invalidate_caches()
+    features.cache_clear()
+
+
+# Platforms PyPI has sherpa-onnx wheels for that voiceio offers to install on.
+_SHERPA_MACHINES = frozenset({"x86_64", "amd64", "aarch64", "arm64"})
+
+
+def can_install_sherpa() -> bool:
+    """Whether `install_sherpa` can work here: a pip or uv to run, a wheel for
+    this CPU, and an environment this user may write to that will still be
+    there tomorrow. Not a distro package (/usr/lib/voiceio is root's), not the
+    Nix store (read-only), not a uvx environment (uv may delete it)."""
+    import platform
+    import sys
+    import sysconfig
+
+    from voiceio.install_env import running_ephemeral
+    from voiceio.service import packaged_by
+    if packaged_by() or sys.prefix.startswith("/nix/store/") or running_ephemeral():
+        return False
+    if platform.machine().lower() not in _SHERPA_MACHINES or _pip_command() is None:
+        return False
+    paths = sysconfig.get_paths()
+    return all(os.access(paths[k], os.W_OK) for k in ("purelib", "platlib"))
+
+
+def _pip_command(reinstall: bool = False) -> list[str] | None:
+    """The pip (or uv) command that installs into this Python, or None."""
     import importlib.util
     import shutil as _shutil
-    import subprocess
     import sys
     if importlib.util.find_spec("pip") is not None:
-        cmd = [sys.executable, "-m", "pip", "install"] + \
-            (["--force-reinstall", "--no-deps"] if reinstall else []) + args
-    elif uv := _shutil.which("uv"):
-        cmd = [uv, "pip", "install", "--python", sys.executable] + \
-            (["--reinstall", "--no-deps"] if reinstall else []) + args
-    else:
+        return [sys.executable, "-m", "pip", "install"] + \
+            (["--force-reinstall", "--no-deps"] if reinstall else [])
+    if uv := _shutil.which("uv"):
+        return [uv, "pip", "install", "--python", sys.executable] + \
+            (["--reinstall", "--no-deps"] if reinstall else [])
+    return None
+
+
+def _pip_install(args: list[str], *, reinstall: bool = False, quiet: bool = False) -> None:
+    """pip (or uv) install into this Python; OSError on failure."""
+    import subprocess
+    base = _pip_command(reinstall)
+    if base is None:
         raise OSError(f"neither pip nor uv is available to install {args[-1]}")
-    rc = subprocess.run(cmd).returncode
-    if rc != 0:
-        raise OSError(f"installing {args[-1]} failed (exit {rc}): {' '.join(cmd)}")
+    cmd = base + args
+    res = subprocess.run(cmd, capture_output=quiet, text=quiet)
+    if res.returncode != 0:
+        tail = (res.stderr or "").strip().splitlines()[-1:] if quiet else []
+        raise OSError(f"installing {args[-1]} failed (exit {res.returncode})"
+                      + (f": {tail[0]}" if tail else f": {' '.join(cmd)}"))

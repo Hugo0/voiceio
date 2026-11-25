@@ -302,11 +302,15 @@ def _step_model(state: SetupState) -> None:
     print(f"  {DIM}Larger models are more accurate but slower and use more RAM.{RESET}")
     _current_note(state.is_rerun, cur.model.name if cur else "")
     print()
-    models = model_choices(state.language)
+    models = model_choices(state.language, offer_install=True)
     model_default = _index_of(models, cur.model.name, default_choice(models)) if cur \
         else default_choice(models)
     model_idx = _ask_choice(models, default=model_default)
     state.model_name = models[model_idx][0]
+    if models[model_idx] == speech.PARAKEET_INSTALL_CHOICE and not speech._install_sherpa():
+        models = model_choices(state.language)
+        model_idx = _index_of(models, "small", default_choice(models))
+        state.model_name = models[model_idx][0]
 
     # Download immediately
     if not _download_model(state.model_name):

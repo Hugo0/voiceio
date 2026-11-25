@@ -21,20 +21,64 @@ MODELS = [
 # English, with a sherpa-onnx that has the NeMo TDT beam-search fix.
 PARAKEET_CHOICE = ("parakeet-tdt-0.6b-v2", "480 MB",
                    "Fastest, best on names; English only (recommended)")
+# The same model where the wizard can install that sherpa-onnx first
+# (`voiceio models sherpa`'s installer). ~16 MB: sherpa-onnx + sherpa-onnx-core
+# wheels for Linux x86_64 (2.0.3 on PyPI).
+PARAKEET_INSTALL_CHOICE = (PARAKEET_CHOICE[0], PARAKEET_CHOICE[1],
+                           "Fastest, best on names; English only "
+                           "(recommended, installs sherpa-onnx ~16 MB)")
 
 
-def model_choices(language: str = "en") -> list[tuple[str, str, str]]:
-    """The wizard's model menu, the default decoder first when it's Parakeet."""
+def model_choices(language: str = "en", *, offer_install: bool = False,
+                  ) -> list[tuple[str, str, str]]:
+    """The wizard's model menu, the default decoder first when it's Parakeet.
+
+    `offer_install`: for English without a usable sherpa-onnx, still put
+    Parakeet first, labelled as installing sherpa-onnx, where that install can
+    work (see `fetch.can_install_sherpa`). Only an interactive wizard asks for
+    it; the non-interactive setup never installs packages by itself.
+    """
     from voiceio.core.decoders.catalog import default_model
-    if default_model(language) != PARAKEET_CHOICE[0]:
+    if default_model(language) == PARAKEET_CHOICE[0]:
+        first = PARAKEET_CHOICE
+    elif offer_install and language == "en" and _can_offer_sherpa_install():
+        first = PARAKEET_INSTALL_CHOICE
+    else:
         return MODELS
-    return [PARAKEET_CHOICE] + [
+    return [first] + [
         (n, size, desc.replace(" (recommended)", "")) for n, size, desc in MODELS]
+
+
+def _can_offer_sherpa_install() -> bool:
+    """No sherpa-onnx at all, and an environment the installer can write to.
+    An older sherpa-onnx already imported here can't be swapped for the new
+    one inside this process: `voiceio models sherpa` upgrades that."""
+    from voiceio.core.decoders.fetch import can_install_sherpa
+    from voiceio.core.decoders.sherpa import features
+    return not features().installed and can_install_sherpa()
 
 
 def default_choice(choices: list[tuple[str, str, str]]) -> int:
     from voiceio.setup.ui import _index_of
-    return 0 if choices[0] == PARAKEET_CHOICE else _index_of(choices, "small", 2)
+    return 0 if choices[0][0] == PARAKEET_CHOICE[0] else _index_of(choices, "small", 2)
+
+
+def _install_sherpa() -> bool:
+    """Install sherpa-onnx for Parakeet, with a spinner; True once Parakeet is
+    the default here. On any failure: one line, False (caller falls back)."""
+    from voiceio.core.decoders import fetch
+    from voiceio.core.decoders.catalog import default_model
+    with Spinner(f"Installing {fetch.SHERPA_REQUIREMENT}...") as sp:
+        try:
+            fetch.install_sherpa(quiet=True)
+        except OSError as e:
+            sp.warn(f"Couldn't install sherpa-onnx ({e}); using Whisper small instead.")
+            return False
+        if default_model("en") != PARAKEET_CHOICE[0]:
+            sp.warn("sherpa-onnx installed but can't load here; using Whisper small instead.")
+            return False
+        sp.ok("sherpa-onnx installed")
+    return True
 
 
 class _SherpaModel:
