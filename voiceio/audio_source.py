@@ -25,7 +25,7 @@ from typing import Callable, Protocol, runtime_checkable
 
 import numpy as np
 
-__all__ = ["AudioSource", "PushAudioSource", "pcm16_to_float32"]
+__all__ = ["AudioSource", "PushAudioSource", "SpeechSpans", "pcm16_to_float32", "speech_of"]
 
 # The only sample rate Whisper accepts. Everything upstream resamples to it.
 SAMPLE_RATE = 16000
@@ -48,6 +48,88 @@ class AudioSource(Protocol):
         the streaming worker also wakes on a timer, so pauses only make interim
         results *sooner*, they are never required for correctness."""
         ...
+
+    # Optional: `speech_spans() -> SpeechSpans`, where a VAD heard speech so
+    # far (see speech_of). Without it every sample is decoded.
+
+
+# Kept after the last speech the VAD heard, so a word's soft ending (which
+# the VAD scores below threshold) is not clipped. faster-whisper's own VAD
+# pads speech by the same 400 ms.
+SPEECH_TAIL_PAD_SECS = 0.4
+
+
+class SpeechSpans:
+    """Where a recording's VAD heard speech, and where the user pressed stop,
+    in samples of that recording.
+
+    A stop with a tail (audio.input_latency_ms, hotkey.release_tail_ms) keeps
+    recording after the press, for audio still on its way. When none comes,
+    that tail is silence, and Whisper or Parakeet given silence still write
+    something: the prompt they were conditioned on, or "Thank you for
+    watching." So only the tail is trimmed (`voiced_end`): everything before
+    the press is decoded as it always was. Audio the VAD has not judged counts
+    as speech, and a recording in which it heard no speech at all is decoded
+    whole: the VAD may be missing a quiet speaker.
+    """
+
+    def __init__(self, sample_rate: int = SAMPLE_RATE, unchecked: int = 0) -> None:
+        self.sample_rate = sample_rate
+        self.heard = False
+        # Sample position of the stop press that began the tail; None while
+        # no stop is pending (nothing is trimmed then).
+        self.press: int | None = None
+        # Audio before `unchecked` was never run through the VAD (the
+        # recorder's pre-buffer): treated as speech.
+        self._spans: list[list[int]] = [[0, unchecked]] if unchecked > 0 else []
+        self._checked = unchecked   # samples the VAD has judged
+
+    def mark(self, start: int, end: int, speech: bool) -> None:
+        """The VAD judged samples [start, end)."""
+        self._checked = max(self._checked, end)
+        if not speech:
+            return
+        self.heard = True
+        if self._spans and self._spans[-1][1] >= start:
+            self._spans[-1][1] = max(self._spans[-1][1], end)
+        else:
+            self._spans.append([start, end])
+
+    def copy(self) -> SpeechSpans:
+        other = SpeechSpans(self.sample_rate)
+        other.heard, other.press, other._checked = self.heard, self.press, self._checked
+        other._spans = [list(s) for s in self._spans]
+        return other
+
+    def voiced_end(self, start: int, end: int) -> int:
+        """Where decoding [start, end) may stop. Audio before the press is
+        always kept; after it, only up to a pad past the last speech (a word
+        ending just before the press keeps its pad too). A tail with no
+        speech ends the decode at the press, and a span wholly inside the
+        tail with no speech decodes to nothing; a tail no longer than the
+        pad (hold mode's default release tail) is kept whole."""
+        pad = int(SPEECH_TAIL_PAD_SECS * self.sample_rate)
+        press = self.press
+        if (press is None or end - press <= pad or not self.heard
+                or self._checked < end):   # unjudged audio counts as speech
+            return end
+        limit = press
+        for s, e in reversed(self._spans):
+            if s < end:
+                # A span that starts in the tail (after a freeze cut there)
+                # and holds no speech decodes to nothing, pad or not.
+                if e > start or start < press:
+                    limit = max(press, min(e, end) + pad)
+                break
+        return max(start, min(end, limit))
+
+
+def speech_of(source: object) -> SpeechSpans | None:
+    """The source's speech spans so far, if it has a VAD (optional member:
+    `AudioRecorder` has one, `PushAudioSource` doesn't)."""
+    get = getattr(source, "speech_spans", None)
+    spans = get() if callable(get) else None
+    return spans if isinstance(spans, SpeechSpans) else None
 
 
 class AudioBuffer:

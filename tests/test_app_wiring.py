@@ -198,7 +198,7 @@ class TestStateMachine:
         release = threading.Event()
         seen = []
 
-        def fake_finalize(session, audio, elapsed, gen, rid):
+        def fake_finalize(session, audio, elapsed, gen, rid, speech=None):
             finalizing.set()
             release.wait(5)
             seen.append((gen == vio._generation, rid == vio._recording))

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
-from voiceio.audio_source import AudioBuffer
+from voiceio.audio_source import AudioBuffer, SpeechSpans
 from voiceio.platform import LazySounddevice
 
 if TYPE_CHECKING:
@@ -127,6 +127,8 @@ class AudioRecorder:
         # accumulated (see _callback).
         self._pause_fired_at = 0
         self._total_samples = 0
+        # Where this recording's VAD heard speech (reset in start()).
+        self._speech = SpeechSpans(cfg.sample_rate)
 
         # Auto-stop on sustained silence
         self._auto_stop_secs = cfg.auto_stop_silence_secs
@@ -309,6 +311,8 @@ class AudioRecorder:
             if tap is not None and len(prebuf) > 0:
                 tap(prebuf)
             self._total_samples = len(self._audio)
+            # The pre-buffer was never run through the VAD: counts as speech.
+            self._speech = SpeechSpans(self.sample_rate, unchecked=len(self._audio))
             self._silent_chunks = 0.0
             self._sustained_silence = 0.0
             self._heard_speech = False
@@ -350,6 +354,19 @@ class AudioRecorder:
         """Get all audio captured so far (for streaming)."""
         with self._lock:
             return self._audio.view() if len(self._audio) else None
+
+    def mark_stop_press(self, pressed: bool = True) -> None:
+        """The user pressed stop and the recording goes on for a tail: audio
+        from here on is trimmed to its speech before decoding (SpeechSpans).
+        False withdraws it (a press during the tail resumed recording)."""
+        with self._lock:
+            self._speech.press = len(self._audio) if pressed else None
+
+    def speech_spans(self) -> SpeechSpans:
+        """Where the VAD heard speech in the current (or just-stopped)
+        recording; a snapshot, safe to keep after the next start()."""
+        with self._lock:
+            return self._speech.copy()
 
     def set_on_speech_pause(self, callback: Callable[[], None] | None) -> None:
         """Set/clear the speech pause callback (used by streaming session)."""
@@ -410,6 +427,7 @@ class AudioRecorder:
             tap = self._tap
         if tap is not None:
             tap(chunk)
+        chunk_start = self._total_samples
         self._total_samples += chunk.shape[0]
 
         # Level metering
@@ -444,6 +462,8 @@ class AudioRecorder:
         # Silence detection via VAD backend
         chunk_secs = frames / self.sample_rate
         is_silent = not self._vad.is_speech(indata)
+        with self._lock:
+            self._speech.mark(chunk_start, self._total_samples, not is_silent)
 
         if is_silent:
             self._silent_chunks += chunk_secs

@@ -11,6 +11,7 @@ import time
 import numpy as np
 
 from voiceio import config, platform as plat, tray
+from voiceio.audio_source import SpeechSpans, speech_of
 from voiceio.commands import CommandProcessor
 from voiceio.core.decoders.base import Bias
 from voiceio.hotkeys import chain as hotkey_chain
@@ -380,6 +381,7 @@ class VoiceIO:
             return
         pending = _PendingStop(self._recording, tail_ms / 1000, self._stop_due)
         self._pending_stop = pending
+        self.recorder.mark_stop_press()
         if announce:
             self._announce_stop()
         pending.timer.start()
@@ -420,6 +422,7 @@ class VoiceIO:
         """A press during the stop tail: not done yet, keep recording the same
         dictation. Undoes what _announce_stop showed."""
         self._take_pending_stop()
+        self.recorder.mark_stop_press(False)
         # An auto-stop that fired during the tail was single-shot: re-arm.
         self.recorder.set_on_auto_stop(self._on_auto_stop)
         if self._stop_announced == self._recording:
@@ -736,6 +739,10 @@ class VoiceIO:
         self.recorder.set_on_auto_stop(None)
         self.recorder.set_on_dead_stream(None)
         audio = self.recorder.stop()
+        # Where the VAD heard speech and the stop press began the tail, read
+        # now: the recorder may be on the next dictation by the time the
+        # finalizer runs. A stop without a tail marked no press: no trimming.
+        speech = speech_of(self.recorder)
         tray.set_recording(False)
         self._idle_audio.touch()
         self._check_input_level(time.monotonic() - self._record_start)
@@ -753,13 +760,15 @@ class VoiceIO:
             session.set_is_current(lambda g=gen: self._generation == g)
             # Finalize in background. Pass audio snapshot — session no longer
             # touches the recorder. Generation check cancels if superseded.
-            self._output_thread(self._finalize_streaming, session, audio, elapsed, gen, rid)
+            self._output_thread(self._finalize_streaming, session, audio, elapsed, gen, rid,
+                                speech)
         elif not self._streaming:
             self._state = _State.IDLE
             log.info("Stopped recording (%.1fs)", elapsed)
             if audio is not None:
                 # _process owns deactivation (its finally block).
-                self._output_thread(self._process, audio, gen, rid, self._recording_bias)
+                self._output_thread(self._process, audio, gen, rid, self._recording_bias,
+                                    speech)
             else:
                 # No processing thread will run — release the source here.
                 self._end_recording(rid)
@@ -856,7 +865,7 @@ class VoiceIO:
 
     def _finalize_streaming(
         self, session: StreamingSession, audio: np.ndarray | None,
-        elapsed: float, gen: int, rid: int,
+        elapsed: float, gen: int, rid: int, speech: SpeechSpans | None = None,
     ) -> None:
         """Run final transcription and commit in background thread."""
         t_final = time.monotonic()
@@ -867,7 +876,7 @@ class VoiceIO:
             from voiceio import clipboard_read
             clipboard_read.copy_text(session.interim_text)
         extra = self._retention_extra(audio)
-        final_text = session.stop(audio)
+        final_text = session.stop(audio, speech)
         with self._hotkey_lock:
             if self._finalizing is session:
                 self._finalizing = None
@@ -916,14 +925,16 @@ class VoiceIO:
                 tray.set_processing(False)
 
     def _process(self, audio: np.ndarray, gen: int, rid: int = 0,
-                 bias: Bias | None = None) -> None:
+                 bias: Bias | None = None, speech: SpeechSpans | None = None) -> None:
         """Batch transcription (non-streaming mode)."""
         try:
             if self._generation != gen:
                 self._cancelled.discard(gen)
                 return
             extra = self._retention_extra(audio)
-            result = self.engine.transcribe(audio, bias=bias)
+            # Trailing silence makes decoders hallucinate (see SpeechSpans).
+            voiced = audio[:speech.voiced_end(0, len(audio))] if speech else audio
+            result = self.engine.transcribe(voiced, bias=bias)
             # Superseded by a newer recording, cancelled, or a voice command
             # discarded it: do not touch the typer.
             if self._discard_cancelled(gen, extra):

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
+from voiceio.audio_source import SpeechSpans, speech_of
 from voiceio.core.decoders.base import Bias
 from voiceio.core.decoders.base import transcribe_timeout
 from voiceio.privacy import describe_transcript
@@ -202,6 +203,9 @@ class StreamingSession:
         self._apply_lock = threading.Lock()
         self._worker_thread: threading.Thread | None = None
         self._final_audio: np.ndarray | None = None  # set on stop
+        # The recorder's speech spans as of the stop, for the final pass
+        # (the recorder itself may be recording the next dictation by then).
+        self._final_speech: SpeechSpans | None = None
         # Incremental finalization: audio before _frozen_samples has already
         # been beam-decoded into _frozen_raw and is never decoded again.
         # Interim and final passes only decode the tail after this offset.
@@ -258,15 +262,21 @@ class StreamingSession:
         self._worker_thread.start()
         log.debug("Streaming session started (gen=%d)", self._generation)
 
-    def stop(self, audio: np.ndarray | None = None) -> str:
+    def stop(self, audio: np.ndarray | None = None,
+             speech: SpeechSpans | None = None) -> str:
         """Stop streaming, run final transcription, return full text.
 
         Args:
             audio: Final audio snapshot from recorder.stop(). The session
                    uses this for the final transcription instead of reading
                    from the recorder (which may have been restarted).
+            speech: Where the recorder's VAD heard speech in `audio` and
+                   where the stop press began the tail
+                   (recorder.speech_spans() at the stop). The final pass
+                   decodes the tail after the press only up to its speech.
         """
         self._final_audio = audio
+        self._final_speech = speech
         self._stop_event.set()
         self._pending.set()  # wake the worker so it exits
         dur = len(audio) / self._sample_rate if audio is not None else 0.0
@@ -284,6 +294,7 @@ class StreamingSession:
             log.warning("Freeze pass did not finish in time (gen=%d)", self._generation)
             self._commit_interim_on_final()
         self._final_audio = None  # release memory
+        self._final_speech = None
         # Release recorder reference — session must not touch it after stop
         if self._recorder is not None:
             self._recorder.set_on_speech_pause(None)
@@ -322,8 +333,11 @@ class StreamingSession:
         draft = getattr(self._decoder, "draft", None)
         if end is None or draft is None or audio is None or len(audio) <= end:
             return None
+        voiced = self._voiced(audio, end, len(audio), final=True)
+        if not len(voiced):
+            return None   # nothing to decode: the final pass decodes nothing either
         try:
-            return end, draft.decode(audio[end:], final=True, bias=self._tail_bias())
+            return end, draft.decode(voiced, final=True, bias=self._tail_bias())
         except Exception:  # noqa: BLE001 — the normal final path still runs
             log.debug("Parallel tail decode failed; decoding after the freeze", exc_info=True)
             return None
@@ -363,6 +377,17 @@ class StreamingSession:
             except Exception:
                 log.exception("Streaming transcribe/apply error (non-fatal)")
 
+    def _voiced(self, audio: np.ndarray, start: int, end: int, final: bool) -> np.ndarray:
+        """audio[start:end], less the silent part of a stop tail (see
+        SpeechSpans): given only silence, a decoder writes its context prompt
+        back or a stock phrase ("Thank you for watching."). Audio before the
+        stop press is never cut; empty when the span is silent tail only,
+        which then decodes to nothing."""
+        speech = self._final_speech if final else speech_of(self._recorder)
+        if speech is not None:
+            end = speech.voiced_end(start, end)
+        return audio[start:end]
+
     def _tail_bias(self) -> Bias:
         """Session bias plus the frozen-text suffix, which conditions the tail
         decode so sentences stay coherent across a freeze cut."""
@@ -397,16 +422,20 @@ class StreamingSession:
         decoded again by a later pass (never treat lost audio as silence).
         """
         t0 = time.monotonic()
-        try:
-            result = self._decoder.decode(chunk, final=True, bias=self._tail_bias())
-        except Exception:
-            log.exception("Freeze decode failed (boundary unchanged)")
-            return
-        chunk_text = result.text
+        start = self._frozen_samples
+        voiced = self._voiced(audio, start, start + len(chunk), final=False)
+        chunk_text, segments = "", ()
+        if len(voiced):
+            try:
+                result = self._decoder.decode(voiced, final=True, bias=self._tail_bias())
+            except Exception:
+                log.exception("Freeze decode failed (boundary unchanged)")
+                return
+            chunk_text, segments = result.text, result.segments
         t_decode = time.monotonic() - t0
         self._frozen_raw = _join_text(self._frozen_raw, chunk_text)
         self._frozen_samples += len(chunk)
-        self._frozen_segments.extend(result.segments)
+        self._frozen_segments.extend(segments)
         self._last_decode_end = len(audio)
         self._last_decode_secs = t_decode
         self.trace.append({
@@ -415,6 +444,7 @@ class StreamingSession:
             "cut": cut,
             "frozen_secs": round(self._frozen_samples / self._sample_rate, 2),
             "tail_secs": round(len(chunk) / self._sample_rate, 2),
+            "voiced_secs": round(len(voiced) / self._sample_rate, 2),
             "secs": round(t_decode, 3),
             "text": chunk_text,
         })
@@ -478,14 +508,16 @@ class StreamingSession:
         tail_text = ""
         tail_segments: list[dict] = []
         t0 = time.monotonic()
-        # The final pass decodes ANY remaining audio (a clipped last word
-        # must not be dropped); interim passes skip sub-0.3s tails.
-        if len(tail) > (0 if final else self._sample_rate * 0.3):
+        voiced = self._voiced(audio, self._frozen_samples, len(audio), final)
+        # The final pass decodes ANY remaining speech (a clipped last word
+        # must not be dropped); interim passes skip sub-0.3s tails. Silent
+        # stop-tail audio is never decoded (it would come back hallucinated).
+        if len(voiced) > (0 if final else self._sample_rate * 0.3):
             try:
                 if pre is not None and pre[0] == self._frozen_samples:
                     result = pre[1]  # decoded in parallel with the last freeze
                 else:
-                    result = self._decoder.decode(tail, final=final, bias=self._tail_bias())
+                    result = self._decoder.decode(voiced, final=final, bias=self._tail_bias())
             except Exception:
                 # Decode FAILED (timeout/crash) — this is not silence. Never
                 # advance the freeze boundary or char-diff against a partial
@@ -513,6 +545,7 @@ class StreamingSession:
             "kind": "final" if final else "interim",
             "frozen_secs": round(self._frozen_samples / self._sample_rate, 2),
             "tail_secs": round(len(tail) / self._sample_rate, 2),
+            "voiced_secs": round(len(voiced) / self._sample_rate, 2),
             "secs": round(t_transcribe, 3),
             "text": tail_text,
         })

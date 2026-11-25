@@ -134,7 +134,7 @@ def test_cancel_while_finalizing_keeps_nothing(tmp_path):
     in_stop, release = threading.Event(), threading.Event()
     session = MagicMock()
     session.cancel.return_value = True
-    session.stop.side_effect = lambda audio: (in_stop.set(), release.wait(5), "words")[2]
+    session.stop.side_effect = lambda audio, speech=None: (in_stop.set(), release.wait(5), "words")[2]
     done = threading.Event()
     vio._typers.end.side_effect = lambda rid: done.set()
     _finalizing(vio, tmp_path, session)
@@ -155,7 +155,7 @@ def test_cancel_too_late_changes_nothing(tmp_path):
     in_stop, release = threading.Event(), threading.Event()
     session = MagicMock()
     session.cancel.return_value = False          # final text already typed
-    session.stop.side_effect = lambda audio: (in_stop.set(), release.wait(5), "words")[2]
+    session.stop.side_effect = lambda audio, speech=None: (in_stop.set(), release.wait(5), "words")[2]
     # The finalizer goes on to copy the text from its own thread; left real, it
     # lands on whatever clipboard a later test has patched in.
     vio._copy_result_async = MagicMock()
