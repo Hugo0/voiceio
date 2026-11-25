@@ -56,6 +56,9 @@ keep_warm = "auto"            # mic + chime open while idle: always | auto (on A
                               # until warm_minutes after the last dictation) | never
 warm_minutes = 5.0            # auto, on battery: close this long after the last dictation
 auto_gain = true              # mic volume follows you: down after clipping, up after 3 very quiet takes
+input_latency_ms = 0          # how late your audio arrives (Bluetooth ~200-500, remote desktop/KVM
+                              # up to 2000+): stopping keeps recording this long so the last
+                              # words aren't cut (0..5000). `voiceio setup` mic test suggests one
 
 [output]
 method = "auto"               # auto | ibus | ydotool | wtype | xdotool | clipboard | pynput

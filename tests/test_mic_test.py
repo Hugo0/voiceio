@@ -148,3 +148,38 @@ def test_stream_with_no_audio_says_so(run, capsys):
 ])
 def test_should_stop(elapsed, heard_at, silent, stop):
     assert speech._test_should_stop(elapsed, heard_at, silent) is stop
+
+
+def test_late_voice_suggests_input_latency(run, capsys):
+    run(_speech(2.5, 2.0))
+    out = capsys.readouterr().out
+    assert "voiceio config set audio.input_latency_ms 1900" in out
+
+
+@pytest.mark.parametrize("start", [0.5, 1.5])   # normal reaction times
+def test_prompt_voice_has_no_latency_hint(run, capsys, start):
+    run(_speech(start, 2.0))
+    assert "input_latency_ms" not in capsys.readouterr().out
+
+
+def test_no_sound_has_no_latency_hint(run, capsys):
+    run(lambda t: 0.0)
+    assert "input_latency_ms" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("onset,ms", [
+    (None, None), (0.4, None), (1.5, None), (1.8, None),
+    (1.84, 1200), (2.06, 1500), (2.6, 2000), (9.0, 5000),
+])
+def test_latency_hint_value(onset, ms):
+    hint = speech._latency_hint(onset)
+    if ms is None:
+        assert hint is None
+    else:
+        assert hint.endswith(f"audio.input_latency_ms {ms}")
+
+
+def test_first_loud_sample_inside_a_block():
+    block = np.zeros(SR // 2, dtype=np.float32)
+    block[4000:] = 0.1
+    assert speech._first_loud_sample(block.reshape(-1, 1), 0.01, SR) == 3840  # its 20 ms frame

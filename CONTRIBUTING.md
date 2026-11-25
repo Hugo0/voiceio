@@ -92,7 +92,7 @@ NixOS module, Home Manager module).
 
 ## Key patterns
 
-**State machine** — `app.py` uses `_State` enum protected by `_hotkey_lock`. Two counters: the generation (bumped on stop) decides who may still write output, so a slow finalizer never stomps a newer recording; the recording id (bumped on start) pairs each IBus claim with its release.
+**State machine** — `app.py` uses `_State` enum protected by `_hotkey_lock`. Two counters: the generation (bumped on stop) decides who may still write output, so a slow finalizer never stomps a newer recording; the recording id (bumped on start) pairs each IBus claim with its release. A stop with a tail (`hotkey.release_tail_ms`, `audio.input_latency_ms`) stays RECORDING with a `_PendingStop` timer tagged with its recording id; a press during the tail withdraws it, `cancel` drops it, and a timer that is no longer `_pending_stop` does nothing.
 
 **One engine, many front ends** — the desktop daemon, the server, `voiceio eval` and `voiceio learn` all compose `core.engine.Engine` (decoder + bias + pipeline) instead of wiring those pieces themselves, so they cannot drift apart.
 

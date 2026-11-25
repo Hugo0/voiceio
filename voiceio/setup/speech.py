@@ -123,6 +123,11 @@ def _download_model(model_name: str) -> bool:
 _STOP_SILENCE_SECS = 1.5    # after speech: this much quiet ends the test
 _WAIT_FOR_SPEECH_SECS = 12  # before speech: give up after this long
 _MAX_SPEECH_SECS = 10       # after speech starts: record at most this long
+# Voice first arriving later than this after "Speak now!" may be a delayed
+# audio path rather than a slow start: suggest audio.input_latency_ms.
+_LATE_VOICE_SECS = 1.8
+# Typical time to start talking after the prompt; not part of the latency.
+_REACTION_SECS = 0.6
 
 
 def _test_should_stop(elapsed: float, heard_at: float | None, silent_secs: float) -> bool:
@@ -168,13 +173,15 @@ def _streaming_test(model=None, language: str | None = None) -> str:
     audio_chunks: list[np.ndarray] = []
     silent_time = 0.0       # seconds of audio below the threshold, in a row
     heard_sound = False     # a chunk above the threshold arrived
+    samples_seen = 0
+    onset: float | None = None  # where in the audio the first sound starts, seconds
     heard_at: float | None = None
     last_text = ""
     last_text_len = 0  # characters printed on screen
     recording = True
 
     def callback(indata, frames, time_info, status):
-        nonlocal silent_time, heard_sound
+        nonlocal silent_time, heard_sound, samples_seen, onset
         if not recording:
             return
         audio_chunks.append(indata.copy())
@@ -184,6 +191,10 @@ def _streaming_test(model=None, language: str | None = None) -> str:
         else:
             silent_time = 0.0
             heard_sound = True
+            if onset is None:
+                onset = (samples_seen + _first_loud_sample(
+                    indata, silence_threshold, sample_rate)) / sample_rate
+        samples_seen += frames
 
     stream = sd.InputStream(
         samplerate=sample_rate, channels=1, dtype="float32",
@@ -259,8 +270,38 @@ def _streaming_test(model=None, language: str | None = None) -> str:
         print(f"  {GREEN}✓{RESET} Transcribed successfully!")
     else:
         print(f"  {YELLOW}⚠{RESET}  {_no_speech_message(elapsed, bool(audio_chunks), heard_sound)}")
+    hint = _latency_hint(onset)
+    if hint:
+        print(f"  {DIM}{hint}{RESET}")
 
     return last_text
+
+
+def _first_loud_sample(block, threshold: float, sample_rate: int) -> int:
+    """Offset of the first 20 ms frame of `block` at or above `threshold` RMS
+    (the block as a whole is above it)."""
+    import numpy as np
+    flat = block.reshape(-1)
+    step = max(1, sample_rate // 50)
+    for start in range(0, len(flat), step):
+        frame = flat[start:start + step]
+        if np.sqrt(np.mean(frame ** 2)) >= threshold:
+            return start
+    return 0
+
+
+def _latency_hint(onset: float | None) -> str | None:
+    """One line suggesting audio.input_latency_ms when the voice arrived late.
+    `onset` is where the first sound is in the test's audio (None: none).
+    A typical reaction time is taken off; the rest may still include a slow
+    start, so it is worded as a suggestion, never set automatically."""
+    from voiceio.config import MAX_INPUT_LATENCY_MS
+    if onset is None or onset <= _LATE_VOICE_SECS:
+        return None
+    ms = min(max(int(round((onset - _REACTION_SECS) * 10)) * 100, 100), MAX_INPUT_LATENCY_MS)
+    return (f"Your voice arrived {onset:.1f}s after the test began. If your audio goes "
+            "through a remote desktop, KVM or Bluetooth link, keep your last words "
+            f"with: voiceio config set audio.input_latency_ms {ms}")
 
 
 def _no_speech_message(elapsed: float, got_audio: bool, heard_sound: bool) -> str:

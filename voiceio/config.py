@@ -142,6 +142,22 @@ class AudioConfig:
     # (voiceio/mic_gain.py): down a fifth after one that clipped, up a fifth
     # after three that were very quiet, never back to a level that clipped.
     auto_gain: bool = True
+    # How late your audio reaches voiceio (Bluetooth headsets ~200-500 ms,
+    # remote desktops and KVMs up to seconds). Stopping keeps recording this
+    # much longer, so words still on their way aren't cut off. 0..5000.
+    input_latency_ms: int = 0
+
+    def __post_init__(self):
+        ms = self.input_latency_ms
+        valid = isinstance(ms, (int, float)) and not isinstance(ms, bool)
+        clamped = min(max(int(ms), 0), MAX_INPUT_LATENCY_MS) if valid else 0
+        if not valid or clamped != ms:
+            log.warning("audio.input_latency_ms %r: must be 0..%d ms, using %d",
+                        ms, MAX_INPUT_LATENCY_MS, clamped)
+        self.input_latency_ms = clamped
+
+
+MAX_INPUT_LATENCY_MS = 5000
 
 
 @dataclass

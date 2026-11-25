@@ -36,6 +36,16 @@ class _State(enum.Enum):
     ERROR = "error"
 
 
+class _PendingStop:
+    """A stop that waits out a tail: the words still on their way when the
+    user let go or pressed stop (release_tail_ms, audio.input_latency_ms)."""
+
+    def __init__(self, rid: int, tail: float, on_due) -> None:
+        self.rid = rid
+        self.timer = threading.Timer(tail, on_due, args=(self,))
+        self.timer.daemon = True
+
+
 class VoiceIO:
     @property
     def _state(self) -> _State:
@@ -185,6 +195,11 @@ class VoiceIO:
             self._hotkey_mode = "toggle"
         # (press time, recording id) while the key that started it is down
         self._held: tuple[float, int] | None = None
+        # A stop waiting out its tail; the recording is still RECORDING.
+        self._pending_stop: _PendingStop | None = None
+        # Recording id whose stop chime and tray already played (at the
+        # stop press, before the tail), so _do_stop doesn't repeat them.
+        self._stop_announced = 0
 
         # TTS (text-to-speech)
         self._tts_engine = None
@@ -317,13 +332,16 @@ class VoiceIO:
         push-to-talk when this press started the recording."""
         pressed_at = time.monotonic()
         with self._hotkey_lock:
+            resumed = False
             if pressed_at - self._last_hotkey >= _DEBOUNCE_SECS:
                 self._last_hotkey = pressed_at
+                resumed = self._stop_pending_for() is not None
                 self._toggle()
             # A debounced press can be the same keypress that the DE shortcut
-            # (socket) just used to start recording: arm for that one too.
+            # (socket) just used to start recording: arm for that one too. A
+            # press that withdrew a pending stop is held like a fresh one.
             started = (self._state == _State.RECORDING
-                       and pressed_at - self._record_start < _DEBOUNCE_SECS)
+                       and (resumed or pressed_at - self._record_start < _DEBOUNCE_SECS))
             self._held = (pressed_at, self._recording) \
                 if started and self._hotkey_mode != "toggle" else None
 
@@ -341,15 +359,77 @@ class VoiceIO:
             if (self._hotkey_mode == "auto"
                     and released_at - pressed_at < self.cfg.hotkey.hold_ms / 1000):
                 return   # a tap: recording stays on until the next press
-        tail = threading.Timer(max(0, self.cfg.hotkey.release_tail_ms) / 1000,
-                               self._stop_held, args=(rid,))
-        tail.daemon = True
-        tail.start()
+            latency = self.cfg.audio.input_latency_ms
+            self._stop_after(max(0, self.cfg.hotkey.release_tail_ms) + latency,
+                             announce=latency > 0)
 
-    def _stop_held(self, rid: int) -> None:
+    def _stop_by_hand(self) -> None:
+        """A stop press (toggle, or a tap in auto mode). Under _hotkey_lock."""
+        latency = self.cfg.audio.input_latency_ms
+        if latency > 0:
+            self._stop_after(latency, announce=True)
+        else:
+            self._do_stop()
+
+    def _stop_after(self, tail_ms: int, announce: bool) -> None:
+        """Keep recording ``tail_ms`` more, then stop: audio still in transit
+        is what the user said last. With ``announce`` the stop chime and tray
+        come now, at the press, not when the tail ends. A press meanwhile
+        withdraws the stop (_resume); cancel drops it. Under _hotkey_lock."""
+        if self._stop_pending_for() is not None:
+            return
+        pending = _PendingStop(self._recording, tail_ms / 1000, self._stop_due)
+        self._pending_stop = pending
+        if announce:
+            self._announce_stop()
+        pending.timer.start()
+        log.debug("Stopping in %d ms (audio still on its way)", tail_ms)
+
+    def _stop_pending_for(self) -> _PendingStop | None:
+        """The pending stop of the recording in progress, if any."""
+        pending = self._pending_stop
+        if (pending is not None and self._state == _State.RECORDING
+                and pending.rid == self._recording):
+            return pending
+        return None
+
+    def _take_pending_stop(self) -> None:
+        pending, self._pending_stop = self._pending_stop, None
+        if pending is not None:
+            pending.timer.cancel()
+
+    def _stop_due(self, pending: _PendingStop) -> None:
+        """The tail is over. A stale timer (its stop withdrawn, cancelled, or
+        overtaken by another stop or a newer recording) does nothing."""
         with self._hotkey_lock:
-            if self._state == _State.RECORDING and self._recording == rid:
+            if self._pending_stop is not pending:
+                return
+            self._pending_stop = None
+            if self._state == _State.RECORDING and self._recording == pending.rid:
                 self._do_stop()
+
+    def _announce_stop(self) -> None:
+        """What a stop shows and sounds like: volume back, stop chime, tray."""
+        self._quiet.stop(then=lambda: self._play_record_cue(start=False))
+        tray.set_recording(False)
+        if self._streaming:
+            tray.set_processing(True)
+        self._stop_announced = self._recording
+
+    def _resume(self) -> None:
+        """A press during the stop tail: not done yet, keep recording the same
+        dictation. Undoes what _announce_stop showed."""
+        self._take_pending_stop()
+        # An auto-stop that fired during the tail was single-shot: re-arm.
+        self.recorder.set_on_auto_stop(self._on_auto_stop)
+        if self._stop_announced == self._recording:
+            self._stop_announced = 0
+            if self._streaming:
+                tray.set_processing(False)
+            tray.set_recording(True)
+            self._play_record_cue(start=True)
+            self._quiet.start(duck_after=self._start_cue_secs())
+        log.info("Stop withdrawn: still recording")
 
     def cancel(self) -> None:
         """Abandon the current dictation: type nothing, keep nothing (no
@@ -369,7 +449,13 @@ class VoiceIO:
 
     def _cancel_recording(self) -> None:
         rid = self._recording
-        self._quiet.stop(then=lambda: self._play_record_cue(start=False))
+        self._take_pending_stop()
+        if self._stop_announced == rid:   # cancelled during the stop tail
+            self._stop_announced = 0
+            if self._streaming:
+                tray.set_processing(False)
+        else:
+            self._quiet.stop(then=lambda: self._play_record_cue(start=False))
         self.recorder.set_on_auto_stop(None)
         self.recorder.set_on_dead_stream(None)
         self.recorder.stop()   # the audio is dropped here
@@ -501,8 +587,11 @@ class VoiceIO:
         )
 
     def _request_stop(self) -> None:
-        """Stop recording if active. Unlike on_hotkey, never starts."""
+        """Stop recording if active. Unlike on_hotkey, never starts. A stop
+        already waiting out its tail is left to finish it."""
         with self._hotkey_lock:
+            if self._stop_pending_for() is not None:
+                return
             now = time.monotonic()
             if now - self._last_hotkey < _DEBOUNCE_SECS:
                 return
@@ -513,9 +602,12 @@ class VoiceIO:
     # ── State machine ───────────────────────────────────────────────────
 
     def _toggle(self) -> None:
-        """Central state transition: IDLE/FINALIZING/ERROR → RECORDING, RECORDING → stop."""
-        if self._state == _State.RECORDING:
-            self._do_stop()
+        """Central state transition: IDLE/FINALIZING/ERROR → RECORDING, RECORDING → stop
+        (or, during the stop tail, back to recording)."""
+        if self._stop_pending_for() is not None:
+            self._resume()
+        elif self._state == _State.RECORDING:
+            self._stop_by_hand()
         elif self._state == _State.ERROR:
             # Attempt recovery: try to restart worker, then start recording
             log.info("Attempting recovery from error state")
@@ -633,10 +725,14 @@ class VoiceIO:
         self._generation += 1
         gen = self._generation
         rid = self._recording
+        self._take_pending_stop()   # e.g. an auto-stop during the tail
 
         # Stop audio capture immediately; the stop chime follows the volume
-        # restore (see _do_start), off this thread.
-        self._quiet.stop(then=lambda: self._play_record_cue(start=False))
+        # restore (see _do_start), off this thread. A stop with a tail played
+        # it already, at the press.
+        if self._stop_announced != rid:
+            self._quiet.stop(then=lambda: self._play_record_cue(start=False))
+        self._stop_announced = 0
         self.recorder.set_on_auto_stop(None)
         self.recorder.set_on_dead_stream(None)
         audio = self.recorder.stop()

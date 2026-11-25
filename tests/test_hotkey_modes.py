@@ -114,13 +114,20 @@ def test_release_tail_keeps_recording_briefly():
     assert _wait_stopped(vio)
 
 
-def test_press_during_tail_stops_once():
+def test_press_during_tail_keeps_recording():
+    """Pressed again before the tail ran out: not done yet. The same
+    recording goes on, and the new press is push-to-talk again."""
     vio = _make_app("hold", tail_ms=100)
     vio.on_hotkey_press()
     vio.on_hotkey_release()
     _after_debounce(vio)
-    vio.on_hotkey_press()                    # stops now
-    time.sleep(0.2)                          # tail timer fires: stale
+    vio.on_hotkey_press()                    # withdraws the stop
+    time.sleep(0.2)                          # tail timer would have fired
+    assert vio.stops == [] and vio._state == _State.RECORDING
+    assert vio._recording == 1
+    vio.on_hotkey_release()
+    assert _wait_stopped(vio)
+    time.sleep(0.15)
     assert vio.stops == [1]
 
 
