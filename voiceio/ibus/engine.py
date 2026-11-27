@@ -75,7 +75,11 @@ class VoiceIOEngine(IBus.Engine):
             return False
 
     def preedit(self, text: str) -> None:
-        """Show text as preedit (underlined preview), tail-first once long."""
+        """Show text as preedit, tail-first once long.
+
+        Asks for an underline; whether one is drawn is up to the client and its
+        theme (a GTK 4 theme without `preedit.*` rules shows plain text).
+        """
         if not text:
             self.hide_preedit_text()
             return
