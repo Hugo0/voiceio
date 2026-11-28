@@ -239,6 +239,12 @@ streaming MBS for Nemotron (true streaming + unlimited hotwords, PR #3895).
 
 ## Releasing
 
+Before tagging, run `SOURCES=source scripts/install_matrix.sh` (needs Docker; on a
+shared box prefix `safebox`). It installs the tree on clean Ubuntu 24.04, Debian
+12/13, Fedora and Arch containers and checks `--version`, `setup --defaults`,
+`doctor` (no traceback) and 0700 private dirs. About 10-12 minutes, mostly
+package downloads; any FAIL blocks the tag.
+
 ```bash
 # Bump version in pyproject.toml + voiceio/__init__.py
 git commit -am "chore: bump version to X.Y.Z"

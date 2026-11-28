@@ -35,6 +35,8 @@ pipx install 'python-voiceio[desktop]'      # or: uv tool install 'python-voicei
 voiceio setup        # model, hotkey, autostart
 ```
 
+Fedora 45 and later ship Python 3.15, which onnxruntime has no wheels for yet: also `sudo dnf install python3.14 python3.14-devel`, then install with `pipx install --python python3.14 'python-voiceio[desktop]'`.
+
 `uvx` is fine for a quick try, but run `voiceio setup` from a `pipx` or `uv tool` install: uvx runs from uv's cache, which uv deletes on `uv cache clean`, and the autostart service would point there.
 
 **Or as a Debian/Ubuntu package** (new; bundles everything, nothing to compile):

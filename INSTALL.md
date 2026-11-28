@@ -44,7 +44,7 @@ GObject bindings (text injection). Run the line for the user's distro:
 # Ubuntu / Debian
 sudo apt update && sudo apt install -y pipx build-essential python3-dev portaudio19-dev ibus gir1.2-ibus-1.0 python3-gi
 
-# Fedora
+# Fedora (45+: also python3.14 python3.14-devel, see step 2)
 sudo dnf install -y pipx gcc gcc-c++ make python3-devel portaudio-devel ibus ibus-libs python3-gobject
 
 # Arch
@@ -66,6 +66,8 @@ voiceio doctor          # prints "Missing system dependencies:" + one install co
 pipx install 'python-voiceio[desktop]'   # the base package alone is headless (no mic/hotkeys)
 pipx ensurepath          # puts ~/.local/bin on PATH; open a new shell after
 ```
+
+Fedora 45 and later ship Python 3.15, which onnxruntime has no wheels for yet: also `sudo dnf install python3.14 python3.14-devel`, then install with `pipx install --python python3.14 'python-voiceio[desktop]'`.
 
 No pipx, but uv? `uv tool install 'python-voiceio[desktop]'` (then
 `uv tool update-shell` if `~/.local/bin` is not on PATH) is equivalent. Do not
