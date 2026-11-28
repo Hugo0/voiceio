@@ -153,17 +153,47 @@ def test_hold_marks_the_file_only_inside_the_block(monkeypatch, tmp_path):
         pass
 
 
+def _group_members(pgid):
+    """Live (non-zombie) processes in process group `pgid`, from /proc."""
+    import os
+    members = []
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                fields = f.read().rsplit(")", 1)[1].split()
+        except OSError:
+            continue
+        if int(fields[2]) == pgid and fields[0] != "Z":
+            members.append(int(pid))
+    return members
+
+
+def _wait_for(cond, timeout=30.0):
+    import time
+    deadline = time.monotonic() + timeout
+    while not cond():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.01)
+    return True
+
+
 def test_stop_ends_the_whole_process_group_at_once():
     """The decoder runs in a subprocess of the worker: it must go too."""
     import os
-    import time
+    import signal
     proc = quiet._spawn(["sh", "-c", "sleep 30 & sleep 30; wait"], dict(os.environ))
-    time.sleep(0.2)
-    t0 = time.monotonic()
-    quiet._stop(proc)
-    assert time.monotonic() - t0 < 3 and proc.poll() is not None
-    with pytest.raises(ProcessLookupError):
-        os.killpg(proc.pid, 0)                  # nothing left in the group
+    try:
+        # The shell and both sleeps are running before we stop the group.
+        assert _wait_for(lambda: len(_group_members(proc.pid)) >= 3)
+        quiet._stop(proc, grace=60)
+        # "At once": SIGTERM ended it; the 60 s grace never ran out into SIGKILL.
+        assert proc.returncode == -signal.SIGTERM
+        assert _wait_for(lambda: not _group_members(proc.pid)), "group outlived the stop"
+    finally:
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
 
 
 def test_threads_default_to_half_the_cpus(monkeypatch):
